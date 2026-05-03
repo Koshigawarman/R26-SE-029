@@ -1,0 +1,10 @@
+.vscode/**
+.vscode-test/**
+src/**
+flask-api/**
+node_modules/**
+.gitignore
+tsconfig.json
+**/*.map
+**/*.ts
+!out/**
