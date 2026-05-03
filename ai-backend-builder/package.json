@@ -32,15 +32,15 @@
     "configuration": {
       "title": "AI Backend Builder",
       "properties": {
-        "aiBackendBuilder.flaskUrl": {
+        "aiBackendBuilder.backendUrl": {
           "type": "string",
           "default": "http://localhost:5000",
-          "description": "Base URL for the  Flask AI API proxy"
+          "description": "Base URL for the AI Backend API proxy"
         },
         "aiBackendBuilder.openaiApiKey": {
           "type": "string",
           "default": "",
-          "description": "OpenAI API key (fallback when Flask API is unavailable)"
+          "description": "OpenAI API key (fallback when Backend API is unavailable)"
         },
         "aiBackendBuilder.openaiModel": {
           "type": "string",
