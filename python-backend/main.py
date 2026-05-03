@@ -15,7 +15,7 @@ Usage:
   1. Ensure Ollama is running: `ollama serve`
   2. Install dependencies: `pip install -r requirements.txt`
   3. Run the server: `uvicorn main:app --host 0.0.0.0 --port 5000 --reload`
-  4. Extension connects to http://localhost:5000
+  4. Extension connects to http://localhost:5000 (configured via API_PORT)
 """
 
 import os

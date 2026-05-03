@@ -108,7 +108,7 @@ async function handleBuildBackend(): Promise<void> {
       });
 
       try {
-        const response = await fetch(`${config.flaskUrl}/api/build`, {
+        const response = await fetch(`${config.backendUrl}/api/build`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -119,7 +119,7 @@ async function handleBuildBackend(): Promise<void> {
         });
 
         if (!response.ok) {
-          throw new Error(`Flask API error: ${response.statusText}`);
+          throw new Error(`Backend API error: ${response.statusText}`);
         }
 
         // Parse SSE stream
@@ -217,7 +217,7 @@ function loadExtensionConfig(): ExtensionConfig {
   const config = vscode.workspace.getConfiguration('aiBackendBuilder');
 
   return {
-    flaskUrl: config.get<string>('flaskUrl', 'http://localhost:5000'),
+    backendUrl: config.get<string>('backendUrl', 'http://localhost:5000'),
     openaiApiKey: config.get<string>('openaiApiKey', ''),
     openaiModel: config.get<string>('openaiModel', 'gpt-4'),
     models: {

@@ -23,6 +23,6 @@
     "node_modules",
     ".vscode-test",
     "out",
-    "flask-api"
+    "python-backend"
   ]
 }
