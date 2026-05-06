@@ -12,11 +12,11 @@ from agents.debug_agent import DebugAgent
 logger = logging.getLogger(__name__)
 
 class OrchestratorAgent:
-    def __init__(self, ollama_url: str, models: dict, max_retries: int = 3):
+    def __init__(self, ollama_url: str, models: dict, max_retries: int = 3, use_openrouter: bool = False, openrouter_api_key: str = ""):
         self.ollama_url = ollama_url
-        self.planner_agent = PlannerAgent(ollama_url, models.get("planner"))
-        self.codegen_agent = CodeGenAgent(ollama_url, models.get("codegen"))
-        self.debug_agent = DebugAgent(ollama_url, models.get("debug"))
+        self.planner_agent = PlannerAgent(ollama_url, models.get("planner"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
+        self.codegen_agent = CodeGenAgent(ollama_url, models.get("codegen"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
+        self.debug_agent = DebugAgent(ollama_url, models.get("debug"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
         self.max_retries = max_retries
 
     def execute_stream(self, request: BuildRequest) -> Generator[str, None, None]:

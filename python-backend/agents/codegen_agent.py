@@ -10,9 +10,12 @@ from prompts.codegen_prompt import CODEGEN_SYSTEM_PROMPT, build_codegen_prompt
 logger = logging.getLogger(__name__)
 
 class CodeGenAgent:
-    def __init__(self, ollama_url: str, model: str):
+    def __init__(self, ollama_url: str, model: str, use_openrouter: bool = False, openrouter_api_key: str = ""):
         self.ollama_url = ollama_url
         self.model = model
+        self.use_openrouter = use_openrouter
+        self.openrouter_api_key = openrouter_api_key
+        self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
 
     def execute(self, file_spec: FileSpec, context: CodeGenContext, existing_content: str = None) -> GeneratedFile:
         logger.info(f"Generating: {file_spec.path}")
@@ -34,7 +37,10 @@ class CodeGenAgent:
                 existing_file_content=existing_content
             )
 
-            raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+            if self.use_openrouter:
+                raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
+            else:
+                raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
 
             code = self._extract_code(raw_response)
 
@@ -81,6 +87,27 @@ class CodeGenAgent:
         if "response" not in data:
             raise ValueError("Ollama returned no response")
         return data["response"]
+
+    def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
+        headers = {
+            "Authorization": f"Bearer {self.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
+            "X-Title": "AI Backend Builder",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 4096,
+        }
+        resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        return data['choices'][0]['message']['content']
 
     def _extract_code(self, raw_response: str) -> str:
         """Extracts code block from markdown if present."""
