@@ -122,7 +122,7 @@ export interface ProcessResult {
 // AI Client Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Request payload for the Flask AI API */
+/** Request payload for the Backend AI API */
 export interface AIRequest {
   model: string;
   prompt: string;
@@ -131,7 +131,7 @@ export interface AIRequest {
   max_tokens?: number;
 }
 
-/** Response from the Flask AI API */
+/** Response from the Backend AI API */
 export interface AIResponse {
   response: string;
   model?: string;
@@ -141,7 +141,7 @@ export interface AIResponse {
 
 /** Configuration for the AI client */
 export interface AIClientConfig {
-  flaskBaseUrl: string;
+  backendBaseUrl: string;
   openaiApiKey: string;
   openaiModel: string;
   localModels: Record<AgentRole, string>;
@@ -181,7 +181,7 @@ export interface SystemState {
 
 /** Full extension configuration derived from VS Code settings */
 export interface ExtensionConfig {
-  flaskUrl: string;
+  backendUrl: string;
   openaiApiKey: string;
   openaiModel: string;
   models: Record<AgentRole, string>;

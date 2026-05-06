@@ -7,7 +7,7 @@
 
 /** Default configuration values matching package.json contributes */
 export const DEFAULT_CONFIG = {
-  flaskUrl: 'http://localhost:5000',
+  backendUrl: 'http://localhost:5000',
   openaiApiKey: '',
   openaiModel: 'gpt-4',
   models: {
@@ -20,8 +20,8 @@ export const DEFAULT_CONFIG = {
   aiRequestTimeout: 120_000,
 } as const;
 
-/** Flask API endpoints */
-export const FLASK_ENDPOINTS = {
+/** API endpoints */
+export const API_ENDPOINTS = {
   generate: '/api/generate',
   health: '/api/health',
   models: '/api/models',
