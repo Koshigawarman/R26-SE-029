@@ -29,10 +29,13 @@ ENVIRONMENT_ERRORS = [
 ]
 
 class DebugAgent:
-    def __init__(self, ollama_url: str, model: str, debug_timeout: int = 10000):
+    def __init__(self, ollama_url: str, model: str, debug_timeout: int = 10000, use_openrouter: bool = False, openrouter_api_key: str = ""):
         self.ollama_url = ollama_url
         self.model = model
         self.debug_timeout = debug_timeout
+        self.use_openrouter = use_openrouter
+        self.openrouter_api_key = openrouter_api_key
+        self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
         self.process_runner = ProcessRunner()
 
     def execute(self, project_root: str, file_contents: Dict[str, str]) -> DebugResult:
@@ -201,7 +204,10 @@ class DebugAgent:
     def _get_fix_suggestions(self, errors: List[RuntimeErrorInfo], process_result: dict, file_contents: Dict[str, str]) -> List[FixSuggestion]:
         prompt = build_debug_prompt(errors, process_result["stderr"], process_result["stdout"], file_contents)
         try:
-            raw_response = self._query_ollama(prompt, DEBUG_SYSTEM_PROMPT)
+            if self.use_openrouter:
+                raw_response = self._query_openrouter(prompt, DEBUG_SYSTEM_PROMPT)
+            else:
+                raw_response = self._query_ollama(prompt, DEBUG_SYSTEM_PROMPT)
             return self._parse_fix_suggestions(raw_response)
         except Exception as e:
             logger.error(f"Failed to get AI fix suggestions: {e}")
@@ -227,7 +233,10 @@ class DebugAgent:
             logger.warning("First parse failed, retrying with fix prompt...")
             try:
                 retry_prompt = build_debug_retry_prompt(raw_response)
-                retry_response = self._query_ollama(retry_prompt, DEBUG_SYSTEM_PROMPT)
+                if self.use_openrouter:
+                    retry_response = self._query_openrouter(retry_prompt, DEBUG_SYSTEM_PROMPT)
+                else:
+                    retry_response = self._query_ollama(retry_prompt, DEBUG_SYSTEM_PROMPT)
                 data = self._extract_json(retry_response)
                 fixes = []
                 for fix in data.get("fixes", []):
@@ -273,3 +282,24 @@ class DebugAgent:
         if "response" not in data:
             raise ValueError("Ollama returned no response")
         return data["response"]
+
+    def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
+        headers = {
+            "Authorization": f"Bearer {self.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
+            "X-Title": "AI Backend Builder",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 4096,
+        }
+        resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        return data['choices'][0]['message']['content']
