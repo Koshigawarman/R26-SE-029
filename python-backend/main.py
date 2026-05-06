@@ -57,9 +57,9 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 
 # Default models per agent role (can be overridden per request)
 DEFAULT_MODELS = {
-    "planner": os.getenv("PLANNER_MODEL", "llama3.1:8b"),
-    "codegen": os.getenv("CODEGEN_MODEL", "qwen2.5-coder:7b"),
-    "debug": os.getenv("DEBUG_MODEL", "llama3.1:8b"),
+    "planner": os.getenv("PLANNER_MODEL", "qwen2.5-coder:1.5b"),
+    "codegen": os.getenv("CODEGEN_MODEL", "qwen2.5-coder:1.5b"),
+    "debug": os.getenv("DEBUG_MODEL", "qwen2.5-coder:1.5b"),
 }
 
 # Request timeout for Ollama API calls (seconds)
