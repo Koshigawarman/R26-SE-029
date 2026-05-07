@@ -175,3 +175,62 @@ def get_related_files(target_path: str, all_files: List[FileSpec], existing_cont
             related.append((path, content))
 
     return related
+
+def build_code_fix_prompt(
+    file_path: str,
+    original_content: str,
+    error_log: str,
+    critic_strategy: str,
+    instructions_for_code_agent: str
+) -> str:
+    """
+    Builds a prompt for the CodeGenAgent to patch one affected file
+    using the Critic Agent's fixing strategy.
+
+    Important:
+    The Critic Agent gives strategy only.
+    The CodeGenAgent generates the corrected source code.
+    """
+
+    parts = []
+
+    parts.append("You are fixing one file in a generated Node.js/Express backend project.")
+    parts.append("Use the Critic Agent's repair strategy to produce the corrected file content.")
+    parts.append("")
+    parts.append("## IMPORTANT RULES")
+    parts.append("1. Output ONLY the complete corrected source code for the target file.")
+    parts.append("2. Do NOT include markdown code fences.")
+    parts.append("3. Do NOT include explanations before or after the code.")
+    parts.append("4. Modify only what is necessary to fix the error.")
+    parts.append("5. Do NOT add new features.")
+    parts.append("6. Preserve existing working logic.")
+    parts.append("7. Use ES6 modules: import/export only. Do NOT use require/module.exports.")
+    parts.append("")
+
+    parts.append("## TARGET FILE")
+    parts.append(file_path)
+    parts.append("")
+
+    parts.append("## CURRENT FILE CONTENT")
+    parts.append("```javascript")
+    parts.append(original_content)
+    parts.append("```")
+    parts.append("")
+
+    parts.append("## ERROR LOG")
+    parts.append("```")
+    parts.append(error_log[:3000])
+    parts.append("```")
+    parts.append("")
+
+    parts.append("## CRITIC AGENT FIXING STRATEGY")
+    parts.append(critic_strategy)
+    parts.append("")
+
+    parts.append("## SPECIFIC INSTRUCTIONS FOR CODE AGENT")
+    parts.append(instructions_for_code_agent)
+    parts.append("")
+
+    parts.append("Return raw JavaScript code only. The first character of your response must be an import statement, comment, or valid JavaScript code. No explanation.")
+
+    return "\n".join(parts)

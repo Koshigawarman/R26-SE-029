@@ -24,11 +24,10 @@ import logging
 import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from dotenv import load_dotenv
 from sse_starlette.sse import EventSourceResponse
 
-from schema import BuildRequest
+from schema import BuildRequest, GenerateRequest
 from agents.orchestrator_agent import OrchestratorAgent
 
 load_dotenv()
@@ -60,10 +59,13 @@ DEFAULT_MODELS = {
     "planner": os.getenv("PLANNER_MODEL", "llama3.1:8b"),
     "codegen": os.getenv("CODEGEN_MODEL", "qwen2.5-coder:7b"),
     "debug": os.getenv("DEBUG_MODEL", "llama3.1:8b"),
+    "critic": os.getenv("CRITIC_MODEL", "qwen2.5-coder:1.5b"),
+
 }
 
 # Request timeout for Ollama API calls (seconds)
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "120"))
+MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
 
 # OpenRouter Settings
 USE_OPENROUTER = os.getenv("USE_OPENROUTER", "false").lower() == "true"
@@ -71,21 +73,8 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Schemas
-# ─────────────────────────────────────────────────────────────────────────────
-
-class GenerateRequest(BaseModel):
-    model: str
-    prompt: str
-    system: str = ""
-    temperature: float = 0.3
-    max_tokens: int = 4096
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Routes
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ────────────────────────────────────────────────────────────────────────────
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint. Also verifies Ollama connectivity."""
@@ -223,6 +212,8 @@ async def build_project(req: BuildRequest, request: Request):
     if not req.planner_model: req.planner_model = DEFAULT_MODELS["planner"]
     if not req.codegen_model: req.codegen_model = DEFAULT_MODELS["codegen"]
     if not req.debug_model: req.debug_model = DEFAULT_MODELS["debug"]
+    if not req.critic_model: req.critic_model = DEFAULT_MODELS["critic"]
+    if not req.max_retries: req.max_retries = MAX_RETRIES
 
     orchestrator = OrchestratorAgent(
         ollama_url=OLLAMA_URL,
@@ -230,8 +221,9 @@ async def build_project(req: BuildRequest, request: Request):
             "planner": req.planner_model,
             "codegen": req.codegen_model,
             "debug": req.debug_model,
+            "critic": req.critic_model,
         },
-        max_retries=int(os.getenv("MAX_RETRIES", "3")),
+        max_retries=req.max_retries,
         use_openrouter=USE_OPENROUTER,
         openrouter_api_key=OPENROUTER_API_KEY
     )
