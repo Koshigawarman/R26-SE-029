@@ -29,7 +29,7 @@ ENVIRONMENT_ERRORS = [
 ]
 
 class DebugAgent:
-    def __init__(self, ollama_url: str, model: str, debug_timeout: int = 10000, use_openrouter: bool = False, openrouter_api_key: str = ""):
+    def __init__(self, ollama_url: str, model: str, debug_timeout: int = 10000, use_openrouter: bool = False, openrouter_api_key: str = "", use_openrouter: bool = False, openrouter_api_key: str = ""):
         self.ollama_url = ollama_url
         self.model = model
         self.debug_timeout = debug_timeout
@@ -207,6 +207,9 @@ class DebugAgent:
             if self.use_openrouter:
                 raw_response = self._query_openrouter(prompt, DEBUG_SYSTEM_PROMPT)
             else:
+                if self.use_openrouter:
+                raw_response = self._query_openrouter(prompt, DEBUG_SYSTEM_PROMPT)
+            else:
                 raw_response = self._query_ollama(prompt, DEBUG_SYSTEM_PROMPT)
             return self._parse_fix_suggestions(raw_response)
         except Exception as e:
@@ -234,6 +237,9 @@ class DebugAgent:
             try:
                 retry_prompt = build_debug_retry_prompt(raw_response)
                 if self.use_openrouter:
+                    retry_response = self._query_openrouter(retry_prompt, DEBUG_SYSTEM_PROMPT)
+                else:
+                    if self.use_openrouter:
                     retry_response = self._query_openrouter(retry_prompt, DEBUG_SYSTEM_PROMPT)
                 else:
                     retry_response = self._query_ollama(retry_prompt, DEBUG_SYSTEM_PROMPT)
