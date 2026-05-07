@@ -5,8 +5,11 @@ import requests
 from typing import Dict, Any
 
 from schema import FileSpec, CodeGenContext, GeneratedFile
-from prompts.codegen_prompt import CODEGEN_SYSTEM_PROMPT, build_codegen_prompt
-
+from prompts.codegen_prompt import (
+    CODEGEN_SYSTEM_PROMPT,
+    build_codegen_prompt,
+    build_code_fix_prompt,
+)
 logger = logging.getLogger(__name__)
 
 class CodeGenAgent:
@@ -65,6 +68,58 @@ class CodeGenAgent:
                 status='error',
                 errorMessage=str(e)
             )
+    def fix_file_with_strategy(
+        self,
+        file_path: str,
+        original_content: str,
+        error_log: str,
+        critic_strategy: str,
+        instructions_for_code_agent: str
+    ) -> GeneratedFile:
+        """
+        Applies the Critic Agent's fixing strategy to one affected file.
+
+        This method belongs to the CodeGenAgent because:
+        - CriticAgent diagnoses and creates strategy only.
+        - CodeGenAgent generates the actual fixed code.
+        """
+
+        logger.info(f"Applying critic strategy to fix: {file_path}")
+
+        try:
+            prompt = build_code_fix_prompt(
+                file_path=file_path,
+                original_content=original_content,
+                error_log=error_log,
+                critic_strategy=critic_strategy,
+                instructions_for_code_agent=instructions_for_code_agent,
+            )
+
+            raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+            fixed_code = self._extract_code(raw_response)
+
+            if not fixed_code or len(fixed_code.strip()) < 10:
+                raise ValueError("Generated fixed code is too short")
+
+            self._validate_code(file_path, fixed_code)
+
+            logger.info(f"✓ Fixed file generated: {file_path} ({len(fixed_code)} chars)")
+
+            return GeneratedFile(
+                path=file_path,
+                content=fixed_code,
+                status="fixed"
+            )
+
+        except Exception as e:
+            logger.error(f"✗ Failed to fix {file_path}: {str(e)}")
+
+            return GeneratedFile(
+                path=file_path,
+                content="",
+                status="error",
+                errorMessage=str(e)
+            )        
 
     def _query_ollama(self, prompt: str, system_prompt: str) -> str:
         logger.info("\n" + "="*50)
