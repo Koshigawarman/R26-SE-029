@@ -31,12 +31,25 @@ class OrchestratorAgent:
 
         try:
             # Phase 1: Planning
+            logger.info("\n" + "="*50)
+            logger.info(f"🚀 ORCHESTRATOR PHASE 1: PLANNING")
+            logger.info(f"Target Project Root: {project_root}")
+            logger.info("="*50)
+            
             plan = self.planner_agent.execute(request.prompt)
             project_path = os.path.join(project_root, plan.projectName)
+            
+            logger.info(f"📋 Plan generated successfully! Project Name: '{plan.projectName}'")
+            logger.info(f"📋 Total Entities: {len(plan.entities)} | Total Features: {len(plan.features)} | Total Files to Generate: {len(plan.files)}")
             
             yield yield_event("status", {"message": f"📋 Plan ready: {len(plan.files)} files", "progress": 10})
 
             # Phase 2: Create Base Structure
+            logger.info("\n" + "="*50)
+            logger.info(f"📁 ORCHESTRATOR PHASE 2: SCAFFOLDING")
+            logger.info(f"Creating project directory at: {project_path}")
+            logger.info("="*50)
+            
             yield yield_event("status", {"message": "📁 Creating project structure...", "progress": 15})
             os.makedirs(project_path, exist_ok=True)
             for file_spec in plan.files:
@@ -45,6 +58,10 @@ class OrchestratorAgent:
                     os.makedirs(dirname, exist_ok=True)
 
             # Phase 3: Generate All Files
+            logger.info("\n" + "="*50)
+            logger.info(f"⚙️ ORCHESTRATOR PHASE 3: CODE GENERATION")
+            logger.info(f"Generating {len(plan.files)} files sequentially...")
+            logger.info("="*50)
             total_files = len(plan.files)
             existing_contents = {}
 
@@ -71,6 +88,7 @@ class OrchestratorAgent:
                 progress_pct = 20 + int((i / total_files) * 50)
                 yield yield_event("status", {"message": f"⚙️ Generating ({i+1}/{total_files}): {file_spec.path}", "progress": progress_pct})
                 
+                logger.info(f"→ Dispatching Codegen for [{i+1}/{total_files}]: {file_spec.path}")
                 generated = self.codegen_agent.execute(file_spec, context)
                 
                 if generated.status == 'generated' and generated.content:
@@ -78,8 +96,16 @@ class OrchestratorAgent:
                     with open(file_path, "w") as f:
                         f.write(generated.content)
                     existing_contents[file_spec.path] = generated.content
+                    logger.info(f"✓ Saved file: {file_path}")
+                else:
+                    logger.error(f"✗ Failed to generate file: {file_spec.path}")
 
             # Phase 4: Debug Loop
+            logger.info("\n" + "="*50)
+            logger.info(f"🔍 ORCHESTRATOR PHASE 4: DEBUG LOOP")
+            logger.info(f"Max configured retries: {self.max_retries}")
+            logger.info("="*50)
+            
             debug_success = False
             errors = []
             
@@ -87,18 +113,23 @@ class OrchestratorAgent:
                 progress_pct = 70 + int((attempt / self.max_retries) * 25)
                 yield yield_event("status", {"message": f"🔍 Debug attempt {attempt}/{self.max_retries}...", "progress": progress_pct})
                 
+                logger.info(f"→ Initiating Debug Cycle [{attempt}/{self.max_retries}]")
                 debug_result = self.debug_agent.execute(project_path, existing_contents)
                 
                 if debug_result.success:
+                    logger.info(f"✅ Debug Cycle [{attempt}] succeeded! Zero runtime errors.")
                     debug_success = True
                     break
                     
                 errors = [e.message for e in debug_result.errors]
+                logger.warning(f"⚠️ Debug Cycle [{attempt}] found {len(errors)} errors.")
                 
                 if attempt == self.max_retries:
+                    logger.error(f"❌ Max debug retries ({self.max_retries}) reached without success.")
                     break
                     
                 if debug_result.suggestions:
+                    logger.info(f"🔧 Orchestrator applying {len(debug_result.suggestions)} proposed fixes...")
                     yield yield_event("status", {"message": f"🔧 Applying {len(debug_result.suggestions)} fixes...", "progress": progress_pct + 5})
                     
                     for fix in debug_result.suggestions:
@@ -107,7 +138,9 @@ class OrchestratorAgent:
                             with open(file_path, "w") as f:
                                 f.write(fix.fix)
                             existing_contents[fix.file] = fix.fix
+                            logger.info(f"   ✓ Applied direct replacement fix to: {fix.file}")
                         elif fix.regenerate:
+                            logger.info(f"   ↻ Initiating full regeneration for: {fix.file} (Issue: {fix.issue})")
                             f_spec = next((f for f in plan.files if f.path == fix.file), None)
                             if f_spec:
                                 modified_spec = FileSpec(path=f_spec.path, description=f"{f_spec.description}. FIX NEEDED: {fix.issue}")
@@ -117,6 +150,9 @@ class OrchestratorAgent:
                                     with open(file_path, "w") as f:
                                         f.write(generated.content)
                                     existing_contents[fix.file] = generated.content
+                                    logger.info(f"   ✓ Regeneration successful for: {fix.file}")
+                                else:
+                                    logger.error(f"   ✗ Regeneration failed for: {fix.file}")
 
             duration = time.time() - start_time
             response = BuildResponse(
