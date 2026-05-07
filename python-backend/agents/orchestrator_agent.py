@@ -22,24 +22,11 @@ logger = logging.getLogger(__name__)
 
 
 class OrchestratorAgent:
-    """
-    Adaptive Orchestration Engine for PP1.
-
-    Responsibility:
-    - Coordinate Planner, CodeGen, Debug, Critic, and Episodic Memory
-    - Control retry budget
-    - Route raw debug logs to memory + critic
-    - Send critic strategy to CodeGen Agent
-    - Retest after fixes
-    - Stop safely after max retries
-
-    Correct PP1 workflow:
-    Debug Agent -> Orchestrator -> Episodic Memory -> Critic Agent
-    -> CodeGen Agent -> Debug Agent
-    """
-
     def __init__(self, ollama_url: str, models: dict, max_retries: int = 3, use_openrouter: bool = False, openrouter_api_key: str = ""):
-        self.ollama_url = ollama_url.rstrip("/")
+        self.ollama_url = ollama_url
+        self.planner_agent = PlannerAgent(ollama_url, models.get("planner"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
+        self.codegen_agent = CodeGenAgent(ollama_url, models.get("codegen"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
+        self.debug_agent = DebugAgent(ollama_url, models.get("debug"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
         self.max_retries = max_retries
 
         self.planner_agent = PlannerAgent(ollama_url, models.get("planner"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
