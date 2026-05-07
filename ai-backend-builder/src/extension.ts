@@ -1,15 +1,14 @@
 /**
  * AI Backend Builder — VS Code Extension Entry Point
- * 
+ *
  * Registers the "Build Backend with AI" command, handles user input,
  * sets up the agent pipeline, and provides progress notifications.
  */
 
-import * as vscode from 'vscode';
-import { Logger } from './utils/logger.js';
-import { COMMANDS } from './utils/constants.js';
-import type { ExtensionConfig } from './types/index.js';
-
+import * as vscode from "vscode";
+import { Logger } from "./utils/logger.js";
+import { COMMANDS } from "./utils/constants.js";
+import type { ExtensionConfig } from "./types/index.js";
 
 let logger: Logger;
 
@@ -19,12 +18,12 @@ let logger: Logger;
  */
 export function activate(context: vscode.ExtensionContext): void {
   logger = Logger.getInstance();
-  logger.info('AI Backend Builder extension activated');
+  logger.info("AI Backend Builder extension activated");
 
   // Register the main command
   const buildCommand = vscode.commands.registerCommand(
     COMMANDS.BUILD_BACKEND,
-    handleBuildBackend
+    handleBuildBackend,
   );
 
   context.subscriptions.push(buildCommand);
@@ -36,7 +35,7 @@ export function activate(context: vscode.ExtensionContext): void {
  */
 export function deactivate(): void {
   if (logger) {
-    logger.info('AI Backend Builder extension deactivated');
+    logger.info("AI Backend Builder extension deactivated");
     logger.dispose();
   }
 }
@@ -51,13 +50,13 @@ export function deactivate(): void {
  * and runs the full orchestration pipeline with progress tracking.
  */
 async function handleBuildBackend(): Promise<void> {
-  logger.section('NEW BUILD REQUEST');
+  logger.section("NEW BUILD REQUEST");
 
   // ─── Step 1: Validate workspace ──────────────────────────────────
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
     vscode.window.showErrorMessage(
-      'AI Backend Builder: Please open a workspace folder first.'
+      "AI Backend Builder: Please open a workspace folder first.",
     );
     return;
   }
@@ -66,21 +65,21 @@ async function handleBuildBackend(): Promise<void> {
 
   // ─── Step 2: Get user input ──────────────────────────────────────
   const userPrompt = await vscode.window.showInputBox({
-    title: 'AI Backend Builder',
-    prompt: 'Describe your backend application',
+    title: "AI Backend Builder",
+    prompt: "Describe your backend application",
     placeHolder:
-      'e.g., E-commerce API with users, products, orders, and authentication',
+      "e.g., E-commerce API with users, products, orders, and authentication",
     ignoreFocusOut: true,
     validateInput: (value) => {
       if (!value || value.trim().length < 10) {
-        return 'Please provide a more detailed description (at least 10 characters)';
+        return "Please provide a more detailed description (at least 10 characters)";
       }
       return null;
     },
   });
 
   if (!userPrompt) {
-    logger.info('User cancelled input');
+    logger.info("User cancelled input");
     return;
   }
 
@@ -92,7 +91,7 @@ async function handleBuildBackend(): Promise<void> {
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: 'AI Backend Builder',
+      title: "AI Backend Builder",
       cancellable: true,
     },
     async (progress, token) => {
@@ -102,20 +101,22 @@ async function handleBuildBackend(): Promise<void> {
 
       const controller = new AbortController();
       token.onCancellationRequested(() => {
-        logger.warn('Build cancelled by user');
+        logger.warn("Build cancelled by user");
         controller.abort();
-        vscode.window.showWarningMessage('AI Backend Builder: Build cancelled.');
+        vscode.window.showWarningMessage(
+          "AI Backend Builder: Build cancelled.",
+        );
       });
 
       try {
         const response = await fetch(`${config.backendUrl}/api/build`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             prompt: userPrompt,
-            workspace_uri: workspaceUri.fsPath
+            workspace_uri: workspaceUri.fsPath,
           }),
-          signal: controller.signal
+          signal: controller.signal,
         });
 
         if (!response.ok) {
@@ -127,7 +128,7 @@ async function handleBuildBackend(): Promise<void> {
         if (!reader) throw new Error("Failed to read response stream");
 
         const decoder = new TextDecoder();
-        let buffer = '';
+        let buffer = "";
         let result: any = null;
         let lastProgress = 0;
 
@@ -136,20 +137,20 @@ async function handleBuildBackend(): Promise<void> {
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\\n\\n');
-          buffer = lines.pop() || '';
+          const lines = buffer.split("\\n\\n");
+          buffer = lines.pop() || "";
 
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
+            if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.slice(6));
-                
-                if (data.type === 'status') {
+
+                if (data.type === "status") {
                   const inc = data.data.progress - lastProgress;
                   lastProgress = data.data.progress;
                   reportProgress(data.data.message, inc > 0 ? inc : 0);
                   logger.info(`Status: ${data.data.message}`);
-                } else if (data.type === 'complete') {
+                } else if (data.type === "complete") {
                   result = data.data;
                 }
               } catch (e) {
@@ -165,32 +166,33 @@ async function handleBuildBackend(): Promise<void> {
             `✅ Backend "${result.projectName}" generated successfully!\n` +
             `${result.filesGenerated} files • ${result.debugAttempts} debug cycles • ` +
             `${(result.duration / 1000).toFixed(1)}s`,
-            'Open Project Folder',
-            'Show Logs'
+            "Open Project Folder",
+            "Show Logs",
           );
 
-          if (action === 'Open Project Folder') {
+          if (action === "Open Project Folder") {
             const projectUri = vscode.Uri.file(result.projectRoot);
-            vscode.commands.executeCommand('vscode.openFolder', projectUri, {
+            vscode.commands.executeCommand("vscode.openFolder", projectUri, {
               forceNewWindow: false,
             });
-          } else if (action === 'Show Logs') {
+          } else if (action === "Show Logs") {
             logger.show();
           }
         } else {
-          const errorSummary = result.errors.length > 0
-            ? result.errors[0].substring(0, 150)
-            : 'Unknown error';
+          const errorSummary =
+            result.errors.length > 0
+              ? result.errors[0].substring(0, 150)
+              : "Unknown error";
 
           const action = await vscode.window.showErrorMessage(
             `❌ Backend build failed after ${result.debugAttempts} attempts.\n${errorSummary}`,
-            'Show Logs',
-            'Retry'
+            "Show Logs",
+            "Retry",
           );
 
-          if (action === 'Show Logs') {
+          if (action === "Show Logs") {
             logger.show();
-          } else if (action === 'Retry') {
+          } else if (action === "Retry") {
             // Re-run the command
             vscode.commands.executeCommand(COMMANDS.BUILD_BACKEND);
           }
@@ -199,10 +201,10 @@ async function handleBuildBackend(): Promise<void> {
         const errorMsg = error instanceof Error ? error.message : String(error);
         logger.error(`Fatal error: ${errorMsg}`);
         vscode.window.showErrorMessage(
-          `AI Backend Builder: Fatal error — ${errorMsg}`
+          `AI Backend Builder: Fatal error — ${errorMsg}`,
         );
       }
-    }
+    },
   );
 }
 
@@ -214,19 +216,19 @@ async function handleBuildBackend(): Promise<void> {
  * Load the full extension configuration from VS Code settings.
  */
 function loadExtensionConfig(): ExtensionConfig {
-  const config = vscode.workspace.getConfiguration('aiBackendBuilder');
+  const config = vscode.workspace.getConfiguration("aiBackendBuilder");
 
   return {
-    backendUrl: config.get<string>('backendUrl', 'http://localhost:5000'),
-    openaiApiKey: config.get<string>('openaiApiKey', ''),
-    openaiModel: config.get<string>('openaiModel', 'gpt-4'),
+    backendUrl: config.get<string>("backendUrl", "http://localhost:5000"),
+    openaiApiKey: config.get<string>("openaiApiKey", ""),
+    openaiModel: config.get<string>("openaiModel", "gpt-4"),
     models: {
-      planner: config.get<string>('models.planner', 'mistral:7b'),
-      codegen: config.get<string>('models.codegen', 'codellama:13b'),
-      debug: config.get<string>('models.debug', 'mistral:7b'),
+      planner: config.get<string>("models.planner", "mistral:7b"),
+      codegen: config.get<string>("models.codegen", "codellama:13b"),
+      debug: config.get<string>("models.debug", "mistral:7b"),
     },
-    maxRetries: config.get<number>('maxRetries', 3),
-    debugTimeout: config.get<number>('debugTimeout', 10_000),
-    aiRequestTimeout: config.get<number>('aiRequestTimeout', 120_000),
+    maxRetries: config.get<number>("maxRetries", 3),
+    debugTimeout: config.get<number>("debugTimeout", 10_000),
+    aiRequestTimeout: config.get<number>("aiRequestTimeout", 120_000),
   };
 }
