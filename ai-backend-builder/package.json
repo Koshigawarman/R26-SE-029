@@ -20,9 +20,7 @@
     "code-generation",
     "multi-agent"
   ],
-  "activationEvents": [
-    "onCommand:aiBackendBuilder.buildBackend"
-  ],
+  "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
