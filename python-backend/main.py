@@ -137,12 +137,23 @@ async def generate(req: GenerateRequest):
             "max_tokens": req.max_tokens,
         }
         
+        logger.info("\n" + "="*50)
+        logger.info(f"OPENROUTER API REQUEST | Model: {req.model}")
+        logger.info(f"--- SYSTEM PROMPT ---\n{req.system}")
+        logger.info(f"--- USER PROMPT ---\n{req.prompt[:1000]}{'...' if len(req.prompt) > 1000 else ''}")
+        logger.info("="*50)
+
         try:
             resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
             response_text = data['choices'][0]['message']['content']
             
+            logger.info("\n" + "="*50)
+            logger.info(f"OPENROUTER API RESPONSE | Length: {len(response_text)}")
+            logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
+            logger.info("="*50)
+
             return {
                 "response": response_text,
                 "model": req.model,
@@ -163,6 +174,12 @@ async def generate(req: GenerateRequest):
         },
     }
 
+    logger.info("\n" + "="*50)
+    logger.info(f"OLLAMA API REQUEST | Model: {req.model}")
+    logger.info(f"--- SYSTEM PROMPT ---\n{req.system}")
+    logger.info(f"--- USER PROMPT ---\n{req.prompt[:1000]}{'...' if len(req.prompt) > 1000 else ''}")
+    logger.info("="*50)
+
     try:
         resp = requests.post(
             f"{OLLAMA_URL}/api/generate",
@@ -181,7 +198,10 @@ async def generate(req: GenerateRequest):
         if not response_text:
             raise HTTPException(status_code=502, detail="Ollama returned empty response")
 
-        logger.info(f"Generated {len(response_text)} chars with model '{req.model}'")
+        logger.info("\n" + "="*50)
+        logger.info(f"OLLAMA API RESPONSE | Length: {len(response_text)}")
+        logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
+        logger.info("="*50)
 
         return {
             "response": response_text,

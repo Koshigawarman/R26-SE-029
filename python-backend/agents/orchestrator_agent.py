@@ -74,8 +74,19 @@ class OrchestratorAgent:
 
             yield status("🧠 STATE → PLANNING: Planning project architecture...", 5, "PLANNING")
 
+            logger.info("\n" + "="*50)
+            logger.info(f"🚀 ORCHESTRATOR PHASE 1: PLANNING")
+            logger.info(f"Target Project Root: {project_root}")
+            logger.info("="*50)
+            
             plan = self.planner_agent.execute(request.prompt)
             project_path = os.path.join(project_root, plan.projectName)
+            
+            logger.info(f"📋 Plan generated successfully! Project Name: '{plan.projectName}'")
+            logger.info(f"📋 Total Entities: {len(plan.entities)} | Total Features: {len(plan.features)} | Total Files to Generate: {len(plan.files)}")
+            
+            logger.info(f"📋 Plan generated successfully! Project Name: '{plan.projectName}'")
+            logger.info(f"📋 Total Entities: {len(plan.entities)} | Total Features: {len(plan.features)} | Total Files to Generate: {len(plan.files)}")
             
             yield status(
                 f"📋 STATE → PLAN_READY: Plan ready with {len(plan.files)} files",
@@ -93,6 +104,11 @@ class OrchestratorAgent:
 
 
             # Phase 2: Create Base Structure
+            logger.info("\n" + "="*50)
+            logger.info(f"📁 ORCHESTRATOR PHASE 2: SCAFFOLDING")
+            logger.info(f"Creating project directory at: {project_path}")
+            logger.info("="*50)
+            
             yield status("📁 STATE → CREATING_STRUCTURE: Creating project structure...", 15, "CREATING_STRUCTURE")
             
             os.makedirs(project_path, exist_ok=True)
@@ -105,6 +121,10 @@ class OrchestratorAgent:
             # Phase 3: Generate All Files
             yield status("⚙️ STATE → GENERATING: Generating backend files...", 20, "GENERATING")
 
+            logger.info("\n" + "="*50)
+            logger.info(f"⚙️ ORCHESTRATOR PHASE 3: CODE GENERATION")
+            logger.info(f"Generating {len(plan.files)} files sequentially...")
+            logger.info("="*50)
             total_files = len(plan.files)
             sorted_files = sorted(plan.files, key=lambda f: self._file_priority(f.path))
 
@@ -137,6 +157,11 @@ class OrchestratorAgent:
 
 
             # Phase 4: Debug Loop
+            logger.info("\n" + "="*50)
+            logger.info(f"🔍 ORCHESTRATOR PHASE 4: DEBUG LOOP")
+            logger.info(f"Max configured retries: {self.max_retries}")
+            logger.info("="*50)
+            
             debug_success = False
             
             for attempt in range(1, self.max_retries + 1):
@@ -151,6 +176,7 @@ class OrchestratorAgent:
                 debug_result = self.debug_agent.execute(project_path)
                 
                 if debug_result.success:
+                    logger.info(f"✅ Debug Cycle [{attempt}] succeeded! Zero runtime errors.")
                     debug_success = True
                     yield status(
                         "✅ STATE → VERIFIED: Generated backend started successfully",

@@ -122,6 +122,12 @@ class CodeGenAgent:
             )        
 
     def _query_ollama(self, prompt: str, system_prompt: str) -> str:
+        logger.info("\n" + "="*50)
+        logger.info(f"OLLAMA REQUEST [CodeGenAgent] | Model: {self.model}")
+        logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
+        logger.info(f"--- USER PROMPT ---\n{prompt[:1000]}{'...' if len(prompt) > 1000 else ''}")
+        logger.info("="*50)
+
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -141,9 +147,22 @@ class CodeGenAgent:
         data = resp.json()
         if "response" not in data:
             raise ValueError("Ollama returned no response")
-        return data["response"]
+            
+        response_text = data["response"]
+        logger.info("\n" + "="*50)
+        logger.info(f"OLLAMA RESPONSE [CodeGenAgent] | Length: {len(response_text)}")
+        logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
+        logger.info("="*50)
+        
+        return response_text
 
     def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
+        logger.info("\n" + "="*50)
+        logger.info(f"OPENROUTER REQUEST [CodeGenAgent] | Model: {self.model}")
+        logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
+        logger.info(f"--- USER PROMPT ---\n{prompt[:1000]}{'...' if len(prompt) > 1000 else ''}")
+        logger.info("="*50)
+
         headers = {
             "Authorization": f"Bearer {self.openrouter_api_key}",
             "Content-Type": "application/json",
@@ -162,7 +181,14 @@ class CodeGenAgent:
         resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
         resp.raise_for_status()
         data = resp.json()
-        return data['choices'][0]['message']['content']
+        
+        response_text = data['choices'][0]['message']['content']
+        logger.info("\n" + "="*50)
+        logger.info(f"OPENROUTER RESPONSE [CodeGenAgent] | Length: {len(response_text)}")
+        logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
+        logger.info("="*50)
+        
+        return response_text
 
     def _extract_code(self, raw_response: str) -> str:
         """Extracts code block from markdown if present."""
