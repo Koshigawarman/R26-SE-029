@@ -60,14 +60,15 @@ DEFAULT_MODELS = {
     "planner": os.getenv("PLANNER_MODEL", "llama3.1:8b"),
     "codegen": os.getenv("CODEGEN_MODEL", "qwen2.5-coder:7b"),
     "debug": os.getenv("DEBUG_MODEL", "llama3.1:8b"),
-    "critic": os.getenv("CRITIC_MODEL", "qwen2.5-coder:1.5b"),
 }
 
 # Request timeout for Ollama API calls (seconds)
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "120"))
-MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
 
-
+# OpenRouter Settings
+USE_OPENROUTER = os.getenv("USE_OPENROUTER", "false").lower() == "true"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Schemas
@@ -123,6 +124,45 @@ async def list_models():
 @app.post("/api/generate")
 async def generate(req: GenerateRequest):
     """Generate text from a local AI model."""
+    
+    logger.info(f"Generating with model '{req.model}' (prompt: {len(req.prompt)} chars)")
+
+    if USE_OPENROUTER:
+        if not OPENROUTER_API_KEY:
+            raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY is not set")
+        
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029", # Optional
+            "X-Title": "AI Backend Builder", # Optional
+        }
+        
+        payload = {
+            "model": req.model,
+            "messages": [
+                {"role": "system", "content": req.system},
+                {"role": "user", "content": req.prompt}
+            ],
+            "temperature": req.temperature,
+            "max_tokens": req.max_tokens,
+        }
+        
+        try:
+            resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
+            resp.raise_for_status()
+            data = resp.json()
+            response_text = data['choices'][0]['message']['content']
+            
+            return {
+                "response": response_text,
+                "model": req.model,
+                "done": True,
+            }
+        except Exception as e:
+            logger.error(f"OpenRouter request failed: {str(e)}")
+            raise HTTPException(status_code=502, detail=f"OpenRouter error: {str(e)}")
+
     ollama_payload = {
         "model": req.model,
         "prompt": req.prompt,
@@ -133,8 +173,6 @@ async def generate(req: GenerateRequest):
             "num_predict": req.max_tokens,
         },
     }
-
-    logger.info(f"Generating with model '{req.model}' (prompt: {len(req.prompt)} chars)")
 
     try:
         resp = requests.post(
@@ -185,8 +223,6 @@ async def build_project(req: BuildRequest, request: Request):
     if not req.planner_model: req.planner_model = DEFAULT_MODELS["planner"]
     if not req.codegen_model: req.codegen_model = DEFAULT_MODELS["codegen"]
     if not req.debug_model: req.debug_model = DEFAULT_MODELS["debug"]
-    if not req.critic_model: req.critic_model = DEFAULT_MODELS["critic"]
-    if not req.max_retries: req.max_retries = MAX_RETRIES
 
     orchestrator = OrchestratorAgent(
         ollama_url=OLLAMA_URL,
@@ -194,10 +230,11 @@ async def build_project(req: BuildRequest, request: Request):
             "planner": req.planner_model,
             "codegen": req.codegen_model,
             "debug": req.debug_model,
-            "critic": req.critic_model,
         },
-        max_retries=req.max_retries  
-  )
+        max_retries=int(os.getenv("MAX_RETRIES", "3")),
+        use_openrouter=USE_OPENROUTER,
+        openrouter_api_key=OPENROUTER_API_KEY
+    )
 
     async def event_generator():
         # The orchestrator's execute_stream yields SSE formatted strings like:

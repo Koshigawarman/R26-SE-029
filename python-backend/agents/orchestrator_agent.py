@@ -38,19 +38,13 @@ class OrchestratorAgent:
     -> CodeGen Agent -> Debug Agent
     """
 
-    def __init__(self, ollama_url: str, models: dict, max_retries: int = 3):
+    def __init__(self, ollama_url: str, models: dict, max_retries: int = 3, use_openrouter: bool = False, openrouter_api_key: str = ""):
         self.ollama_url = ollama_url.rstrip("/")
         self.max_retries = max_retries
 
-        self.planner_agent = PlannerAgent(
-            ollama_url=self.ollama_url,
-            model=models.get("planner")
-        )
-
-        self.codegen_agent = CodeGenAgent(
-            ollama_url=self.ollama_url,
-            model=models.get("codegen")
-        )
+        self.planner_agent = PlannerAgent(ollama_url, models.get("planner"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
+        self.codegen_agent = CodeGenAgent(ollama_url, models.get("codegen"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
+        self.debug_agent = DebugAgent(ollama_url, models.get("debug"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
 
         # DebugAgent no longer needs Ollama/model.
         self.debug_agent = DebugAgent(
