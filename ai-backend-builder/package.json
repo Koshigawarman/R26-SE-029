@@ -20,13 +20,34 @@
     "code-generation",
     "multi-agent"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:aiBackendBuilder.sidePanel"
+  ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aiBackendBuilder",
+          "title": "AI Backend Builder",
+          "icon": "$(hubot)"
+        }
+      ]
+    },
+    "views": {
+      "aiBackendBuilder": [
+        {
+          "type": "webview",
+          "id": "aiBackendBuilder.sidePanel",
+          "name": "AI Backend Builder"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "aiBackendBuilder.buildBackend",
-        "title": "Build Backend with AI"
+        "title": "Build Backend with AI",
+        "icon": "$(zap)"
       }
     ],
     "configuration": {

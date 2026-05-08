@@ -5,14 +5,20 @@ import requests
 from typing import Dict, Any
 
 from schema import FileSpec, CodeGenContext, GeneratedFile
-from prompts.codegen_prompt import CODEGEN_SYSTEM_PROMPT, build_codegen_prompt
-
+from prompts.codegen_prompt import (
+    CODEGEN_SYSTEM_PROMPT,
+    build_codegen_prompt,
+    build_code_fix_prompt,
+)
 logger = logging.getLogger(__name__)
 
 class CodeGenAgent:
-    def __init__(self, ollama_url: str, model: str):
+    def __init__(self, ollama_url: str, model: str, use_openrouter: bool = False, openrouter_api_key: str = ""):
         self.ollama_url = ollama_url
         self.model = model
+        self.use_openrouter = use_openrouter
+        self.openrouter_api_key = openrouter_api_key
+        self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
 
     def execute(self, file_spec: FileSpec, context: CodeGenContext, existing_content: str = None) -> GeneratedFile:
         logger.info(f"Generating: {file_spec.path}")
@@ -34,7 +40,10 @@ class CodeGenAgent:
                 existing_file_content=existing_content
             )
 
-            raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+            if self.use_openrouter:
+                raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
+            else:
+                raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
 
             code = self._extract_code(raw_response)
 
@@ -59,8 +68,66 @@ class CodeGenAgent:
                 status='error',
                 errorMessage=str(e)
             )
+    def fix_file_with_strategy(
+        self,
+        file_path: str,
+        original_content: str,
+        error_log: str,
+        critic_strategy: str,
+        instructions_for_code_agent: str
+    ) -> GeneratedFile:
+        """
+        Applies the Critic Agent's fixing strategy to one affected file.
+
+        This method belongs to the CodeGenAgent because:
+        - CriticAgent diagnoses and creates strategy only.
+        - CodeGenAgent generates the actual fixed code.
+        """
+
+        logger.info(f"Applying critic strategy to fix: {file_path}")
+
+        try:
+            prompt = build_code_fix_prompt(
+                file_path=file_path,
+                original_content=original_content,
+                error_log=error_log,
+                critic_strategy=critic_strategy,
+                instructions_for_code_agent=instructions_for_code_agent,
+            )
+
+            raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+            fixed_code = self._extract_code(raw_response)
+
+            if not fixed_code or len(fixed_code.strip()) < 10:
+                raise ValueError("Generated fixed code is too short")
+
+            self._validate_code(file_path, fixed_code)
+
+            logger.info(f"✓ Fixed file generated: {file_path} ({len(fixed_code)} chars)")
+
+            return GeneratedFile(
+                path=file_path,
+                content=fixed_code,
+                status="fixed"
+            )
+
+        except Exception as e:
+            logger.error(f"✗ Failed to fix {file_path}: {str(e)}")
+
+            return GeneratedFile(
+                path=file_path,
+                content="",
+                status="error",
+                errorMessage=str(e)
+            )        
 
     def _query_ollama(self, prompt: str, system_prompt: str) -> str:
+        logger.info("\n" + "="*50)
+        logger.info(f"OLLAMA REQUEST [CodeGenAgent] | Model: {self.model}")
+        logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
+        logger.info(f"--- USER PROMPT ---\n{prompt[:1000]}{'...' if len(prompt) > 1000 else ''}")
+        logger.info("="*50)
+
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -80,7 +147,48 @@ class CodeGenAgent:
         data = resp.json()
         if "response" not in data:
             raise ValueError("Ollama returned no response")
-        return data["response"]
+            
+        response_text = data["response"]
+        logger.info("\n" + "="*50)
+        logger.info(f"OLLAMA RESPONSE [CodeGenAgent] | Length: {len(response_text)}")
+        logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
+        logger.info("="*50)
+        
+        return response_text
+
+    def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
+        logger.info("\n" + "="*50)
+        logger.info(f"OPENROUTER REQUEST [CodeGenAgent] | Model: {self.model}")
+        logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
+        logger.info(f"--- USER PROMPT ---\n{prompt[:1000]}{'...' if len(prompt) > 1000 else ''}")
+        logger.info("="*50)
+
+        headers = {
+            "Authorization": f"Bearer {self.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
+            "X-Title": "AI Backend Builder",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 4096,
+        }
+        resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        response_text = data['choices'][0]['message']['content']
+        logger.info("\n" + "="*50)
+        logger.info(f"OPENROUTER RESPONSE [CodeGenAgent] | Length: {len(response_text)}")
+        logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
+        logger.info("="*50)
+        
+        return response_text
 
     def _extract_code(self, raw_response: str) -> str:
         """Extracts code block from markdown if present."""

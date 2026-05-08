@@ -18,9 +18,12 @@ MANDATORY_FILES = [
 class PlannerAgent:
     MAX_JSON_RETRIES = 2
 
-    def __init__(self, ollama_url: str, model: str):
+    def __init__(self, ollama_url: str, model: str, use_openrouter: bool = False, openrouter_api_key: str = ""):
         self.ollama_url = ollama_url
         self.model = model
+        self.use_openrouter = use_openrouter
+        self.openrouter_api_key = openrouter_api_key
+        self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
 
     def execute(self, user_prompt: str) -> PlannerOutput:
         logger.info("Starting project planning...")
@@ -35,7 +38,10 @@ class PlannerAgent:
                     prompt = self._build_retry_prompt(user_prompt, str(last_error))
 
                 logger.info(f"Querying AI (attempt {attempt + 1})...")
-                raw_response = self._query_ollama(prompt, PLANNER_SYSTEM_PROMPT)
+                if self.use_openrouter:
+                    raw_response = self._query_openrouter(prompt, PLANNER_SYSTEM_PROMPT)
+                else:
+                    raw_response = self._query_ollama(prompt, PLANNER_SYSTEM_PROMPT)
 
                 plan = self._parse_and_validate(raw_response)
                 break
@@ -54,6 +60,12 @@ class PlannerAgent:
         return plan
 
     def _query_ollama(self, prompt: str, system_prompt: str) -> str:
+        logger.info("\n" + "="*50)
+        logger.info(f"OLLAMA REQUEST [PlannerAgent] | Model: {self.model}")
+        logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
+        logger.info(f"--- USER PROMPT ---\n{prompt}")
+        logger.info("="*50)
+
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -73,7 +85,48 @@ class PlannerAgent:
         data = resp.json()
         if "response" not in data:
             raise ValueError("Ollama returned no response")
-        return data["response"]
+            
+        response_text = data["response"]
+        logger.info("\n" + "="*50)
+        logger.info(f"OLLAMA RESPONSE [PlannerAgent] | Length: {len(response_text)}")
+        logger.info(f"--- CONTENT ---\n{response_text}")
+        logger.info("="*50)
+        
+        return response_text
+
+    def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
+        logger.info("\n" + "="*50)
+        logger.info(f"OPENROUTER REQUEST [PlannerAgent] | Model: {self.model}")
+        logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
+        logger.info(f"--- USER PROMPT ---\n{prompt}")
+        logger.info("="*50)
+
+        headers = {
+            "Authorization": f"Bearer {self.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
+            "X-Title": "AI Backend Builder",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 4096,
+        }
+        resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        response_text = data['choices'][0]['message']['content']
+        logger.info("\n" + "="*50)
+        logger.info(f"OPENROUTER RESPONSE [PlannerAgent] | Length: {len(response_text)}")
+        logger.info(f"--- CONTENT ---\n{response_text}")
+        logger.info("="*50)
+        
+        return response_text
 
     def _parse_and_validate(self, raw_response: str) -> PlannerOutput:
         # Extract JSON if the model wrapped it in markdown

@@ -1,0 +1,166 @@
+[
+  {
+    "error_pattern": "Cannot find module",
+    "root_cause": "The application imports a file that does not exist or the import path does not match the actual generated file name.",
+    "fix_strategy": "Check the actual generated file name and update the import path in the affected file. Patch only the import statement if the rest of the logic is correct.",
+    "affected_files": [
+      "app.js"
+    ],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945505"
+  },
+  {
+    "error_pattern": "MODULE_NOT_FOUND",
+    "root_cause": "A dependency or local module cannot be resolved by Node.js.",
+    "fix_strategy": "Verify whether the missing module is an npm dependency or a local file. If it is local, correct the import path. If it is external, add it to package.json dependencies.",
+    "affected_files": [
+      "package.json",
+      "app.js"
+    ],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945555"
+  },
+  {
+    "error_pattern": "SyntaxError",
+    "root_cause": "The generated JavaScript contains invalid syntax such as missing brackets, quotes, commas, or invalid import/export statements.",
+    "fix_strategy": "Patch only the syntax error in the affected file while preserving the existing business logic.",
+    "affected_files": [],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945570"
+  },
+  {
+    "error_pattern": "ReferenceError",
+    "root_cause": "A variable, function, or module is used before it is declared or imported.",
+    "fix_strategy": "Add the missing import or declaration, or correct the variable name in the affected file.",
+    "affected_files": [],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945580"
+  },
+  {
+    "error_pattern": "TypeError",
+    "root_cause": "The code is calling a value as a function or accessing a property on an invalid object.",
+    "fix_strategy": "Check export/import compatibility and verify that the object or function exists before it is used.",
+    "affected_files": [],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945588"
+  },
+  {
+    "error_pattern": "express is not defined",
+    "root_cause": "The Express module is used without being imported.",
+    "fix_strategy": "Add the Express import at the top of the affected file using ES module syntax: import express from 'express';",
+    "affected_files": [
+      "app.js"
+    ],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945594"
+  },
+  {
+    "error_pattern": "app.listen is not a function",
+    "root_cause": "The Express app object was overwritten or incorrectly created.",
+    "fix_strategy": "Ensure the app is created using express() and app.listen() is called on the Express app instance.",
+    "affected_files": [
+      "app.js"
+    ],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945601"
+  },
+  {
+    "error_pattern": "Router.use() requires a middleware function",
+    "root_cause": "A route file is not exporting an Express router correctly or app.js is importing the route incorrectly.",
+    "fix_strategy": "Check the route file export and app.js import. Ensure the route file exports router as default and app.js imports it correctly.",
+    "affected_files": [
+      "app.js",
+      "routes"
+    ],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945608"
+  },
+  {
+    "error_pattern": "Cannot GET",
+    "root_cause": "The expected route path is not registered in the Express application.",
+    "fix_strategy": "Register the missing route in app.js and verify that the route prefix matches the expected endpoint.",
+    "affected_files": [
+      "app.js",
+      "routes"
+    ],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945616"
+  },
+  {
+    "error_pattern": "Cannot read properties of undefined",
+    "root_cause": "The code is trying to access a property from an undefined object, commonly caused by missing request body parsing or missing validation.",
+    "fix_strategy": "Ensure express.json() middleware is enabled before routes and add basic validation before accessing nested values.",
+    "affected_files": [
+      "app.js",
+      "controllers"
+    ],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945623"
+  },
+  {
+    "error_pattern": "EADDRINUSE",
+    "root_cause": "The selected server port is already being used by another process.",
+    "fix_strategy": "Use a different port through process.env.PORT or stop the existing process using the same port.",
+    "affected_files": [
+      "app.js"
+    ],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945630"
+  },
+  {
+    "error_pattern": "Cannot use import statement outside a module",
+    "root_cause": "The project is using ES module import syntax, but package.json does not define type as module.",
+    "fix_strategy": "Add \"type\": \"module\" to package.json or convert all imports to CommonJS. For this project, prefer ES modules and update package.json.",
+    "affected_files": [
+      "package.json"
+    ],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945638"
+  },
+  {
+    "error_pattern": "Unexpected token",
+    "root_cause": "The generated JavaScript or JSON has malformed syntax.",
+    "fix_strategy": "Identify the affected line and patch only the malformed token, bracket, comma, or quote.",
+    "affected_files": [],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945648"
+  },
+  {
+    "error_pattern": "Route.get() requires a callback function",
+    "root_cause": "The route file references a controller function that is missing or not exported correctly.",
+    "fix_strategy": "Check the controller export and route import names. Ensure the route handler function exists and is imported correctly.",
+    "affected_files": [
+      "routes",
+      "controllers"
+    ],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945656"
+  },
+  {
+    "error_pattern": "ERR_MODULE_NOT_FOUND",
+    "root_cause": "An ES module import path is missing the correct file extension or points to a wrong file path.",
+    "fix_strategy": "For ES modules, ensure local imports include the correct .js extension and match the actual generated file path.",
+    "affected_files": [
+      "app.js",
+      "routes",
+      "controllers"
+    ],
+    "success": true,
+    "usage_count": 0,
+    "created_at": "2026-05-04T03:16:28.945664"
+  }
+]
