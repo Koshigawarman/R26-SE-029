@@ -20,9 +20,7 @@
     "code-generation",
     "multi-agent"
   ],
-  "activationEvents": [
-    "onView:aiBackendBuilder.sidePanel"
-  ],
+  "activationEvents": [  ],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
