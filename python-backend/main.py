@@ -23,6 +23,7 @@ import time
 import logging
 import requests
 from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from sse_starlette.sse import EventSourceResponse
