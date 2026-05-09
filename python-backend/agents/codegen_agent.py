@@ -113,7 +113,10 @@ class CodeGenAgent:
                 instructions_for_code_agent=instructions_for_code_agent,
             )
 
-            raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+            if self.use_openrouter:
+                raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
+            else:
+                raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
             fixed_code = self._extract_code(raw_response)
 
             if not fixed_code or len(fixed_code.strip()) < 10:
