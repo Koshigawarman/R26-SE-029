@@ -23,12 +23,13 @@ import time
 import logging
 import requests
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from sse_starlette.sse import EventSourceResponse
+import threading
+from agents.orchestrator_agent import BuildSession
 
-from schema import BuildRequest, GenerateRequest
+from schema import BuildRequest, GenerateRequest, ApprovalRequest
 from agents.orchestrator_agent import OrchestratorAgent
 
 load_dotenv()
@@ -57,11 +58,10 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 
 # Default models per agent role (can be overridden per request)
 DEFAULT_MODELS = {
-    "planner": os.getenv("PLANNER_MODEL", "llama3.1:8b"),
-    "codegen": os.getenv("CODEGEN_MODEL", "qwen2.5-coder:7b"),
-    "debug": os.getenv("DEBUG_MODEL", "llama3.1:8b"),
-    "critic": os.getenv("CRITIC_MODEL", "qwen2.5-coder:1.5b"),
-
+    "planner": os.getenv("PLANNER_MODEL", "qwen2.5-coder:3b"),
+    "codegen": os.getenv("CODEGEN_MODEL", "qwen2.5-coder:3b"),
+    "debug": os.getenv("DEBUG_MODEL", "qwen2.5-coder:3b"),
+    "critic": os.getenv("CRITIC_MODEL", "qwen2.5-coder:3b"),
 }
 
 # Request timeout for Ollama API calls (seconds)
@@ -143,7 +143,7 @@ async def generate(req: GenerateRequest):
         logger.info(f"--- SYSTEM PROMPT ---\n{req.system}")
         logger.info(f"--- USER PROMPT ---\n{req.prompt[:1000]}{'...' if len(req.prompt) > 1000 else ''}")
         logger.info("="*50)
-
+        
         try:
             resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
             resp.raise_for_status()
@@ -154,7 +154,7 @@ async def generate(req: GenerateRequest):
             logger.info(f"OPENROUTER API RESPONSE | Length: {len(response_text)}")
             logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
             logger.info("="*50)
-
+            
             return {
                 "response": response_text,
                 "model": req.model,
@@ -174,7 +174,7 @@ async def generate(req: GenerateRequest):
             "num_predict": req.max_tokens,
         },
     }
-
+    
     logger.info("\n" + "="*50)
     logger.info(f"OLLAMA API REQUEST | Model: {req.model}")
     logger.info(f"--- SYSTEM PROMPT ---\n{req.system}")
@@ -203,7 +203,7 @@ async def generate(req: GenerateRequest):
         logger.info(f"OLLAMA API RESPONSE | Length: {len(response_text)}")
         logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
         logger.info("="*50)
-
+        
         return {
             "response": response_text,
             "model": req.model,
@@ -226,21 +226,15 @@ async def generate(req: GenerateRequest):
 @app.post("/api/build")
 async def build_project(req: BuildRequest, request: Request):
     """
-    Start the interactive backend build process.
+    Start the autonomous backend build process.
     Returns Server-Sent Events (SSE) stream.
-    The orchestrator runs in a background thread and pauses at
-    approval gates. The user approves via POST /api/build/{id}/approve.
     """
-    import threading
-    from agents.orchestrator_agent import BuildSession
-
     # Fallback to default models if not provided
     if not req.planner_model: req.planner_model = DEFAULT_MODELS["planner"]
     if not req.codegen_model: req.codegen_model = DEFAULT_MODELS["codegen"]
     if not req.debug_model: req.debug_model = DEFAULT_MODELS["debug"]
     if not req.critic_model: req.critic_model = DEFAULT_MODELS["critic"]
     if not req.max_retries: req.max_retries = MAX_RETRIES
-
 
     orchestrator = OrchestratorAgent(
         ollama_url=OLLAMA_URL,
@@ -249,14 +243,12 @@ async def build_project(req: BuildRequest, request: Request):
             "codegen": req.codegen_model,
             "debug": req.debug_model,
             "critic": req.critic_model,
-
         },
         max_retries=req.max_retries,
         use_openrouter=USE_OPENROUTER,
-        openrouter_api_key=OPENROUTER_API_KEY,
+        openrouter_api_key=OPENROUTER_API_KEY
     )
-
-    # Create a session for this build
+    
     session = BuildSession()
     _active_sessions[session.id] = session
     logger.info(f"Created build session: {session.id}")
@@ -297,7 +289,6 @@ async def build_project(req: BuildRequest, request: Request):
 
     return EventSourceResponse(event_generator())
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Session Management & Approval Endpoint
 # ─────────────────────────────────────────────────────────────────────────────
@@ -305,10 +296,7 @@ async def build_project(req: BuildRequest, request: Request):
 # Active build sessions (keyed by session ID)
 _active_sessions: dict = {}
 
-
-class ApprovalRequest(BaseModel):
-    action: str          # "approve" | "skip" | "retry" | "cancel"
-    data: dict = {}      # optional extra data from the user
+     # optional extra data from the user
 
 
 @app.post("/api/build/{session_id}/approve")
