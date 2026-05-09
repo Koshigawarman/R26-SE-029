@@ -116,12 +116,7 @@ class OrchestratorAgent:
             openrouter_api_key=openrouter_api_key
         )
 
-        self.debug_agent = DebugAgent(
-            ollama_url,
-            models.get("debug"),
-            use_openrouter=use_openrouter,
-            openrouter_api_key=openrouter_api_key
-        )
+        self.debug_agent = DebugAgent()
 
         self.critic_agent = CriticAgent(
             ollama_url,
