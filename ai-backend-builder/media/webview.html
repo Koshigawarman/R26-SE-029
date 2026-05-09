@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline' https://cdn.jsdelivr.net; font-src {{cspSource}} https://cdn.jsdelivr.net; script-src 'nonce-{{nonce}}'; connect-src *;">
+  <title>AI Backend Builder</title>
+  <link href="https://cdn.jsdelivr.net/npm/@vscode/codicons/dist/codicon.css" rel="stylesheet" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: var(--vscode-sideBar-background, #121212);
+      --bg2: var(--vscode-editor-background, #18181b);
+      --bg3: rgba(255, 255, 255, 0.03);
+      --bg4: rgba(255, 255, 255, 0.06);
+      --border: var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
+      --border2: rgba(255, 255, 255, 0.05);
+      
+      --accent: var(--vscode-button-background, #3b82f6);
+      --accent-fg: var(--vscode-button-foreground, #ffffff);
+      --accent-h: var(--vscode-button-hoverBackground, #2563eb);
+      
+      --sec: rgba(255, 255, 255, 0.05);
+      --sec-fg: #d4d4d8;
+      --sec-h: rgba(255, 255, 255, 0.1);
+      
+      --fg: var(--vscode-foreground, #f4f4f5);
+      --fg2: var(--vscode-descriptionForeground, #a1a1aa);
+      --fg3: var(--vscode-disabledForeground, #71717a);
+      
+      --focus: var(--vscode-focusBorder, #3b82f6);
+      
+      --ok: var(--vscode-testing-iconPassed, #10b981);
+      --warn: var(--vscode-editorWarning-foreground, #f59e0b);
+      --err: var(--vscode-editorError-foreground, #ef4444);
+      --cyan: #06b6d4;
+      
+      --font: 'Inter', var(--vscode-font-family, system-ui, -apple-system, sans-serif);
+      --mono: 'JetBrains Mono', var(--vscode-editor-font-family, monospace);
+      --font-sz: 13px;
+    }
+
+    body {
+      font-family: var(--font);
+      font-size: var(--font-sz);
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.5;
+      padding: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--fg3); }
+
+    .c {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      min-height: 100vh;
+    }
+
+    .hdr {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: rgba(0, 0, 0, 0.2);
+      border-bottom: 1px solid var(--border);
+      user-select: none;
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .logo {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      background: linear-gradient(135deg, var(--accent), var(--cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      flex-shrink: 0;
+    }
+
+    .hdr h1 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg);
+      letter-spacing: 0.5px;
+      flex: 1;
+    }
+
+    .hdr .vtag {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--accent);
+      background: rgba(59, 130, 246, 0.1);
+      padding: 2px 6px;
+      border-radius: 12px;
+      letter-spacing: 0;
+    }
+
+    .sec { border-bottom: 1px solid var(--border2); }
+
+    .sec-hdr {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      cursor: pointer;
+      user-select: none;
+      background: rgba(0,0,0,0.1);
+      transition: background 0.2s;
+    }
+
+    .sec-hdr:hover { background: var(--bg4); }
+
+    .sec-hdr .lbl {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--fg);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      flex: 1;
+    }
+
+    .sec-body {
+      display: flex;
+      flex-direction: column;
+      transition: all 0.3s ease;
+    }
+    .sec-body.collapsed { display: none !important; }
+
+    .chevron {
+      font-size: 14px;
+      transition: transform 0.2s ease;
+      color: var(--fg2);
+    }
+    .chevron.collapsed { transform: rotate(-90deg); }
+
+    .sb {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sd { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 8px currentColor; }
+    .sd.on { color: var(--ok); background: var(--ok); }
+    .sd.off { color: var(--err); background: var(--err); }
+    .sd.chk { color: var(--warn); background: var(--warn); animation: p 1s ease-in-out infinite; }
+
+    @keyframes p { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.8); } }
+
+    .st { font-size: 12px; color: var(--fg2); flex: 1; }
+    .st b { color: var(--fg); font-weight: 600; }
+
+    #inp {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+    }
+
+    .lbl {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--fg);
+      margin-bottom: 4px;
+    }
+
+    .ta {
+      width: 100%;
+      min-height: 80px;
+      padding: 10px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--fg);
+      font-size: 13px;
+      font-family: var(--font);
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .ta::placeholder { color: var(--fg3); }
+    .ta:focus { border-color: var(--focus); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border: none;
+      font-size: 13px;
+      font-family: var(--font);
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border-radius: 6px;
+      height: 32px;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+    .bp {
+      background: linear-gradient(135deg, var(--accent), #2563eb);
+      color: var(--accent-fg);
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+    }
+    .bp:hover:not(:disabled) {
+      background: linear-gradient(135deg, #4f8bf9, #3b82f6);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+      transform: translateY(-1px);
+    }
+    .bp:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    .bg { background: var(--sec); color: var(--sec-fg); border: 1px solid var(--border); }
+    .bg:hover { background: var(--sec-h); color: var(--fg); }
+
+    .bd { background: rgba(239, 68, 68, 0.1); color: var(--err); border: 1px solid rgba(239, 68, 68, 0.2); }
+    .bd:hover { background: rgba(239, 68, 68, 0.15); box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2); }
+
+    .bs { background: rgba(16, 185, 129, 0.1); color: var(--ok); border: 1px solid rgba(16, 185, 129, 0.2); }
+    .bs:hover { background: rgba(16, 185, 129, 0.15); box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2); }
+
+    .br { display: flex; gap: 8px; flex-wrap: wrap; }
+    .br .btn { flex: 1; min-width: 0; }
+
+    .btn-icon {
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      background: transparent;
+      color: var(--fg2);
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+    .btn-icon:hover { color: var(--fg); background: var(--bg4); }
+
+    #cr { padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--bg2); }
+    #cr .btn { width: 100%; }
+
+    .pipe { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; }
+
+    .ac {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      transition: all 0.3s ease;
+      cursor: default;
+    }
+    .ac:hover { background: var(--bg3); border-color: rgba(255,255,255,0.15); }
+
+    .ac.act {
+      background: rgba(59, 130, 246, 0.05);
+      border-color: var(--focus);
+      box-shadow: 0 0 0 1px var(--focus), 0 4px 12px rgba(59, 130, 246, 0.1);
+      transform: translateX(2px);
+    }
+    .ac.ok { border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.02); }
+    .ac.fail { border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.05); }
+
+    .ai {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      border-radius: 6px;
+      background: var(--bg4);
+      flex-shrink: 0;
+    }
+    .ai.pl { color: #60a5fa; background: rgba(96, 165, 250, 0.1); }
+    .ai.cg { color: var(--cyan); background: rgba(6, 182, 212, 0.1); }
+    .ai.db { color: var(--warn); background: rgba(245, 158, 11, 0.1); }
+    
+    .ac.act .ai {
+      animation: pulse-icon 2s infinite;
+    }
+    @keyframes pulse-icon {
+      0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+      70% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+    }
+
+    .an { font-size: 13px; font-weight: 600; color: var(--fg); margin-bottom: 2px; }
+    .as { font-size: 11px; color: var(--fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .ak { font-size: 12px; color: var(--fg2); flex-shrink: 0; font-family: var(--mono); width: 45px; text-align: right; display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
+    .sp { color: var(--focus); animation: spin 1.5s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .ps { display: none; flex-direction: column; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); background: var(--bg2); }
+    .ps.v { display: flex; }
+
+    .pm { font-size: 12px; color: var(--fg); min-height: 18px; font-family: var(--mono); }
+    .pt { height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
+    .pf { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--cyan)); border-radius: 2px; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+    .pp { display: flex; justify-content: space-between; font-size: 11px; color: var(--fg3); font-family: var(--mono); font-weight: 500; }
+
+    .approval {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px;
+      background: var(--bg);
+      border: 1px solid var(--focus);
+      border-radius: 8px;
+      margin: 12px 16px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(59, 130, 246, 0.2);
+      animation: su 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .approval.v { display: flex; }
+
+    .approval h3 { font-size: 14px; font-weight: 600; color: var(--fg); display: flex; align-items: center; gap: 8px; }
+    .approval h3 i { font-size: 16px; color: var(--focus); }
+    .approval .desc { font-size: 12px; color: var(--fg2); line-height: 1.5; }
+
+    .detail-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 250px;
+      overflow-y: auto;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: var(--mono);
+      padding: 4px;
+    }
+    .detail-list .item { padding: 6px 10px; border-radius: 4px; color: var(--fg); display: flex; align-items: flex-start; gap: 8px; line-height: 1.4; }
+    .detail-list .item:hover { background: var(--bg4); }
+
+    @keyframes su { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+    .lf { display: none; flex-direction: column; gap: 2px; max-height: 250px; overflow-y: auto; background: var(--bg); padding: 8px; font-family: var(--mono); }
+    .lf:not(.h) { display: flex; }
+
+    .le {
+      font-size: 11px;
+      color: var(--fg2);
+      padding: 4px 8px;
+      border-radius: 4px;
+      line-height: 1.5;
+      animation: fi 0.2s ease;
+      display: flex;
+      align-items: flex-start;
+      position: relative;
+    }
+    .le:hover { background: var(--bg4); color: var(--fg); }
+    .le .tm { color: var(--fg3); margin-right: 8px; font-size: 10px; flex-shrink: 0; padding-top: 1px; }
+    .le .msg { flex: 1; word-break: break-all; }
+    .le .msg a { color: var(--focus); text-decoration: none; cursor: pointer; transition: color 0.2s; }
+    .le .msg a:hover { color: #60a5fa; text-decoration: underline; }
+
+    .le .btn-copy { display: none; position: absolute; right: 4px; top: 2px; height: 22px; width: 22px; font-size: 12px; background: var(--bg); border: 1px solid var(--border); }
+    .le:hover .btn-copy { display: flex; align-items: center; justify-content: center; }
+
+    .le.ok { color: var(--ok); background: rgba(16, 185, 129, 0.05); }
+    .le.er { color: var(--err); background: rgba(239, 68, 68, 0.05); }
+    .le.fx { color: var(--cyan); background: rgba(6, 182, 212, 0.05); }
+
+    @keyframes fi { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: translateX(0); } }
+
+    .rc { display: none; flex-direction: column; gap: 12px; padding: 16px; background: var(--bg2); border-bottom: 1px solid var(--border); animation: su 0.3s ease; }
+    .rc.v { display: flex; }
+    .ri { font-size: 18px; }
+    .rt { font-size: 14px; font-weight: 600; }
+
+    .rs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .stat { padding: 10px 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; text-align: center; transition: transform 0.2s; }
+    .stat:hover { transform: translateY(-2px); border-color: rgba(255,255,255,0.15); }
+    .sv { font-size: 16px; font-weight: 700; color: var(--fg); font-family: var(--mono); }
+    .sl { font-size: 10px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; font-weight: 500; }
+
+    .ft {
+      margin-top: auto;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      background: var(--bg2);
+      position: sticky;
+      bottom: 0;
+      z-index: 10;
+    }
+    .ft .btn { flex: 1; font-size: 12px; padding: 6px; height: 32px; font-weight: 500; }
+
+    #dbg { padding: 8px 16px; font-size: 11px; font-family: var(--mono); color: var(--ok); background: #000; max-height: 120px; overflow-y: auto; border-top: 1px solid var(--border); }
+    .h { display: none !important; }
+
+    .diff-add { color: var(--ok) !important; background: rgba(16, 185, 129, 0.1); border-left: 2px solid var(--ok); }
+    .diff-rem { color: var(--err) !important; background: rgba(239, 68, 68, 0.1); text-decoration: line-through; border-left: 2px solid var(--err); }
+
+      .hist-card {
+      margin: 8px 16px;
+      padding: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg2);
+      overflow: hidden;
+      animation: su 0.3s ease;
+    }
+    .hist-hdr {
+      padding: 8px 12px;
+      background: var(--bg4);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .hist-hdr:hover { background: rgba(255,255,255,0.08); }
+    .hist-hdr h4 { font-size: 11px; font-weight: 600; color: var(--fg); flex: 1; margin: 0; }
+    .hist-hdr .badge { font-size: 9px; padding: 1px 5px; border-radius: 10px; background: var(--ok); color: #fff; }
+    .hist-body { padding: 12px; display: none; border-top: 1px solid var(--border2); }
+    .hist-body.v { display: block; }
+</style>
+</head>
+
+<body>
+  <div class="c">
+    <div class="hdr">
+      <div class="logo"><i class="codicon codicon-zap"></i></div>
+      <h1>AI Backend Builder <span class="vtag">v3</span></h1>
+    </div>
+
+    <div class="sb">
+      <div class="sd chk" id="sd"></div>
+      <div class="st" id="st">Checking...</div>
+      <button class="btn bg" id="btn-chk" style="height:20px;padding:0 6px"><i
+          class="codicon codicon-refresh"></i></button>
+    </div>
+
+    <div id="inp">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px">
+        <div class="lbl" style="margin:0">Describe your backend</div>
+        <div style="display:flex; gap:2px">
+          <button class="btn-icon" id="btn-prev-p" title="Previous Prompt"><i
+              class="codicon codicon-chevron-left"></i></button>
+          <button class="btn-icon" id="btn-next-p" title="Next Prompt"><i
+              class="codicon codicon-chevron-right"></i></button>
+        </div>
+      </div>
+      <textarea class="ta" id="pr" placeholder="e.g., E-commerce API with users, products, orders..."
+        rows="4"></textarea>
+      <div style="display:flex; justify-content:space-between; align-items:center">
+        <div style="font-size:10px; color:var(--fg3); font-family:var(--mono)"><span id="char-cnt">0</span> chars •
+          ~<span id="tok-cnt">0</span> tokens</div>
+      </div>
+      <div class="br">
+        <button class="btn bp" id="bb"><i class="codicon codicon-zap"></i> Build Backend</button>
+      </div>
+    </div>
+
+    <div class="br h" id="cr" style="padding:6px 12px; border-bottom:1px solid var(--border2)">
+      <button class="btn bd" id="btn-cancel"><i class="codicon codicon-close"></i> Cancel Build</button>
+    </div>
+
+    <div class="sec">
+      <div class="sec-hdr" data-target="pipe-body">
+        <i class="codicon codicon-chevron-down chevron"></i>
+        <span class="lbl">Agent Pipeline</span>
+      </div>
+      <div class="sec-body" id="pipe-body">
+        <div class="pipe" id="pipe">
+          <div class="ac" id="aP">
+            <div class="ai pl"><i class="codicon codicon-lightbulb"></i></div>
+            <div style="flex:1;min-width:0">
+              <div class="an">Planner Agent</div>
+              <div class="as" id="sP">Waiting</div>
+            </div>
+            <div class="ak" id="kP"></div>
+          </div>
+          <div class="ac" id="aC">
+            <div class="ai cg"><i class="codicon codicon-code"></i></div>
+            <div style="flex:1;min-width:0">
+              <div class="an">Code Generator</div>
+              <div class="as" id="sC">Waiting</div>
+            </div>
+            <div class="ak" id="kC"></div>
+          </div>
+          <div class="ac" id="aD">
+            <div class="ai db"><i class="codicon codicon-bug"></i></div>
+            <div style="flex:1;min-width:0">
+              <div class="an">Debug Agent</div>
+              <div class="as" id="sD">Waiting</div>
+            </div>
+            <div class="ak" id="kD"></div>
+          </div>
+        </div>
+        <div class="ps" id="ps">
+          <div class="pm" id="pm"></div>
+          <div class="pt">
+            <div class="pf" id="pf"></div>
+          </div>
+          <div class="pp"><span id="pc">0%</span><span id="ph">Idle</span></div>
+        </div>
+        <div class="approval" id="apv"></div>
+      </div>
+    </div>
+
+    <div id="hist"></div>
+    <div class="sec" id="sec-logs">
+      <div class="sec-hdr" data-target="logs-body">
+        <i class="codicon codicon-chevron-down chevron"></i>
+        <span class="lbl">Build Logs</span>
+      </div>
+      <div class="sec-body h" id="logs-body">
+        <div class="lf" id="lf" style="display:flex"></div>
+      </div>
+    </div>
+
+    <div class="rc" id="rc"></div>
+
+    <div id="dbg" style="display:none"></div>
+
+    <div class="ft">
+      <button class="btn bg" id="btn-set"><i class="codicon codicon-settings-gear"></i> Settings</button>
+      <button class="btn bg" id="btn-logs"><i class="codicon codicon-output"></i> Full Logs</button>
+    </div>
+  </div>
+
+  <script nonce="{{nonce}}">
+    function dbg(m) { var d = document.getElementById('dbg'); if (d) { d.innerHTML += '<div>' + new Date().toLocaleTimeString() + ' ' + m + '</div>'; d.scrollTop = d.scrollHeight; } }
+    try {
+      const vscode = acquireVsCodeApi();
+      let curPrompt = '';
+      let promptHistory = [];
+      let historyIdx = -1;
+      let activeAgentTimer = null;
+      let activeAgentStart = 0;
+      let activeAgentKey = null;
+      let buildLastUpdate = 0;
+      let buildTimeoutTimer = null;
+
+      const $ = id => document.getElementById(id);
+      const ag = { P: { c: $('aP'), s: $('sP'), k: $('kP') }, C: { c: $('aC'), s: $('sC'), k: $('kC') }, D: { c: $('aD'), s: $('sD'), k: $('kD') } };
+
+      // Initialize
+      vscode.postMessage({ command: 'getPrompts' });
+      vscode.postMessage({ command: 'checkHealth' });
+
+      // Global Event Delegation
+      document.addEventListener('click', (e) => {
+        const hdr = e.target.closest('.sec-hdr');
+        if (hdr) {
+          const targetId = hdr.getAttribute('data-target');
+          if (targetId) toggleSec(targetId, hdr);
+          return;
+        }
+        const link = e.target.closest('.log-link');
+        if (link) {
+          e.preventDefault();
+          openFile(link.getAttribute('data-path'));
+          return;
+        }
+        const copyBtn = e.target.closest('.btn-copy');
+        if (copyBtn) {
+          navigator.clipboard.writeText(copyBtn.previousElementSibling.textContent);
+          return;
+        }
+        const histHdr = e.target.closest('.hist-hdr');
+        if (histHdr) {
+          const body = histHdr.nextElementSibling;
+          const chevron = histHdr.querySelector('.codicon');
+          const isV = body.classList.toggle('v');
+          chevron.className = isV ? 'codicon codicon-chevron-down' : 'codicon codicon-chevron-right';
+          return;
+        }
+      });
+
+      // Collapsible
+      window.toggleSec = function (id, hdr) {
+        const b = $(id);
+        const c = hdr.querySelector('.chevron');
+        if (b.classList.contains('collapsed')) {
+          b.classList.remove('collapsed');
+          c.classList.remove('collapsed');
+        } else {
+          b.classList.add('collapsed');
+          c.classList.add('collapsed');
+        }
+      };
+
+      // Prompt History
+      $('btn-prev-p').addEventListener('click', () => {
+        if (promptHistory.length > 0 && historyIdx < promptHistory.length - 1) {
+          if (historyIdx === -1 && $('pr').value.trim() !== '') {
+            // Save current typed if any
+          }
+          historyIdx++;
+          $('pr').value = promptHistory[historyIdx];
+          updateCounter();
+        }
+      });
+      $('btn-next-p').addEventListener('click', () => {
+        if (historyIdx > 0) {
+          historyIdx--;
+          $('pr').value = promptHistory[historyIdx];
+        } else if (historyIdx === 0) {
+          historyIdx = -1;
+          $('pr').value = '';
+        }
+        updateCounter();
+      });
+
+      // Character / Token Counter
+      $('pr').addEventListener('input', updateCounter);
+      function updateCounter() {
+        const text = $('pr').value;
+        $('char-cnt').textContent = text.length;
+        $('tok-cnt').textContent = Math.ceil(text.length / 4);
+      }
+
+      $('btn-chk').addEventListener('click', () => { $('sd').className = 'sd chk'; $('st').innerHTML = 'Checking...'; vscode.postMessage({ command: 'checkHealth' }) });
+      $('bb').addEventListener('click', () => {
+        curPrompt = $('pr').value.trim();
+        if (curPrompt.length < 10) { $('pr').style.outline = '1px solid var(--err)'; setTimeout(() => $('pr').style.outline = '', 1500); return }
+        vscode.postMessage({ command: 'startBuild', prompt: curPrompt });
+        vscode.postMessage({ command: 'savePrompt', prompt: curPrompt });
+      });
+      $('btn-cancel').addEventListener('click', () => vscode.postMessage({ command: 'cancelBuild' }));
+      $('btn-set').addEventListener('click', () => vscode.postMessage({ command: 'openSettings' }));
+      $('btn-logs').addEventListener('click', () => vscode.postMessage({ command: 'showLogs' }));
+
+      function addHistory(title, html) {
+        const e = document.createElement('div');
+        e.className = 'hist-card';
+        e.innerHTML = `<div class="hist-hdr"><i class="codicon codicon-chevron-right"></i><h4>${title}</h4><span class="badge">Approved</span></div><div class="hist-body">${html}</div>`;
+        $('hist').appendChild(e);
+        const btns = e.querySelector('.br');
+        if (btns) btns.remove();
+      }
+
+      function approve(action, data) { 
+        const apv = $('apv');
+        if (action === 'approve') {
+          const title = apv.querySelector('h3')?.innerText || 'Decision';
+          addHistory(title, apv.innerHTML);
+        }
+        apv.classList.remove('v'); 
+        vscode.postMessage({ command: 'approve', action, data: data || {} }) 
+      }
+
+      function copyText(txt) {
+        navigator.clipboard.writeText(txt);
+      }
+
+      function openFile(path) {
+        vscode.postMessage({ command: 'openFile', path });
+      }
+
+      function linkify(msg) {
+        // Simple regex for file paths (starts with / or has an extension and slashes)
+        return msg.replace(/(\/[^\s]+(\.\w+)?)|([a-zA-Z]:\\[^\s]+(\.\w+)?)/g, match => {
+          return '<a href="#" class="log-link" data-path="' + match.replace(/\\/g, '\\\\').replace(/"/g, '&quot;') + '">' + match + '</a>';
+        });
+      }
+
+      function log(m, t) {
+        buildLastUpdate = Date.now();
+        const d = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const e = document.createElement('div');
+        e.className = 'le' + (t ? ' ' + t : '');
+        e.innerHTML = '<span class="tm">' + d + '</span><span class="msg">' + linkify(m) + '</span><button class="btn-icon btn-copy" title="Copy"><i class="codicon codicon-copy"></i></button>';
+        $('lf').appendChild(e);
+        $('lf').scrollTop = $('lf').scrollHeight;
+
+        // Auto-expand logs if it's an error
+        if (t === 'er' && $('logs-body').classList.contains('collapsed')) {
+          toggleSec('logs-body', document.querySelector('#sec-logs .sec-hdr'));
+        }
+      }
+
+      function rst() {
+        Object.values(ag).forEach(a => { a.c.className = 'ac'; a.s.textContent = 'Waiting'; a.k.innerHTML = '' });
+        stopTimer();
+        $('lf').innerHTML = '';
+        $('hist').innerHTML = '';
+        buildLastUpdate = Date.now();
+        if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
+        buildTimeoutTimer = setInterval(checkTimeout, 1000);
+      }
+
+      function checkTimeout() {
+        if (buildLastUpdate > 0 && Date.now() - buildLastUpdate > 30000) { // 30s timeout
+          $('st').innerHTML = '<b>Warning</b> · No response from backend';
+          $('sd').className = 'sd chk';
+        }
+      }
+
+      function startTimer(k) {
+        stopTimer();
+        activeAgentKey = k;
+        activeAgentStart = Date.now();
+        activeAgentTimer = setInterval(() => {
+          if (!activeAgentKey) return;
+          const secs = Math.floor((Date.now() - activeAgentStart) / 1000);
+          ag[activeAgentKey].k.innerHTML = secs + 's <i class="codicon sp codicon-sync"></i>';
+        }, 1000);
+      }
+
+      function stopTimer() {
+        if (activeAgentTimer) { clearInterval(activeAgentTimer); activeAgentTimer = null; }
+        activeAgentKey = null;
+      }
+
+      function aAct(k, m) {
+        if (activeAgentKey !== k) startTimer(k);
+        ag[k].c.className = 'ac act';
+        ag[k].s.textContent = m || 'Working...';
+      }
+      function aDn(k, m) {
+        if (activeAgentKey === k) stopTimer();
+        ag[k].c.className = 'ac ok'; ag[k].s.textContent = m || 'Done'; ag[k].k.innerHTML = '<i class="codicon codicon-check"></i>';
+      }
+      function aEr(k, m) {
+        if (activeAgentKey === k) stopTimer();
+        ag[k].c.className = 'ac fail'; ag[k].s.textContent = m || 'Error'; ag[k].k.innerHTML = '<i class="codicon codicon-error"></i>';
+      }
+
+      function phase(m, p) {
+        const l = m.toLowerCase();
+        if (l.includes('planning') || l.includes('plan ready') || l.includes('plan approved')) {
+          if (p <= 10) aAct('P', m.replace(/[🧠📋]/g, '').trim()); else aDn('P'); return 'Planning'
+        }
+        if (l.includes('structure')) { aDn('P'); return 'Scaffolding' }
+        if (l.includes('generating')) { aDn('P'); aAct('C', m.replace(/[⚙️]/g, '').trim()); return 'Generating' }
+        if (l.includes('debug') || l.includes('attempt')) { aDn('P'); aDn('C'); aAct('D', m.replace(/[🔍🔧]/g, '').trim()); return 'Debugging' }
+        if (l.includes('fix') || l.includes('applying')) { aAct('D', m.replace(/[🔧]/g, '').trim()); return 'Fixing' }
+        if (l.includes('complete') || l.includes('✅')) { aDn('P'); aDn('C'); aDn('D'); return 'Complete' }
+        if (l.includes('failed') || l.includes('❌')) return 'Error';
+        return $('ph').textContent
+      }
+
+      // Result card event delegation
+      $('rc').addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn');
+        if (btn) {
+          const cmd = btn.getAttribute('data-cmd');
+          if (cmd === 'openFolder') vscode.postMessage({ command: 'openFolder', path: btn.getAttribute('data-path') });
+          if (cmd === 'showLogs') vscode.postMessage({ command: 'showLogs' });
+          if (cmd === 'retryBuild') vscode.postMessage({ command: 'retryBuild', prompt: curPrompt });
+          return;
+        }
+
+        // Expandable errors
+        if (e.target.classList.contains('err-expand')) {
+          const content = e.target.nextElementSibling;
+          if (content.style.display === 'none') {
+            content.style.display = 'block';
+            e.target.innerHTML = '<i class="codicon codicon-chevron-up"></i> Hide details';
+          } else {
+            content.style.display = 'none';
+            e.target.innerHTML = '<i class="codicon codicon-chevron-down"></i> Show details';
+          }
+        }
+      });
+
+      // Approval delegation
+      $('apv').addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn');
+        if (!btn) return;
+        const action = btn.getAttribute('data-action');
+        if (action) approve(action);
+      });
+
+      function showApproval(step, d) {
+        stopTimer(); // Pause timer while waiting
+        if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
+
+        const a = $('apv'); let h = '';
+        if (step === 'plan') {
+          h = '<h3><i class="codicon codicon-note"></i> Review Project Plan</h3><div class="desc">Project: <b>' + d.projectName + '</b></div>';
+          if (d.entities && d.entities.length) { h += '<div class="lbl" style="margin-top:6px">Entities (' + d.entities.length + ')</div><div class="detail-list">'; d.entities.forEach(e => { h += '<div class="item"><i class="codicon codicon-symbol-class" style="margin-right:6px"></i> <div><b>' + e.name + '</b>' + (e.description ? '<br><span style="color:var(--fg3)">' + e.description + '</span>' : '') + '</div></div>' }); h += '</div>' }
+          if (d.features && d.features.length) { h += '<div class="lbl" style="margin-top:6px">Features (' + d.features.length + ')</div><div class="detail-list">'; d.features.forEach(f => { h += '<div class="item"><i class="codicon codicon-sparkle" style="margin-right:6px"></i> <div><b>' + f.name + '</b><br><span style="color:var(--fg3)">' + f.description + '</span></div></div>' }); h += '</div>' }
+          if (d.files && d.files.length) { h += '<div class="lbl" style="margin-top:6px">Files (' + d.files.length + ')</div><div class="detail-list">'; d.files.forEach(f => { h += '<div class="item"><i class="codicon codicon-file-code" style="margin-right:6px"></i> ' + f.path + '</div>' }); h += '</div>' }
+          h += '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-check"></i> Approve & Continue</button><button class="btn bd" data-action="cancel"><i class="codicon codicon-close"></i> Cancel</button></div>'
+        } else if (step === 'codegen_error') {
+          h = '<h3><i class="codicon codicon-error"></i> File Generation Failed</h3><div class="desc">' + d.explanation + '</div>';
+          h += '<div class="detail-list" style="margin-top:6px"><div class="item" style="color:var(--err)">File: ' + d.file + '</div><div class="item" style="color:var(--err)">Error: ' + d.error + '</div></div>';
+          h += '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="retry"><i class="codicon codicon-refresh"></i> Retry</button><button class="btn bg" data-action="skip"><i class="codicon codicon-debug-step-over"></i> Skip</button><button class="btn bd" data-action="cancel">Cancel</button></div>'
+        } else if (step === 'pre_debug') {
+          h = '<h3><i class="codicon codicon-pass"></i> Code Generation Complete</h3><div class="desc">' + d.message + '</div>';
+          if (d.fileList) { h += '<div class="detail-list" style="margin-top:6px">'; d.fileList.forEach(f => { h += '<div class="item" style="color:var(--ok)"><i class="codicon codicon-check" style="margin-right:6px"></i> ' + f + '</div>' }); h += '</div>' }
+          h += '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-play"></i> Run Debug Phase</button><button class="btn bd" data-action="cancel">Skip Debug</button></div>'
+        } else if (step === 'debug_fix') {
+          h = '<h3><i class="codicon codicon-wrench"></i> Debug Fixes Proposed</h3><div class="desc">' + d.explanation + '</div>';
+          if (d.errors) { h += '<div class="lbl" style="margin-top:6px">Errors Found</div><div class="detail-list">'; d.errors.forEach(e => { h += '<div class="item diff-rem"><i class="codicon codicon-error" style="margin-right:6px"></i> ' + e.substring(0, 150) + '...</div>' }); h += '</div>' }
+          if (d.fixes) { h += '<div class="lbl" style="margin-top:6px">Proposed Fixes</div><div class="detail-list">'; d.fixes.forEach(f => { h += '<div class="item diff-add"><i class="codicon codicon-file-code" style="margin-right:6px"></i> <div><b>' + f.file + '</b><br><span style="opacity:0.8">' + f.issue + '</span></div></div>' }); h += '</div>' }
+          h += '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-check"></i> Apply Fixes</button><button class="btn bg" data-action="skip"><i class="codicon codicon-debug-step-over"></i> Skip</button><button class="btn bd" data-action="cancel">Cancel</button></div>'
+        }
+        a.innerHTML = h; a.classList.add('v');
+        // Ensure parent section is open
+        $('pipe-body').classList.remove('collapsed');
+        document.querySelector('#pipe-body').previousElementSibling.querySelector('.chevron').classList.remove('collapsed');
+      }
+
+      window.addEventListener('message', ev => {
+        const m = ev.data;
+        switch (m.command) {
+          case 'promptHistory':
+            promptHistory = m.prompts || [];
+            historyIdx = -1;
+            break;
+          case 'healthStatus':
+            if (m.status === 'connected') {
+              $('sd').className = 'sd on';
+              $('st').innerHTML = '<b>Connected</b> · ' + (m.ollama === 'connected' ? 'Ollama <i class="codicon codicon-check"></i>' : 'Ollama <i class="codicon codicon-error"></i>');
+              if (buildLastUpdate && Date.now() - buildLastUpdate > 30000) buildLastUpdate = Date.now(); // reset timeout logic
+            } else {
+              $('sd').className = 'sd off';
+              $('st').innerHTML = '<b>Disconnected</b> · ' + m.url
+            }
+            break;
+          case 'buildStarted':
+            $('bb').disabled = true; $('cr').classList.remove('h'); $('inp').style.opacity = '.5'; $('inp').style.pointerEvents = 'none'; $('ps').classList.add('v'); $('lf').classList.remove('h'); $('rc').classList.remove('v'); $('apv').classList.remove('v'); rst(); $('pf').style.width = '0%'; $('pc').textContent = '0%'; log('Build started...');
+            $('logs-body').classList.remove('h');
+            break;
+          case 'buildProgress':
+            $('pf').style.width = m.progress + '%'; $('pc').textContent = m.progress + '%'; $('pm').textContent = m.message; $('ph').textContent = phase(m.message, m.progress); log(m.message.replace(/[🧠📋📁⚙️🔍🔧✅❌]/g, '').trim());
+            break;
+          case 'approvalNeeded':
+            showApproval(m.step, m.details); log('Waiting for approval: ' + m.step, 'fx');
+            break;
+          case 'fileGenerated':
+            if (m.status === 'success') log(m.path + ' (' + m.chars + ' chars)', 'ok');
+            else if (m.status === 'skipped') log('Skipped: ' + m.path, 'er');
+            else log('Failed: ' + m.path, 'er');
+            break;
+          case 'fixApplied':
+            log('Fixed: ' + m.file + ' (' + m.type + ') — ' + m.issue, 'fx');
+            break;
+          case 'buildComplete': {
+            stopTimer();
+            if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
+            $('bb').disabled = false; $('cr').classList.add('h'); $('inp').style.opacity = '1'; $('inp').style.pointerEvents = 'auto'; $('pf').style.width = '100%'; $('pc').textContent = '100%'; $('apv').classList.remove('v');
+            const r = m.result, rc = $('rc');
+            if (r.success) {
+              aDn('P'); aDn('C'); aDn('D');
+              rc.innerHTML = '<div style="display:flex;align-items:center;gap:6px;color:var(--ok)"><i class="codicon codicon-pass ri"></i><span class="rt">' + r.projectName + '</span></div><div class="rs"><div class="stat"><div class="sv">' + r.filesGenerated + '</div><div class="sl">Files</div></div><div class="stat"><div class="sv">' + r.debugAttempts + '</div><div class="sl">Cycles</div></div><div class="stat"><div class="sv">' + (r.duration / 1000).toFixed(1) + 's</div><div class="sl">Time</div></div><div class="stat"><div class="sv" style="color:var(--ok)"><i class="codicon codicon-check"></i></div><div class="sl">Status</div></div></div><div class="br" style="margin-top:4px"><button class="btn bp" data-cmd="openFolder" data-path="' + r.projectRoot.replace(/\\/g, '\\\\') + '"><i class="codicon codicon-folder-opened"></i> Open Project</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>';
+              log('Build succeeded!', 'ok');
+            } else {
+              aEr('D', 'Failed');
+              let errs = '';
+              if (r.errors && r.errors.length) {
+                errs = '<div class="err-expand" style="font-size:10px;color:var(--focus);cursor:pointer;margin-top:4px"><i class="codicon codicon-chevron-down"></i> Show details</div><div class="detail-list" style="display:none;margin-top:4px">' + r.errors.map(e => '<div class="item" style="color:var(--err)">' + linkify(e) + '</div>').join('') + '</div>';
+              }
+              rc.innerHTML = '<div style="display:flex;align-items:center;gap:6px;color:var(--err)"><i class="codicon codicon-error ri"></i><span class="rt">Build Failed</span></div><div class="rs"><div class="stat"><div class="sv">' + r.debugAttempts + '</div><div class="sl">Attempts</div></div><div class="stat"><div class="sv">' + (r.duration / 1000).toFixed(1) + 's</div><div class="sl">Time</div></div></div>' + errs + '<div class="br" style="margin-top:4px"><button class="btn bp" data-cmd="retryBuild"><i class="codicon codicon-refresh"></i> Retry</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>';
+              log('Build failed', 'er');
+            }
+            rc.classList.add('v'); $('ph').textContent = r.success ? 'Complete' : 'Failed';
+            break;
+          }
+          case 'buildCancelled':
+            stopTimer();
+            if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
+            $('bb').disabled = false; $('cr').classList.add('h'); $('inp').style.opacity = '1'; $('inp').style.pointerEvents = 'auto'; $('apv').classList.remove('v'); $('pm').textContent = 'Cancelled'; log('Cancelled by user', 'er');
+            break;
+          case 'buildError':
+            stopTimer();
+            if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
+            $('bb').disabled = false; $('cr').classList.add('h'); $('inp').style.opacity = '1'; $('inp').style.pointerEvents = 'auto'; $('apv').classList.remove('v'); $('pm').textContent = m.error; log('Error: ' + m.error, 'er');
+            break;
+        }
+      });
+    } catch (err) { dbg('SCRIPT ERROR: ' + err.message); }
+  </script>
+</body>
+
+</html>

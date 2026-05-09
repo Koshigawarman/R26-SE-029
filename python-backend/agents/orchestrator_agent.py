@@ -1,17 +1,34 @@
+"""
+AI Backend Builder — Interactive Orchestrator Agent
+
+Coordinates the multi-agent pipeline with human-in-the-loop approval gates.
+Combines:
+- Interactive approval system from HEAD
+- Critic + Episodic Memory system from origin/main
+- Advanced debugging + fixing workflow
+- SSE streaming support
+"""
+
 import os
 import json
 import time
 import logging
+import threading
+import queue
+import uuid
+
 from typing import Dict, Generator, List, Optional
 
 from schema import (
     BuildRequest,
     BuildResponse,
     CodeGenContext,
+    FileSpec,
     CriticStrategy,
     RuntimeErrorInfo,
     OrchestrationAttempt,
 )
+
 from agents.planner_agent import PlannerAgent
 from agents.codegen_agent import CodeGenAgent
 from agents.debug_agent import DebugAgent
@@ -20,29 +37,168 @@ from services.episodic_memory import EpisodicMemory
 
 logger = logging.getLogger(__name__)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Build Session
+# ─────────────────────────────────────────────────────────────────────────────
+
+class BuildSession:
+    """Thread-safe session for a single build run."""
+
+    def __init__(self):
+        self.id: str = str(uuid.uuid4())
+        self.event_queue: queue.Queue = queue.Queue()
+        self.approval_event: threading.Event = threading.Event()
+        self.approval_action: Optional[str] = None
+        self.approval_data: Optional[dict] = None
+        self.active: bool = True
+
+    def emit(self, event_type: str, data: dict):
+        self.event_queue.put({
+            "type": event_type,
+            "data": data
+        })
+
+    def wait_for_approval(
+        self,
+        step: str,
+        details: dict,
+        timeout: int = 600
+    ) -> str:
+
+        self.approval_event.clear()
+        self.approval_action = None
+
+        self.emit("approval_needed", {
+            "step": step,
+            **details
+        })
+
+        logger.info(f"⏸️ Waiting for approval at: {step}")
+
+        self.approval_event.wait(timeout=timeout)
+
+        action = self.approval_action or "cancel"
+
+        logger.info(f"▶️ User response: {action}")
+
+        return action
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Orchestrator Agent
+# ─────────────────────────────────────────────────────────────────────────────
+
 class OrchestratorAgent:
-    def __init__(self, ollama_url: str, models: dict, max_retries: int = 3, use_openrouter: bool = False, openrouter_api_key: str = ""):
+
+    def __init__(
+        self,
+        ollama_url: str,
+        models: dict,
+        max_retries: int = 3,
+        use_openrouter: bool = False,
+        openrouter_api_key: str = ""
+    ):
+
         self.ollama_url = ollama_url
-        self.planner_agent = PlannerAgent(ollama_url, models.get("planner"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
-        self.codegen_agent = CodeGenAgent(ollama_url, models.get("codegen"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
-        self.debug_agent = DebugAgent(ollama_url, models.get("debug"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
-        self.critic_agent = CriticAgent(ollama_url, models.get("critic"), use_openrouter=use_openrouter, openrouter_api_key=openrouter_api_key)
+
+        self.planner_agent = PlannerAgent(
+            ollama_url,
+            models.get("planner"),
+            use_openrouter=use_openrouter,
+            openrouter_api_key=openrouter_api_key
+        )
+
+        self.codegen_agent = CodeGenAgent(
+            ollama_url,
+            models.get("codegen"),
+            use_openrouter=use_openrouter,
+            openrouter_api_key=openrouter_api_key
+        )
+
+        self.debug_agent = DebugAgent(
+            ollama_url,
+            models.get("debug"),
+            use_openrouter=use_openrouter,
+            openrouter_api_key=openrouter_api_key
+        )
+
+        self.critic_agent = CriticAgent(
+            ollama_url,
+            models.get("critic"),
+            use_openrouter=use_openrouter,
+            openrouter_api_key=openrouter_api_key
+        )
+
         self.max_retries = max_retries
 
+        # Episodic Memory
         self.episodic_memory = EpisodicMemory(
-            memory_path=os.getenv("EPISODIC_MEMORY_PATH", "memory/episodic_memory.json")
+            memory_path=os.getenv(
+                "EPISODIC_MEMORY_PATH",
+                "memory/episodic_memory.json"
+            )
         )
 
-        # For PP1: seed initial curated cases if available.
         self.episodic_memory.seed_from_dataset(
-            os.getenv("ERROR_FIX_DATASET_PATH", "datasets/error_fix_cases.json")
+            os.getenv(
+                "ERROR_FIX_DATASET_PATH",
+                "datasets/error_fix_cases.json"
+            )
         )
 
-    def execute_stream(self, request: BuildRequest) -> Generator[str, None, None]:
+    # ─────────────────────────────────────────────────────────────────────
+    # Legacy Stream Support
+    # ─────────────────────────────────────────────────────────────────────
+
+    def execute_stream(self, request: BuildRequest):
+        session = BuildSession()
+
+        thread = threading.Thread(
+            target=self.execute_interactive,
+            args=(request, session),
+            daemon=True
+        )
+
+        thread.start()
+
+        while session.active or not session.event_queue.empty():
+
+            try:
+                event = session.event_queue.get(timeout=1)
+
+                yield self._format_sse(event)
+
+            except queue.Empty:
+                continue
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Interactive Entry Point
+    # ─────────────────────────────────────────────────────────────────────
+
+    def execute_interactive(
+        self,
+        request: BuildRequest,
+        session: BuildSession
+    ):
+
+        self._run(request, session)
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Core Pipeline
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _run(
+        self,
+        request: BuildRequest,
+        session: BuildSession
+    ):
+
         start_time = time.time()
+
         project_root = request.workspace_uri
         project_path = project_root
-        
+
         existing_contents: Dict[str, str] = {}
         attempts: List[OrchestrationAttempt] = []
 
@@ -54,201 +210,319 @@ class OrchestratorAgent:
         previous_critic_strategy: Optional[CriticStrategy] = None
         previous_fixed_files: List[str] = []
 
-        def yield_event(event_type: str, data: dict):
-            payload = json.dumps({"type": event_type, "data": data})
-            return f"data: {payload}\n\n"
+        try:
 
-        def status(message: str, progress: int, state: str):
-            logger.info(f"STATE -> {state}: {message}")
-            return yield_event(
-                "status",
+            # ═══════════════════════════════════════════════════════════
+            # PHASE 1 — PLANNING
+            # ═══════════════════════════════════════════════════════════
+
+            session.emit("status", {
+                "message": "🧠 Planning project architecture...",
+                "progress": 5,
+                "state": "PLANNING"
+            })
+
+            logger.info("=" * 60)
+            logger.info("🚀 PHASE 1 — PLANNING")
+            logger.info("=" * 60)
+
+            plan = self.planner_agent.execute(request.prompt)
+
+            project_path = os.path.join(
+                project_root,
+                plan.projectName
+            )
+
+            logger.info(
+                f"📋 Plan generated: {plan.projectName}"
+            )
+
+            # ─────────────────────────────────────────────────────────
+            # Approval Gate — Plan Review
+            # ─────────────────────────────────────────────────────────
+
+            action = session.wait_for_approval(
+                "plan",
                 {
-                    "message": message,
-                    "progress": progress,
-                    "state": state,
+                    "message": f"📋 Plan ready: {plan.projectName}",
+                    "projectName": plan.projectName,
+                    "entities": [
+                        e.model_dump() for e in plan.entities
+                    ],
+                    "features": [
+                        f.model_dump() for f in plan.features
+                    ],
+                    "files": [
+                        f.model_dump() for f in plan.files
+                    ],
+                    "options": ["approve", "cancel"]
                 }
             )
-        
-        try:
-            # Phase 1: Planning
 
-            yield status("🧠 STATE → PLANNING: Planning project architecture...", 5, "PLANNING")
+            if action == "cancel":
 
-            logger.info("\n" + "="*50)
-            logger.info(f"🚀 ORCHESTRATOR PHASE 1: PLANNING")
-            logger.info(f"Target Project Root: {project_root}")
-            logger.info("="*50)
-            
-            plan = self.planner_agent.execute(request.prompt)
-            project_path = os.path.join(project_root, plan.projectName)
-            
-            logger.info(f"📋 Plan generated successfully! Project Name: '{plan.projectName}'")
-            logger.info(f"📋 Total Entities: {len(plan.entities)} | Total Features: {len(plan.features)} | Total Files to Generate: {len(plan.files)}")
-            
-            logger.info(f"📋 Plan generated successfully! Project Name: '{plan.projectName}'")
-            logger.info(f"📋 Total Entities: {len(plan.entities)} | Total Features: {len(plan.features)} | Total Files to Generate: {len(plan.files)}")
-            
-            yield status(
-                f"📋 STATE → PLAN_READY: Plan ready with {len(plan.files)} files",
-                10,
-                "PLAN_READY"
-            )
+                session.emit("status", {
+                    "message": "❌ Build cancelled during planning.",
+                    "progress": 100
+                })
 
-            # PP1 Human-in-the-loop checkpoint placeholder.
-            # For now, auto-approve but show it in logs.
-            yield status(
-                "👤 STATE → PLAN_APPROVAL: Human approval checkpoint reached. Auto-approved for PP1 demo.",
-                12,
-                "PLAN_APPROVAL"
-            )
+                self._emit_complete(
+                    session,
+                    False,
+                    "unknown",
+                    project_root,
+                    0,
+                    0,
+                    ["Cancelled by user"],
+                    start_time
+                )
 
+                return
 
-            # Phase 2: Create Base Structure
-            logger.info("\n" + "="*50)
-            logger.info(f"📁 ORCHESTRATOR PHASE 2: SCAFFOLDING")
-            logger.info(f"Creating project directory at: {project_path}")
-            logger.info("="*50)
-            
-            yield status("📁 STATE → CREATING_STRUCTURE: Creating project structure...", 15, "CREATING_STRUCTURE")
-            
+            # ═══════════════════════════════════════════════════════════
+            # PHASE 2 — PROJECT SCAFFOLDING
+            # ═══════════════════════════════════════════════════════════
+
+            session.emit("status", {
+                "message": "📁 Creating project structure...",
+                "progress": 15,
+                "state": "CREATING_STRUCTURE"
+            })
+
             os.makedirs(project_path, exist_ok=True)
-            
+
             for file_spec in plan.files:
-                dirname = os.path.dirname(os.path.join(project_path, file_spec.path))
+
+                dirname = os.path.dirname(
+                    os.path.join(project_path, file_spec.path)
+                )
+
                 if dirname:
                     os.makedirs(dirname, exist_ok=True)
 
-            # Phase 3: Generate All Files
-            yield status("⚙️ STATE → GENERATING: Generating backend files...", 20, "GENERATING")
+            # ═══════════════════════════════════════════════════════════
+            # PHASE 3 — FILE GENERATION
+            # ═══════════════════════════════════════════════════════════
 
-            logger.info("\n" + "="*50)
-            logger.info(f"⚙️ ORCHESTRATOR PHASE 3: CODE GENERATION")
-            logger.info(f"Generating {len(plan.files)} files sequentially...")
-            logger.info("="*50)
+            session.emit("status", {
+                "message": "⚙️ Generating backend files...",
+                "progress": 20,
+                "state": "GENERATING"
+            })
+
             total_files = len(plan.files)
-            sorted_files = sorted(plan.files, key=lambda f: self._file_priority(f.path))
+
+            sorted_files = sorted(
+                plan.files,
+                key=lambda f: self._file_priority(f.path)
+            )
 
             context = CodeGenContext(
                 projectName=plan.projectName,
                 entities=plan.entities,
                 features=plan.features,
                 allFiles=plan.files,
-                existingFileContents=existing_contents
+                existingFileContents=existing_contents,
             )
 
             for i, file_spec in enumerate(sorted_files):
-                progress_pct = 20 + int((i / total_files) * 45)
-                yield status(
-                    f"⚙️ STATE → GENERATING: ({i + 1}/{total_files}) {file_spec.path}",
-                    progress_pct,
-                    "GENERATING"
-                )                
-                generated = self.codegen_agent.execute(file_spec, context)
-                
-                if generated.status == 'generated' and generated.content:
-                    self._write_project_file(project_path, generated.path, generated.content)
-                    existing_contents[generated.path] = generated.content
-                    context.existingFileContents = existing_contents
-                    files_generated += 1
-                else:
-                    logger.warning(
-                        f"File generation failed for {file_spec.path}: {generated.errorMessage}"
-                    )
 
+                if not session.active:
+                    return
 
-            # Phase 4: Debug Loop
-            logger.info("\n" + "="*50)
-            logger.info(f"🔍 ORCHESTRATOR PHASE 4: DEBUG LOOP")
-            logger.info(f"Max configured retries: {self.max_retries}")
-            logger.info("="*50)
-            
-            debug_success = False
-            
-            for attempt in range(1, self.max_retries + 1):
-                debug_attempt_count = attempt
-                progress_pct = 70 + int((attempt / self.max_retries) * 25)
-                yield status(
-                    f"🔍 STATE → TESTING: Debug attempt {attempt}/{self.max_retries}",
-                    progress_pct,
-                    "TESTING"
+                progress_pct = 20 + int(
+                    (i / total_files) * 45
                 )
-                
-                debug_result = self.debug_agent.execute(project_path)
-                
-                if debug_result.success:
-                    logger.info(f"✅ Debug Cycle [{attempt}] succeeded! Zero runtime errors.")
-                    debug_success = True
-                    yield status(
-                        "✅ STATE → VERIFIED: Generated backend started successfully",
-                        95,
-                        "VERIFIED"
+
+                session.emit("status", {
+                    "message": f"⚙️ Generating ({i+1}/{total_files}) {file_spec.path}",
+                    "progress": progress_pct,
+                    "state": "GENERATING"
+                })
+
+                generated = self.codegen_agent.execute(
+                    file_spec,
+                    context
+                )
+
+                if generated.status == "generated" and generated.content:
+
+                    self._write_project_file(
+                        project_path,
+                        generated.path,
+                        generated.content
                     )
 
+                    existing_contents[generated.path] = generated.content
+
+                    context.existingFileContents = existing_contents
+
+                    files_generated += 1
+
+                    session.emit("file_generated", {
+                        "path": generated.path,
+                        "status": "success",
+                        "chars": len(generated.content),
+                        "index": i + 1,
+                        "total": total_files,
+                    })
+
+                else:
+
+                    error_msg = generated.errorMessage or "Unknown error"
+
+                    logger.error(
+                        f"Failed generating {file_spec.path}: {error_msg}"
+                    )
+
+                    action = session.wait_for_approval(
+                        "codegen_error",
+                        {
+                            "message": f"❌ Failed generating {file_spec.path}",
+                            "file": file_spec.path,
+                            "error": error_msg,
+                            "options": ["retry", "skip", "cancel"]
+                        }
+                    )
+
+                    if action == "retry":
+
+                        regenerated = self.codegen_agent.execute(
+                            file_spec,
+                            context
+                        )
+
+                        if regenerated.status == "generated":
+
+                            self._write_project_file(
+                                project_path,
+                                regenerated.path,
+                                regenerated.content
+                            )
+
+                            existing_contents[regenerated.path] = regenerated.content
+
+                            session.emit("file_generated", {
+                                "path": regenerated.path,
+                                "status": "success",
+                                "chars": len(regenerated.content),
+                                "index": i + 1,
+                                "total": total_files,
+                            })
+
+                    elif action == "cancel":
+
+                        self._emit_complete(
+                            session,
+                            False,
+                            plan.projectName,
+                            project_path,
+                            files_generated,
+                            0,
+                            ["Cancelled during generation"],
+                            start_time
+                        )
+
+                        return
+
+            # ─────────────────────────────────────────────────────────
+            # Approval Gate — Before Debug
+            # ─────────────────────────────────────────────────────────
+
+            action = session.wait_for_approval(
+                "pre_debug",
+                {
+                    "message": "✅ File generation complete. Proceed to debug?",
+                    "filesGenerated": files_generated,
+                    "fileList": list(existing_contents.keys()),
+                    "options": ["approve", "cancel"]
+                }
+            )
+
+            if action == "cancel":
+
+                self._emit_complete(
+                    session,
+                    False,
+                    plan.projectName,
+                    project_path,
+                    files_generated,
+                    0,
+                    ["Cancelled before debug"],
+                    start_time
+                )
+
+                return
+
+            # ═══════════════════════════════════════════════════════════
+            # PHASE 4 — DEBUG LOOP
+            # ═══════════════════════════════════════════════════════════
+
+            debug_success = False
+
+            for attempt in range(1, self.max_retries + 1):
+
+                debug_attempt_count = attempt
+
+                progress_pct = 70 + int(
+                    (attempt / self.max_retries) * 25
+                )
+
+                session.emit("status", {
+                    "message": f"🔍 Debug attempt {attempt}/{self.max_retries}",
+                    "progress": progress_pct,
+                    "state": "TESTING"
+                })
+
+                debug_result = self.debug_agent.execute(
+                    project_path
+                )
+
+                # ─────────────────────────────────────────────────────
+                # SUCCESS
+                # ─────────────────────────────────────────────────────
+
+                if debug_result.success:
+
+                    debug_success = True
+
+                    session.emit("status", {
+                        "message": "✅ Backend verified successfully",
+                        "progress": 95,
+                        "state": "VERIFIED"
+                    })
+
+                    # Store successful fix case
                     if previous_failed_errors and previous_critic_strategy:
+
                         self.episodic_memory.store_success_case(
                             errors=previous_failed_errors,
                             critic_strategy=previous_critic_strategy,
                             fixed_files=previous_fixed_files,
                         )
 
-                        yield status(
-                            "🧠 STATE → MEMORY_UPDATE: Successful error-to-fix case stored in episodic memory",
-                            97,
-                            "MEMORY_UPDATE"
-                        )
-
-                    attempts.append(
-                        OrchestrationAttempt(
-                            attempt=attempt,
-                            state="VERIFIED",
-                            success=True,
-                            errors=[],
-                            memory_matches_count=0,
-                            critic_strategy=None,
-                            fixed_files=[],
-                        )
-                    )
-
                     break
-                    
-                latest_errors = [e.message for e in debug_result.errors]
-                
-                attempts.append(
-                    OrchestrationAttempt(
-                        attempt=attempt,
-                        state="ERROR_RECEIVED",
-                        success=False,
-                        errors=latest_errors,
-                        memory_matches_count=0,
-                        critic_strategy=None,
-                        fixed_files=[],
-                    )
-                )
 
-                yield status(
-                    f"❌ STATE → ERROR_RECEIVED: {len(debug_result.errors)} error(s) captured",
-                    progress_pct,
-                    "ERROR_RECEIVED"
-                )
+                # ─────────────────────────────────────────────────────
+                # ERRORS DETECTED
+                # ─────────────────────────────────────────────────────
 
-                # Stop if retry budget is exhausted.
+                latest_errors = [
+                    e.message for e in debug_result.errors
+                ]
+
+                session.emit("status", {
+                    "message": f"❌ {len(debug_result.errors)} runtime errors found",
+                    "progress": progress_pct,
+                    "state": "ERROR_RECEIVED"
+                })
+
                 if attempt == self.max_retries:
-                    yield status(
-                        "🛑 STATE → FAILED_SAFE_EXIT: Retry budget exhausted",
-                        100,
-                        "FAILED_SAFE_EXIT"
-                    )
                     break
 
-                    
-                # ─────────────────────────────────────────────────────────
-                # Memory Retrieval
-                # ─────────────────────────────────────────────────────────
-                yield status(
-                    "🧠 STATE → MEMORY_RETRIEVAL: Retrieving similar past error-fix cases...",
-                    progress_pct + 2,
-                    "MEMORY_RETRIEVAL"
-                )
+                # ─────────────────────────────────────────────────────
+                # MEMORY RETRIEVAL
+                # ─────────────────────────────────────────────────────
 
                 memory_matches = self.episodic_memory.retrieve_similar(
                     errors=debug_result.errors,
@@ -256,58 +530,78 @@ class OrchestratorAgent:
                     top_k=3,
                 )
 
-                # ─────────────────────────────────────────────────────────
-                # Critic Strategy Generation
-                # ─────────────────────────────────────────────────────────
-                yield status(
-                    "🧩 STATE → CRITIC_ANALYSIS: Critic Agent generating fixing strategy...",
-                    progress_pct + 4,
-                    "CRITIC_ANALYSIS"
-                )
-
-                file_list = self._list_project_files(project_path)
+                # ─────────────────────────────────────────────────────
+                # CRITIC ANALYSIS
+                # ─────────────────────────────────────────────────────
 
                 critic_strategy = self.critic_agent.execute(
                     errors=debug_result.errors,
                     stderr=debug_result.stderr,
                     stdout=debug_result.stdout,
                     memory_matches=memory_matches,
-                    file_list=file_list,
+                    file_list=self._list_project_files(project_path),
                     attempt=attempt,
                 )
 
-                yield status(
-                    f"🧩 Critic Strategy: {critic_strategy.fixing_strategy[:180]}",
-                    progress_pct + 6,
-                    "CRITIC_ANALYSIS"
+                # ─────────────────────────────────────────────────────
+                # Approval Gate — Apply Fixes
+                # ─────────────────────────────────────────────────────
+
+                action = session.wait_for_approval(
+                    "debug_fix",
+                    {
+                        "message": f"🔧 Apply AI fixes for attempt {attempt}?",
+                        "strategy": critic_strategy.fixing_strategy,
+                        "affectedFiles": critic_strategy.affected_files,
+                        "options": ["approve", "skip", "cancel"]
+                    }
                 )
 
-                # ─────────────────────────────────────────────────────────
-                # Code Agent applies the strategy
-                # ─────────────────────────────────────────────────────────
-                yield status(
-                    "🔧 STATE → CODE_FIXING: CodeGen Agent applying Critic strategy...",
-                    progress_pct + 8,
-                    "CODE_FIXING"
-                )
+                if action == "cancel":
+
+                    self._emit_complete(
+                        session,
+                        False,
+                        plan.projectName,
+                        project_path,
+                        files_generated,
+                        debug_attempt_count,
+                        latest_errors,
+                        start_time
+                    )
+
+                    return
+
+                elif action == "skip":
+                    continue
+
+                # ─────────────────────────────────────────────────────
+                # APPLY FIXES
+                # ─────────────────────────────────────────────────────
 
                 affected_files = self._choose_affected_files(
-                    critic_strategy=critic_strategy,
-                    errors=debug_result.errors,
-                    existing_contents=existing_contents,
-                    project_path=project_path,
+                    critic_strategy,
+                    debug_result.errors,
+                    existing_contents,
+                    project_path,
                 )
 
                 fixed_files: List[str] = []
 
                 for affected_file in affected_files:
-                    original_content = self._read_project_file(project_path, affected_file)
+
+                    original_content = self._read_project_file(
+                        project_path,
+                        affected_file
+                    )
 
                     if not original_content:
-                        logger.warning(f"Skipping fix because file not found/readable: {affected_file}")
                         continue
 
-                    error_log = self._build_error_log(debug_result.errors, debug_result.stderr)
+                    error_log = self._build_error_log(
+                        debug_result.errors,
+                        debug_result.stderr
+                    )
 
                     fixed_result = self.codegen_agent.fix_file_with_strategy(
                         file_path=affected_file,
@@ -318,151 +612,246 @@ class OrchestratorAgent:
                     )
 
                     if fixed_result.status == "fixed" and fixed_result.content:
-                        self._write_project_file(project_path, fixed_result.path, fixed_result.content)
+
+                        self._write_project_file(
+                            project_path,
+                            fixed_result.path,
+                            fixed_result.content
+                        )
+
                         existing_contents[fixed_result.path] = fixed_result.content
-                        context.existingFileContents = existing_contents
+
                         fixed_files.append(fixed_result.path)
 
-                        yield status(
-                            f"🔧 Fixed file generated: {fixed_result.path}",
-                            progress_pct + 10,
-                            "CODE_FIXING"
-                        )
-                    else:
-                        logger.warning(
-                            f"CodeGen failed to fix {affected_file}: {fixed_result.errorMessage}"
-                        )
-
-                # Save attempt record for report/evidence.
-                attempts[-1].memory_matches_count = len(memory_matches)
-                attempts[-1].critic_strategy = critic_strategy
-                attempts[-1].fixed_files = fixed_files
-                attempts[-1].state = "FIX_APPLIED" if fixed_files else "FIX_FAILED"
+                        session.emit("fix_applied", {
+                            "file": fixed_result.path,
+                            "type": "critic_fix"
+                        })
 
                 previous_failed_errors = debug_result.errors
                 previous_critic_strategy = critic_strategy
                 previous_fixed_files = fixed_files
 
-                if not fixed_files:
-                    yield status(
-                        "⚠️ STATE → FIX_FAILED: No file was fixed. Retrying may fail.",
-                        progress_pct + 10,
-                        "FIX_FAILED"
+                attempts.append(
+                    OrchestrationAttempt(
+                        attempt=attempt,
+                        state="FIX_APPLIED",
+                        success=False,
+                        errors=latest_errors,
+                        memory_matches_count=len(memory_matches),
+                        critic_strategy=critic_strategy,
+                        fixed_files=fixed_files,
                     )
-                else:
-                    yield status(
-                        "🔁 STATE → RETESTING: Fix applied. Retesting in next loop...",
-                        progress_pct + 12,
-                        "RETESTING"
-                    )
+                )
 
-            # ─────────────────────────────────────────────────────────────
-            # Final Response
-            # ─────────────────────────────────────────────────────────────
-            duration = time.time() - start_time
-
-            response = BuildResponse(
-                success=debug_success,
-                projectName=plan.projectName,
-                projectRoot=project_path,
-                filesGenerated=len(existing_contents),
-                debugAttempts=debug_attempt_count,
-                errors=latest_errors if not debug_success else [],
-                duration=duration,
-            )
+            # ═══════════════════════════════════════════════════════════
+            # FINAL RESPONSE
+            # ═══════════════════════════════════════════════════════════
 
             if debug_success:
-                yield status("✅ Build complete!", 100, "COMPLETE")
+
+                session.emit("status", {
+                    "message": "✅ Build complete!",
+                    "progress": 100,
+                    "state": "COMPLETE"
+                })
+
             else:
-                yield status("❌ Build failed after max retries", 100, "FAILED")
 
-            yield yield_event("complete", response.model_dump())
+                session.emit("status", {
+                    "message": "❌ Build failed after max retries",
+                    "progress": 100,
+                    "state": "FAILED"
+                })
 
-        except Exception as e:
-            logger.exception("Fatal error during orchestration")
-
-            duration = time.time() - start_time
-
-            response = BuildResponse(
-                success=False,
-                projectName="unknown",
-                projectRoot=project_path,
-                filesGenerated=files_generated,
-                debugAttempts=debug_attempt_count,
-                errors=[str(e)],
-                duration=duration,
+            self._emit_complete(
+                session,
+                debug_success,
+                plan.projectName,
+                project_path,
+                len(existing_contents),
+                debug_attempt_count,
+                latest_errors if not debug_success else [],
+                start_time
             )
 
-            yield status(f"❌ Fatal Error: {str(e)}", 100, "FATAL_ERROR")
-            yield yield_event("complete", response.model_dump())
+        except Exception as e:
+
+            logger.exception("Fatal orchestration error")
+
+            session.emit("status", {
+                "message": f"❌ Fatal Error: {str(e)}",
+                "progress": 100,
+                "state": "FATAL_ERROR"
+            })
+
+            self._emit_complete(
+                session,
+                False,
+                "unknown",
+                project_root,
+                files_generated,
+                debug_attempt_count,
+                [str(e)],
+                start_time
+            )
 
     # ─────────────────────────────────────────────────────────────────────
-    # Helper methods
+    # Helper Methods
     # ─────────────────────────────────────────────────────────────────────
+
+    def _emit_complete(
+        self,
+        session,
+        success,
+        name,
+        root,
+        files,
+        attempts,
+        errors,
+        start
+    ):
+
+        duration = time.time() - start
+
+        response = BuildResponse(
+            success=success,
+            projectName=name,
+            projectRoot=root,
+            filesGenerated=files,
+            debugAttempts=attempts,
+            errors=errors,
+            duration=duration,
+        )
+
+        session.emit("complete", response.model_dump())
+
+        session.active = False
+
+    @staticmethod
+    def _format_sse(event: dict) -> str:
+        return f"data: {json.dumps(event)}\n\n"
 
     def _file_priority(self, path: str) -> int:
+
         if path == "package.json":
             return 0
+
         if path == ".env":
             return 1
+
         if path.startswith("config/"):
             return 2
+
         if path.startswith("models/"):
             return 3
+
         if path.startswith("middleware/"):
             return 4
+
         if path.startswith("services/"):
             return 5
+
         if path.startswith("controllers/"):
             return 6
+
         if path.startswith("routes/"):
             return 7
+
         if path == "app.js":
             return 8
+
         return 9
 
-    def _write_project_file(self, project_path: str, relative_path: str, content: str) -> None:
-        file_path = os.path.join(project_path, relative_path)
-        os.makedirs(os.path.dirname(file_path), exist_ok=True) if os.path.dirname(file_path) else None
+    def _write_project_file(
+        self,
+        project_path: str,
+        relative_path: str,
+        content: str
+    ):
+
+        file_path = os.path.join(
+            project_path,
+            relative_path
+        )
+
+        directory = os.path.dirname(file_path)
+
+        if directory:
+            os.makedirs(directory, exist_ok=True)
 
         with open(file_path, "w", encoding="utf-8") as file:
             file.write(content)
 
-    def _read_project_file(self, project_path: str, relative_path: str) -> str:
-        file_path = os.path.join(project_path, relative_path)
+    def _read_project_file(
+        self,
+        project_path: str,
+        relative_path: str
+    ) -> str:
+
+        file_path = os.path.join(
+            project_path,
+            relative_path
+        )
 
         if not os.path.exists(file_path):
             return ""
 
         try:
+
             with open(file_path, "r", encoding="utf-8") as file:
                 return file.read()
+
         except Exception as e:
-            logger.warning(f"Failed to read {relative_path}: {e}")
+
+            logger.warning(
+                f"Failed reading {relative_path}: {e}"
+            )
+
             return ""
 
-    def _list_project_files(self, project_path: str) -> List[str]:
+    def _list_project_files(
+        self,
+        project_path: str
+    ) -> List[str]:
+
         files: List[str] = []
 
         for root, dirs, filenames in os.walk(project_path):
-            # Ignore heavy/generated folders.
-            dirs[:] = [d for d in dirs if d not in ["node_modules", ".git"]]
+
+            dirs[:] = [
+                d for d in dirs
+                if d not in ["node_modules", ".git"]
+            ]
 
             for filename in filenames:
+
                 if filename.endswith((".js", ".json", ".env")):
+
                     full_path = os.path.join(root, filename)
-                    relative_path = os.path.relpath(full_path, project_path).replace("\\", "/")
+
+                    relative_path = os.path.relpath(
+                        full_path,
+                        project_path
+                    ).replace("\\", "/")
+
                     files.append(relative_path)
 
         return sorted(files)
 
-    def _build_error_log(self, errors: List[RuntimeErrorInfo], stderr: str) -> str:
+    def _build_error_log(
+        self,
+        errors: List[RuntimeErrorInfo],
+        stderr: str
+    ) -> str:
+
         parts: List[str] = []
 
         if stderr:
             parts.append(stderr[:3000])
 
         for err in errors:
+
             parts.append(f"Type: {err.type}")
             parts.append(f"Message: {err.message}")
 
@@ -484,34 +873,44 @@ class OrchestratorAgent:
         existing_contents: Dict[str, str],
         project_path: str,
     ) -> List[str]:
-        """
-        Select files for CodeGenAgent to patch.
-
-        Priority:
-        1. Critic Agent affected files
-        2. Files detected from error stack
-        3. app.js fallback
-        """
 
         candidates: List[str] = []
 
         for file in critic_strategy.affected_files:
-            normalized = self._normalize_file_path(file, existing_contents, project_path)
+
+            normalized = self._normalize_file_path(
+                file,
+                existing_contents,
+                project_path
+            )
+
             if normalized and normalized not in candidates:
                 candidates.append(normalized)
 
         for err in errors:
+
             if err.file:
-                normalized = self._normalize_file_path(err.file, existing_contents, project_path)
+
+                normalized = self._normalize_file_path(
+                    err.file,
+                    existing_contents,
+                    project_path
+                )
+
                 if normalized and normalized not in candidates:
                     candidates.append(normalized)
 
         if not candidates:
-            fallback = self._normalize_file_path("app.js", existing_contents, project_path)
+
+            fallback = self._normalize_file_path(
+                "app.js",
+                existing_contents,
+                project_path
+            )
+
             if fallback:
                 candidates.append(fallback)
 
-        # For PP1, patch max 2 files per attempt to keep model usage small.
         return candidates[:2]
 
     def _normalize_file_path(
@@ -520,9 +919,6 @@ class OrchestratorAgent:
         existing_contents: Dict[str, str],
         project_path: str,
     ) -> Optional[str]:
-        """
-        Convert model/stack returned file paths into actual relative project paths.
-        """
 
         if not file_path:
             return None
@@ -530,27 +926,37 @@ class OrchestratorAgent:
         cleaned = file_path.replace("\\", "/").strip()
         cleaned = cleaned.lstrip("./")
 
-        # Direct match in current generated contents.
         if cleaned in existing_contents:
             return cleaned
 
-        # Direct match on disk.
-        if os.path.exists(os.path.join(project_path, cleaned)):
+        if os.path.exists(
+            os.path.join(project_path, cleaned)
+        ):
             return cleaned
 
-        # Sometimes stack gives only app.js or controller file name.
         basename = os.path.basename(cleaned)
 
         for known_path in existing_contents.keys():
+
             if os.path.basename(known_path) == basename:
                 return known_path
 
         for root, dirs, files in os.walk(project_path):
-            dirs[:] = [d for d in dirs if d not in ["node_modules", ".git"]]
+
+            dirs[:] = [
+                d for d in dirs
+                if d not in ["node_modules", ".git"]
+            ]
 
             for filename in files:
+
                 if filename == basename:
+
                     full_path = os.path.join(root, filename)
-                    return os.path.relpath(full_path, project_path).replace("\\", "/")
+
+                    return os.path.relpath(
+                        full_path,
+                        project_path
+                    ).replace("\\", "/")
 
         return None

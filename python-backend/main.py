@@ -225,15 +225,21 @@ async def generate(req: GenerateRequest):
 @app.post("/api/build")
 async def build_project(req: BuildRequest, request: Request):
     """
-    Start the autonomous backend build process.
+    Start the interactive backend build process.
     Returns Server-Sent Events (SSE) stream.
+    The orchestrator runs in a background thread and pauses at
+    approval gates. The user approves via POST /api/build/{id}/approve.
     """
+    import threading
+    from agents.orchestrator_agent import BuildSession
+
     # Fallback to default models if not provided
     if not req.planner_model: req.planner_model = DEFAULT_MODELS["planner"]
     if not req.codegen_model: req.codegen_model = DEFAULT_MODELS["codegen"]
     if not req.debug_model: req.debug_model = DEFAULT_MODELS["debug"]
     if not req.critic_model: req.critic_model = DEFAULT_MODELS["critic"]
     if not req.max_retries: req.max_retries = MAX_RETRIES
+
 
     orchestrator = OrchestratorAgent(
         ollama_url=OLLAMA_URL,
@@ -242,34 +248,95 @@ async def build_project(req: BuildRequest, request: Request):
             "codegen": req.codegen_model,
             "debug": req.debug_model,
             "critic": req.critic_model,
+
         },
         max_retries=req.max_retries,
         use_openrouter=USE_OPENROUTER,
-        openrouter_api_key=OPENROUTER_API_KEY
+        openrouter_api_key=OPENROUTER_API_KEY,
     )
 
+    # Create a session for this build
+    session = BuildSession()
+    _active_sessions[session.id] = session
+    logger.info(f"Created build session: {session.id}")
+
+    # Run the orchestrator in a background thread so it can block at
+    # approval gates without freezing the async event loop.
+    thread = threading.Thread(
+        target=orchestrator.execute_interactive,
+        args=(req, session),
+        daemon=True,
+    )
+    thread.start()
+
     async def event_generator():
-        # The orchestrator's execute_stream yields SSE formatted strings like:
-        # data: {"type": "status", "data": {...}}\n\n
-        # sse_starlette expects a dict or string without 'data: ' and '\n\n'
-        # Let's adapt the generator for EventSourceResponse
-        
-        try:
-            for chunk in orchestrator.execute_stream(req):
-                # The orchestrator is already formatting as SSE. 
-                # We can just yield the raw string, but sse_starlette prefers dicts.
-                # Let's clean the prefix and suffix added by the orchestrator so sse-starlette can format it.
-                if chunk.startswith("data: "):
-                    content = chunk[6:].strip()
-                    yield {"data": content}
-                
-                # Check for client disconnect
+        import asyncio, json as _json
+
+        # First event: send the session ID so the client can POST approvals
+        yield {"data": _json.dumps({"type": "session", "data": {"sessionId": session.id}})}
+
+        while session.active:
+            try:
+                event = session.event_queue.get(timeout=0.3)
+                yield {"data": _json.dumps(event)}
+
+                if event.get("type") == "complete":
+                    break
+            except Exception:
+                # queue.Empty — just keep polling
                 if await request.is_disconnected():
                     logger.info("Client disconnected from build stream.")
+                    session.active = False
                     break
-        except Exception as e:
-            logger.error(f"Error in stream generator: {str(e)}")
-            import json
-            yield {"data": json.dumps({"type": "status", "data": {"message": f"❌ Stream Error: {str(e)}", "progress": 100}})}
+                await asyncio.sleep(0.1)
+
+        # Cleanup
+        _active_sessions.pop(session.id, None)
+        logger.info(f"Build session {session.id} ended.")
 
     return EventSourceResponse(event_generator())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Session Management & Approval Endpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Active build sessions (keyed by session ID)
+_active_sessions: dict = {}
+
+
+class ApprovalRequest(BaseModel):
+    action: str          # "approve" | "skip" | "retry" | "cancel"
+    data: dict = {}      # optional extra data from the user
+
+
+@app.post("/api/build/{session_id}/approve")
+async def approve_build_step(session_id: str, body: ApprovalRequest):
+    """
+    Approve or reject the current approval gate for a running build.
+    The orchestrator thread is blocking on session.approval_event — this
+    endpoint sets the action and unblocks it.
+    """
+    from agents.orchestrator_agent import BuildSession
+
+    session: BuildSession | None = _active_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Build session not found or already completed.")
+
+    logger.info(f"Approval received for session {session_id}: action={body.action}")
+    session.approval_action = body.action
+    session.approval_data = body.data
+    session.approval_event.set()
+
+    return {"status": "ok", "action": body.action}
+
+
+@app.get("/api/build/sessions")
+async def list_sessions():
+    """List active build sessions (for debugging)."""
+    return {
+        "sessions": [
+            {"id": sid, "active": s.active}
+            for sid, s in _active_sessions.items()
+        ]
+    }
