@@ -213,3 +213,8 @@ class GenerateRequest(BaseModel):
     system: str = ""
     temperature: float = 0.3
     max_tokens: int = 4096
+    
+
+class ApprovalRequest(BaseModel):
+    action: str          # "approve" | "skip" | "retry" | "cancel"
+    data: dict = {} 
