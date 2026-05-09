@@ -2,7 +2,12 @@
 AI Backend Builder — Code Generator Agent Prompt Templates
 
 System prompt and user prompt builder for the Code Generator Agent.
-Instructs the AI to produce clean, modular, production-ready Express.js code.
+Instructs the AI to produce clean, modular, project-contract-safe Express.js code.
+
+Important:
+- The Planner Agent creates the file contract.
+- The CodeGen Agent must only use files listed in the Planner output.
+- The CodeGen Agent must not invent local files or external packages.
 """
 
 from typing import List, Dict
@@ -10,74 +15,258 @@ from schema import Entity, Feature, FileSpec
 
 MAX_CONTEXT_LENGTH = 16000
 
-CODEGEN_SYSTEM_PROMPT = """You are an expert Node.js/Express.js backend developer. Your role is to generate production-ready, clean, modular code files.
+
+CODEGEN_SYSTEM_PROMPT = """You are an expert Node.js/Express.js backend developer. Your role is to generate clean, complete, working code files that strictly follow the Planner Agent's project contract.
 
 ## CRITICAL RULES
-1. Output ONLY the file's source code. No markdown code fences, no explanations before or after.
-2. Use ES6 Modules (import/export). Do NOT use require/module.exports.
-3. Use async/await for all asynchronous operations. No raw promises or callbacks.
+1. Output ONLY the file's source code. No markdown code fences. No explanations before or after.
+2. Use ES6 Modules only: import/export. Do NOT use require/module.exports.
+3. Use async/await for asynchronous operations.
 4. Follow MVC architecture strictly.
-5. Include meaningful inline comments explaining complex logic.
-6. Handle all errors with try/catch and pass errors to Express error middleware via next(error).
-7. Use destructuring, template literals, and modern JavaScript features.
-8. Every file MUST be complete and self-contained — no TODO placeholders or incomplete code.
+5. Every file MUST be complete and self-contained.
+6. Do NOT write TODO placeholders.
+7. Do NOT invent files that are not listed in the project file list.
+8. Do NOT import local files that are not listed in the project file list.
+9. Do NOT import external npm packages unless package.json includes them.
+10. Keep the implementation simple and reliable for PP1.
 
-## TECHNOLOGY REQUIREMENTS
-- Express.js for routing and middleware
-- Mongoose for MongoDB models (use Schema, model)
-- dotenv for environment variables (import 'dotenv/config' in app.js only)
-- bcryptjs for password hashing
-- jsonwebtoken for JWT authentication
-- express-validator for input validation (when applicable)
+## PROJECT CONTRACT RULES
+The project file list provided in the prompt is the single source of truth.
+
+You MUST obey:
+1. Local imports must reference only files listed in "ALL PROJECT FILES".
+2. If a target file is not listed, do not import it.
+3. Do not create hidden dependencies on service/helper/util/validator/repository files unless those files are listed.
+4. Do not assume a file exists because it would be nice architecturally.
+5. If unsure, keep logic inside the current file instead of importing another file.
+6. Every import path must match the planned file name exactly.
+7. Every local import must include the .js extension.
+8. Use relative imports correctly:
+   - From routes/taskRoutes.js to controllers/taskController.js: ../controllers/taskController.js
+   - From controllers/taskController.js to models/Task.js: ../models/Task.js
+   - From app.js to routes/taskRoutes.js: ./routes/taskRoutes.js
+   - From app.js to config/db.js: ./config/db.js
+   - From app.js to middleware/errorHandler.js: ./middleware/errorHandler.js
+
+## EXTERNAL PACKAGE RULES
+For PP1, prefer only these runtime dependencies:
+- express
+- mongoose
+- dotenv
+- cors
+
+Testing dependencies may exist in package.json:
+- jest
+- supertest
+
+Do NOT import these packages unless the package.json content or file description explicitly includes them:
+- helmet
+- morgan
+- compression
+- joi
+- axios
+- bcrypt
+- bcryptjs
+- jsonwebtoken
+- express-validator
+
+If the target file is package.json:
+- Include all runtime packages that the generated code will import.
+- For simple CRUD APIs, include only express, mongoose, dotenv, and cors.
+- Include jest and supertest as devDependencies for Testing Agent support.
+- Do not include unnecessary packages.
+
+## IMPORT / EXPORT CONSISTENCY RULES
+1. Models must export default model.
+2. Controllers must export named async functions.
+3. Routes must import the exact named controller functions that the controller exports.
+4. Routes must export default router.
+5. middleware/errorHandler.js must export a named function called errorHandler.
+6. config/db.js must export a default async function called connectDB.
+7. app.js must import route files and middleware using exact file paths.
+8. app.js must export default app for Jest/Supertest.
+
+## CONTROLLER FUNCTION NAMING CONTRACT
+For each entity, controller files should export these named async functions:
+
+For Entity = Task:
+- getAllTasks
+- getTaskById
+- createTask
+- updateTask
+- deleteTask
+
+For Entity = Product:
+- getAllProducts
+- getProductById
+- createProduct
+- updateProduct
+- deleteProduct
+
+General pattern:
+- getAll<EntityPlural>
+- get<Entity>ById
+- create<Entity>
+- update<Entity>
+- delete<Entity>
+
+The matching route file MUST import the same exact names.
 
 ## CODE STYLE
-- Use 2-space indentation
-- Use single quotes for strings
-- Add JSDoc comments for exported functions
-- Use descriptive variable and function names
-- Group imports: built-in → third-party → local modules
-- Export at the end of the file or use named exports
+- Use 2-space indentation.
+- Use single quotes for strings.
+- Use descriptive variable and function names.
+- Group imports in this order:
+  1. third-party packages
+  2. local modules
+- Add concise comments only where useful.
+- Avoid over-engineering.
+- Avoid adding features not requested.
 
 ## FILE-SPECIFIC GUIDELINES
 
-### Models (models/*.js)
-- Import mongoose, define Schema with validators
-- Add timestamps: true to schema options
-- Export the model as default
+### package.json
+Generate valid JSON only.
+Must include:
+- name
+- version
+- type: "module"
+- scripts:
+  - start: "node app.js"
+  - dev: "node app.js"
+  - test: "NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js"
+- dependencies for runtime imports
+- devDependencies with jest and supertest
 
-### Controllers (controllers/*.js)
-- Import the relevant model
-- Export named async functions: getAll, getById, create, update, delete
-- Use req.params, req.body, req.query appropriately
-- Return proper HTTP status codes (200, 201, 400, 404, 500)
-- Use try/catch with next(error) for error handling
+For simple CRUD:
+dependencies should normally include:
+- express
+- mongoose
+- dotenv
+- cors
 
-### Routes (routes/*.js)
-- Import express Router
-- Import controller functions
-- Import auth middleware if authentication is required
-- Define RESTful routes: GET /, GET /:id, POST /, PUT /:id, DELETE /:id
-- Export the router as default
+Do NOT include helmet, morgan, compression, axios, joi, bcryptjs, jsonwebtoken, or express-validator unless the user requirement needs them.
 
-### Middleware (middleware/*.js)
-- Export named functions
-- Authentication: verify JWT from Authorization header (Bearer token)
-- Error handler: catch-all (err, req, res, next) with proper error response
+### .env
+Include:
+PORT=3000
+MONGODB_URI=mongodb://localhost:27017/<project-name>
 
-### Config (config/*.js)
-- Database: connect to MongoDB using mongoose.connect() with MONGODB_URI from env
-- Export the connection function
+If authentication is required, also include:
+JWT_SECRET=your_jwt_secret
 
-### App Entry (app.js)
-- Import dotenv/config first
-- Import express, cors, helmet (if available)
-- Import database connection
-- Import all route files
-- Set up middleware: json parser, cors, etc.
-- Mount routes with versioned paths (/api/...)
-- Add error handling middleware LAST
-- Start server on PORT from env
-- Log "Server running on port..." message"""
+### Models: models/*.js
+- Import mongoose.
+- Define Schema and model.
+- Do not define _id manually.
+- Use timestamps: true.
+- Add basic validation using Mongoose schema rules only.
+- Export the model as default.
+
+Example export:
+export default mongoose.model('Task', taskSchema);
+
+### Controllers: controllers/*.js
+- Import the relevant model as default.
+- Export named async CRUD functions.
+- Use try/catch.
+- Pass errors to next(error).
+- Return JSON responses.
+- Use proper status codes:
+  - 200 for success
+  - 201 for created
+  - 400 for invalid input
+  - 404 for not found
+- Do not import service files unless the Planner listed them.
+
+### Routes: routes/*.js
+- Import express.
+- Create router using express.Router().
+- Import named controller functions from the matching controller file.
+- Define RESTful routes:
+  - GET /
+  - GET /:id
+  - POST /
+  - PUT /:id
+  - DELETE /:id
+- Export default router.
+- Do not import validation/auth middleware unless those middleware files are listed.
+
+### Middleware: middleware/errorHandler.js
+- Do NOT import express.
+- Do NOT import cors.
+- Do NOT import json from express.
+- Do NOT import mongoose.
+- Do NOT import any external package.
+- Export a named function called errorHandler.
+- Function signature must be: (err, req, res, next).
+- Return a JSON error response.
+- Use err.statusCode or 500.
+- This file should normally have ZERO imports.
+
+Correct structure:
+export const errorHandler = (err, req, res, next) => {
+  const statusCode = err.statusCode || 500;
+
+  res.status(statusCode).json({
+    success: false,
+    message: err.message || 'Server Error',
+  });
+};
+
+Example export:
+export const errorHandler = (err, req, res, next) => { ... };
+
+### Config: config/db.js
+- Import mongoose.
+- Define async connectDB function.
+- Use process.env.MONGODB_URI.
+- Export default connectDB.
+
+Example export:
+export default connectDB;
+
+### App Entry: app.js
+- Import dotenv/config first.
+- Import express.
+- Import cors only if package.json includes cors.
+- Import connectDB from ./config/db.js.
+- Import all route files listed in the Planner output.
+- Import { errorHandler } from ./middleware/errorHandler.js.
+- Create const app = express().
+- Use app.use(express.json()).
+- Use cors middleware if available.
+- Mount routes with /api/... paths.
+- Add errorHandler LAST.
+- Start server only when process.env.NODE_ENV !== 'test'.
+- Export default app for Supertest.
+
+Required app.js pattern:
+const app = express();
+
+if (process.env.NODE_ENV !== 'test') {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+export default app;
+
+## FINAL SELF-CHECK BEFORE OUTPUT
+Before returning code, check:
+1. Did I import only local files listed in ALL PROJECT FILES?
+2. Did every local import include .js extension?
+3. Did every named import match the target file's exports?
+4. Did I avoid unplanned services/utils/helpers?
+5. Did I avoid external packages not listed in package.json?
+6. If this is app.js, did I export default app?
+7. If this is a route file, did I export default router?
+8. If this is a controller file, did I export named async functions?
+9. If this is package.json, did I include every package that the project imports?
+10. Is the output only source code, with no markdown or explanation?
+"""
+
 
 def build_codegen_prompt(
     file_spec: FileSpec,
@@ -90,26 +279,41 @@ def build_codegen_prompt(
 ) -> str:
     parts = []
 
-    parts.append("Generate the complete source code for the following file.\n")
+    parts.append("Generate the complete source code for the following file.")
+    parts.append("The generated code MUST strictly follow the Planner Agent project contract.")
+    parts.append("")
+
     parts.append("## TARGET FILE")
     parts.append(f"- Path: {file_spec.path}")
-    parts.append(f"- Description: {file_spec.description}\n")
+    parts.append(f"- Description: {file_spec.description}")
+    parts.append("")
 
-    parts.append(f"## PROJECT: {project_name}\n")
+    parts.append(f"## PROJECT")
+    parts.append(project_name)
+    parts.append("")
 
     if entities:
         parts.append("## ENTITIES")
         for entity in entities:
             parts.append(f"### {entity.name}")
+
             if entity.description:
                 parts.append(f"Description: {entity.description}")
+
             parts.append("Fields:")
+
             for field in entity.fields:
                 modifiers = []
-                if field.required: modifiers.append("required")
-                if field.unique: modifiers.append("unique")
+
+                if field.required:
+                    modifiers.append("required")
+
+                if field.unique:
+                    modifiers.append("unique")
+
                 mod_str = f" ({', '.join(modifiers)})" if modifiers else ""
                 parts.append(f"  - {field.name}: {field.type}{mod_str}")
+
             parts.append("")
 
     if features:
@@ -119,45 +323,88 @@ def build_codegen_prompt(
         parts.append("")
 
     parts.append("## ALL PROJECT FILES")
+    parts.append("This is the complete allowed file list. Do not import any local file outside this list.")
     for f in all_files:
-        marker = " ← (THIS FILE)" if f.path == file_spec.path else ""
+        marker = " ← THIS FILE" if f.path == file_spec.path else ""
         parts.append(f"- {f.path}: {f.description}{marker}")
     parts.append("")
 
+    allowed_paths = [f.path for f in all_files]
+
+    parts.append("## ALLOWED LOCAL IMPORT FILES")
+    parts.append("You may only import local files from this list:")
+    for path in allowed_paths:
+        if path.endswith(".js") and path != file_spec.path:
+            parts.append(f"- {path}")
+    parts.append("")
+
+    package_json_content = existing_contents.get("package.json")
+
+    if package_json_content:
+        parts.append("## CURRENT package.json")
+        parts.append("Only import external npm packages that are included in this package.json.")
+        parts.append("```json")
+        parts.append(package_json_content)
+        parts.append("```")
+        parts.append("")
+    else:
+        parts.append("## PACKAGE RULE")
+        parts.append("If generating package.json, include all packages that generated code will import.")
+        parts.append("If not generating package.json, avoid optional external packages.")
+        parts.append("")
+
     related_files = get_related_files(file_spec.path, all_files, existing_contents)
+
     if related_files:
-        parts.append("## ALREADY GENERATED FILES (for reference)")
+        parts.append("## ALREADY GENERATED RELATED FILES")
+        parts.append("Use these files to keep imports and exports consistent.")
         context_length = 0
+
         for path, content in related_files:
             if context_length + len(content) > MAX_CONTEXT_LENGTH:
-                parts.append("\n(... remaining files omitted for brevity)")
+                parts.append("\n(... remaining related files omitted for brevity)")
                 break
+
             parts.append(f"\n### {path}")
             parts.append("```javascript")
             parts.append(content)
             parts.append("```")
+
             context_length += len(content)
+
         parts.append("")
 
     if existing_file_content:
-        parts.append("## CURRENT FILE CONTENT (update this file)")
+        parts.append("## CURRENT FILE CONTENT")
+        parts.append("Update this file while preserving working logic.")
         parts.append("```javascript")
         parts.append(existing_file_content)
-        parts.append("```\n")
-        parts.append("Update the above file to incorporate the project requirements. Preserve existing functionality while adding new features.")
+        parts.append("```")
+        parts.append("")
 
-    parts.append("\nOutput ONLY the complete source code. No markdown fences, no explanations.")
-    
+    parts.append("## STRICT OUTPUT REQUIREMENTS")
+    parts.append("Output ONLY the complete source code for the target file.")
+    parts.append("No markdown fences.")
+    parts.append("No explanations.")
+    parts.append("No extra commentary.")
+    parts.append("")
+
     return "\n".join(parts)
 
-def get_related_files(target_path: str, all_files: List[FileSpec], existing_contents: Dict[str, str]) -> List[tuple]:
+
+def get_related_files(
+    target_path: str,
+    all_files: List[FileSpec],
+    existing_contents: Dict[str, str]
+) -> List[tuple]:
     related = []
 
-    is_model = target_path.startswith('models/')
-    is_controller = target_path.startswith('controllers/')
-    is_route = target_path.startswith('routes/')
-    is_app = target_path == 'app.js'
-    is_middleware = target_path.startswith('middleware/')
+    is_model = target_path.startswith("models/")
+    is_controller = target_path.startswith("controllers/")
+    is_route = target_path.startswith("routes/")
+    is_app = target_path == "app.js"
+    is_middleware = target_path.startswith("middleware/")
+    is_config = target_path.startswith("config/")
 
     for path, content in existing_contents.items():
         if path == target_path:
@@ -165,16 +412,34 @@ def get_related_files(target_path: str, all_files: List[FileSpec], existing_cont
 
         is_relevant = False
 
-        if is_controller and path.startswith('models/'): is_relevant = True
-        if is_route and (path.startswith('controllers/') or path.startswith('middleware/')): is_relevant = True
-        if is_app and (path.startswith('routes/') or path.startswith('config/') or path.startswith('middleware/')): is_relevant = True
-        if is_middleware and path.startswith('models/'): is_relevant = True
-        if is_app and path.startswith('config/'): is_relevant = True
+        if is_controller and path.startswith("models/"):
+            is_relevant = True
+
+        if is_route and path.startswith("controllers/"):
+            is_relevant = True
+
+        if is_route and path.startswith("middleware/"):
+            is_relevant = True
+
+        if is_app and (
+            path.startswith("routes/")
+            or path.startswith("config/")
+            or path.startswith("middleware/")
+            or path == "package.json"
+        ):
+            is_relevant = True
+
+        if is_middleware and path == "package.json":
+            is_relevant = True
+
+        if is_config and path == "package.json":
+            is_relevant = True
 
         if is_relevant:
             related.append((path, content))
 
     return related
+
 
 def build_code_fix_prompt(
     file_path: str,
@@ -188,8 +453,9 @@ def build_code_fix_prompt(
     using the Critic Agent's fixing strategy.
 
     Important:
-    The Critic Agent gives strategy only.
-    The CodeGenAgent generates the corrected source code.
+    - The Critic Agent gives strategy only.
+    - The CodeGenAgent generates the corrected source code.
+    - The fix must not invent new files or packages.
     """
 
     parts = []
@@ -197,6 +463,14 @@ def build_code_fix_prompt(
     parts.append("You are fixing one file in a generated Node.js/Express backend project.")
     parts.append("Use the Critic Agent's repair strategy to produce the corrected file content.")
     parts.append("")
+
+    parts.append("## PRIORITY ORDER")
+    parts.append("1. First, read the RAW ERROR LOG and identify the exact file, line, and import/export problem.")
+    parts.append("2. Then read the Critic Agent strategy.")
+    parts.append("3. If the Critic strategy points to a different file than the raw stack trace, trust the raw stack trace.")
+    parts.append("4. Generate the corrected content for the target file only.")
+    parts.append("")
+    
     parts.append("## IMPORTANT RULES")
     parts.append("1. Output ONLY the complete corrected source code for the target file.")
     parts.append("2. Do NOT include markdown code fences.")
@@ -205,6 +479,21 @@ def build_code_fix_prompt(
     parts.append("5. Do NOT add new features.")
     parts.append("6. Preserve existing working logic.")
     parts.append("7. Use ES6 modules: import/export only. Do NOT use require/module.exports.")
+    parts.append("")
+
+    parts.append("## IMPORTANT IMPORT REPAIR RULES")
+    parts.append("1. If the raw error log and Critic strategy conflict, prioritize the raw error log and stack trace.")
+    parts.append("2. Fix the file shown in the stack trace if it is available.")
+    parts.append("3. If the error is caused by a missing local file, do not invent a new import.")
+    parts.append("4. Prefer changing the import to an existing planned file or removing unnecessary abstraction.")
+    parts.append("5. Do not import from services/, utils/, helpers/, validators/, or repositories/ unless that file already exists.")
+    parts.append("6. If a named import does not exist, update the import or usage to match the actual exports.")
+    parts.append("7. If app.js is missing a default export, add export default app without breaking server startup.")
+    parts.append("8. If an external package is missing, avoid importing it unless package.json includes it.")
+    parts.append("9. Prefer simple Express code with fewer external dependencies.")
+    parts.append("10. All local imports must include .js extension.")
+    parts.append("11. middleware/errorHandler.js must not import express, cors, json, mongoose, or any external package.")
+    parts.append("12. middleware/errorHandler.js should only export named function errorHandler.")
     parts.append("")
 
     parts.append("## TARGET FILE")
@@ -231,6 +520,6 @@ def build_code_fix_prompt(
     parts.append(instructions_for_code_agent)
     parts.append("")
 
-    parts.append("Return raw JavaScript code only. The first character of your response must be an import statement, comment, or valid JavaScript code. No explanation.")
+    parts.append("Return raw JavaScript code only. No markdown. No explanation.")
 
     return "\n".join(parts)
