@@ -55,7 +55,7 @@
       "properties": {
         "aiBackendBuilder.backendUrl": {
           "type": "string",
-          "default": "http://localhost:5000",
+          "default": "http://localhost:5001",
           "description": "Base URL for the AI Backend API proxy"
         },
         "aiBackendBuilder.openaiApiKey": {
