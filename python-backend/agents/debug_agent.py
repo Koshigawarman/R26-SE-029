@@ -1,80 +1,94 @@
 import logging
 import re
-import json
-import requests
-from typing import Dict, Any, List
+from typing import List
 
-from schema import DebugResult, RuntimeErrorInfo, FixSuggestion
-from prompts.debug_prompt import DEBUG_SYSTEM_PROMPT, build_debug_prompt, build_debug_retry_prompt
+from schema import DebugResult, RuntimeErrorInfo
 from services.process_runner import ProcessRunner
 
 logger = logging.getLogger(__name__)
+
 
 ERROR_PATTERNS = {
     "SYNTAX_ERROR": re.compile(r"SyntaxError: (.*?)(?:\n|$)"),
     "REFERENCE_ERROR": re.compile(r"ReferenceError: (.*?)(?:\n|$)"),
     "TYPE_ERROR": re.compile(r"TypeError: (.*?)(?:\n|$)"),
     "MODULE_NOT_FOUND": re.compile(r"Cannot find module '(.*?)'"),
-    "ESM_ERROR": re.compile(r"Warning: To load an ES module.*?|SyntaxError: Cannot use import statement outside a module"),
+    "MODULE_NOT_FOUND_ALT": re.compile(r"ERR_MODULE_NOT_FOUND.*?Cannot find.*?['\"](.*?)['\"]"),
+    "ESM_ERROR": re.compile(
+        r"Warning: To load an ES module.*?|SyntaxError: Cannot use import statement outside a module"
+    ),
     "MONGO_CONNECTION": re.compile(r"Mongo(?:Network)?Error: (.*?)(?:\n|$)"),
     "PORT_IN_USE": re.compile(r"EADDRINUSE.*?(\d+)"),
+    "EXPRESS_ROUTER_ERROR": re.compile(r"Router\.use\(\) requires a middleware function.*?(?:\n|$)"),
+    "CANNOT_GET": re.compile(r"Cannot GET (.*?)(?:\n|$)"),
+    "UNDEFINED_PROPERTY": re.compile(r"Cannot read properties of undefined.*?(?:\n|$)"),
     "STACK_FILE_LINE": re.compile(r"at .*? \((.*?):(\d+):(\d+)\)"),
     "STACK_FILE_LINE_ALT": re.compile(r"at (.*?):(\d+):(\d+)")
 }
 
+
 ENVIRONMENT_ERRORS = [
     re.compile(r"ECONNREFUSED"),
     re.compile(r"EADDRINUSE"),
-    re.compile(r"MongoNetworkError")
+    re.compile(r"MongoNetworkError"),
+    re.compile(r"MongoServerSelectionError")
 ]
 
+
 class DebugAgent:
-    def __init__(self, ollama_url: str, model: str, debug_timeout: int = 10000, use_openrouter: bool = False, openrouter_api_key: str = ""):
-        self.ollama_url = ollama_url
-        self.model = model
+    """
+    Debug Agent for PP1 workflow.
+
+    Responsibility:
+    - Run generated Node.js project
+    - Capture stdout/stderr
+    - Parse runtime errors
+    - Return DebugResult to Orchestrator
+
+    Important:
+    This agent does NOT call AI.
+    This agent does NOT generate fixing strategies.
+    This agent does NOT generate fixed code.
+    """
+
+    def __init__(self, debug_timeout: int = 10000):
         self.debug_timeout = debug_timeout
-        self.use_openrouter = use_openrouter
-        self.openrouter_api_key = openrouter_api_key
-        self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
         self.process_runner = ProcessRunner()
 
-    def execute(self, project_root: str, file_contents: Dict[str, str]) -> DebugResult:
-        logger.info(f"Debugging project at: {project_root}")
+    def execute(self, project_root: str) -> DebugResult:
+        logger.info(f"Debug Agent running project at: {project_root}")
 
         logger.info("Running npm install...")
         install_result = self.process_runner.run_npm_install(project_root)
 
-        if install_result["exitCode"] != 0 and 'npm warn' not in install_result["stderr"]:
-            has_real_error = any(
-                line.startswith('npm error') or line.startswith('npm ERR!') 
-                for line in install_result["stderr"].split('\n')
-            )
-            
-            if has_real_error:
-                logger.error("npm install failed")
-                return DebugResult(
-                    success=False,
-                    errors=[RuntimeErrorInfo(
-                        message='npm install failed: ' + install_result["stderr"][:500],
-                        stack=install_result["stderr"],
-                        type='runtime'
-                    )],
-                    suggestions=[FixSuggestion(
-                        file='package.json',
-                        issue='npm install failed — check dependencies',
-                        fix='',
-                        regenerate=True
-                    )],
-                    stdout=install_result["stdout"],
-                    stderr=install_result["stderr"],
-                    exitCode=install_result["exitCode"]
-                )
+        if self._has_npm_install_error(install_result):
+            logger.error("npm install failed")
 
-        logger.info(f"Running node app.js (timeout: {self.debug_timeout}ms)...")
-        run_result = self.process_runner.run_node(project_root, 'app.js', self.debug_timeout)
+            error = RuntimeErrorInfo(
+                message="npm install failed",
+                stack=install_result["stderr"] or install_result["stdout"],
+                type="dependency"
+            )
+
+            return DebugResult(
+                success=False,
+                errors=[error],
+                suggestions=[],
+                stdout=install_result["stdout"],
+                stderr=install_result["stderr"],
+                exitCode=install_result["exitCode"]
+            )
+
+        logger.info(f"Running node app.js with timeout {self.debug_timeout}ms...")
+        run_result = self.process_runner.run_node(
+            project_root,
+            "app.js",
+            self.debug_timeout
+        )
 
         if self.process_runner.is_server_start_success(run_result):
-            logger.info("✓ Application started successfully!")
+            logger.info("Application started successfully")
+
             return DebugResult(
                 success=True,
                 errors=[],
@@ -85,13 +99,16 @@ class DebugAgent:
             )
 
         errors = self._parse_errors(run_result)
-        logger.info(f"Found {len(errors)} errors")
+        logger.info(f"Debug Agent found {len(errors)} error(s)")
 
-        env_errors = [e for e in errors if self._is_environment_error(e)]
-        code_errors = [e for e in errors if not self._is_environment_error(e)]
+        env_errors = [err for err in errors if self._is_environment_error(err)]
+        code_errors = [err for err in errors if not self._is_environment_error(err)]
 
-        if not code_errors and env_errors:
-            logger.info("Only environment errors detected (e.g., MongoDB not running) — treating as success")
+        # For PP1, if only MongoDB/port/environment issue appears,
+        # we can treat app structure as acceptable but still report the environment issue.
+        if env_errors and not code_errors:
+            logger.warning("Only environment errors detected")
+
             return DebugResult(
                 success=True,
                 errors=env_errors,
@@ -102,230 +119,188 @@ class DebugAgent:
             )
 
         if not code_errors:
-            logger.warning("Process failed but no clear errors found in output")
+            logger.warning("Process failed, but no known error pattern was detected")
+
+            fallback_error = RuntimeErrorInfo(
+                message=f"Process exited with code {run_result['exitCode']}",
+                stack=run_result["stderr"] or run_result["stdout"],
+                type="unknown"
+            )
+
             return DebugResult(
                 success=False,
-                errors=[RuntimeErrorInfo(
-                    message=f"Process exited with code {run_result['exitCode']}",
-                    stack=run_result["stderr"] or run_result["stdout"],
-                    type='unknown'
-                )],
+                errors=[fallback_error],
                 suggestions=[],
                 stdout=run_result["stdout"],
                 stderr=run_result["stderr"],
                 exitCode=run_result["exitCode"]
             )
 
-        logger.info("Analyzing errors with AI...")
-        suggestions = self._get_fix_suggestions(code_errors, run_result, file_contents)
-
         return DebugResult(
             success=False,
             errors=code_errors,
-            suggestions=suggestions,
+            suggestions=[],
             stdout=run_result["stdout"],
             stderr=run_result["stderr"],
             exitCode=run_result["exitCode"]
         )
 
+    def _has_npm_install_error(self, install_result: dict) -> bool:
+        if install_result["exitCode"] == 0:
+            return False
+
+        stderr = install_result["stderr"] or ""
+
+        # npm often prints warnings. Warnings should not be treated as real failure.
+        real_error = any(
+            line.lower().startswith("npm error") or line.startswith("npm ERR!")
+            for line in stderr.splitlines()
+        )
+
+        return real_error
+
     def _parse_errors(self, result: dict) -> List[RuntimeErrorInfo]:
-        errors = []
-        output = result["stderr"] or result["stdout"]
-        
+        errors: List[RuntimeErrorInfo] = []
+        output = result["stderr"] or result["stdout"] or ""
+
         if not output:
             return errors
 
         syntax_match = ERROR_PATTERNS["SYNTAX_ERROR"].search(output)
         if syntax_match:
-            errors.append(self._build_error('syntax', syntax_match.group(1), output))
+            errors.append(
+                self._build_error("syntax", f"SyntaxError: {syntax_match.group(1)}", output)
+            )
 
         ref_match = ERROR_PATTERNS["REFERENCE_ERROR"].search(output)
         if ref_match:
-            errors.append(self._build_error('runtime', ref_match.group(1), output))
+            errors.append(
+                self._build_error("runtime", f"ReferenceError: {ref_match.group(1)}", output)
+            )
 
         type_match = ERROR_PATTERNS["TYPE_ERROR"].search(output)
         if type_match:
-            errors.append(self._build_error('runtime', type_match.group(1), output))
+            errors.append(
+                self._build_error("runtime", f"TypeError: {type_match.group(1)}", output)
+            )
 
         module_match = ERROR_PATTERNS["MODULE_NOT_FOUND"].search(output)
         if module_match:
-            errors.append(self._build_error('module', f"Cannot find module '{module_match.group(1)}'", output))
+            errors.append(
+                self._build_error(
+                    "module",
+                    f"Cannot find module '{module_match.group(1)}'",
+                    output
+                )
+            )
+
+        module_alt_match = ERROR_PATTERNS["MODULE_NOT_FOUND_ALT"].search(output)
+        if module_alt_match and not module_match:
+            errors.append(
+                self._build_error(
+                    "module",
+                    f"Cannot find module '{module_alt_match.group(1)}'",
+                    output
+                )
+            )
 
         esm_match = ERROR_PATTERNS["ESM_ERROR"].search(output)
         if esm_match:
-            errors.append(self._build_error('module', esm_match.group(0), output))
+            errors.append(
+                self._build_error("module", esm_match.group(0), output)
+            )
 
         mongo_match = ERROR_PATTERNS["MONGO_CONNECTION"].search(output)
         if mongo_match:
-            errors.append(self._build_error('connection', mongo_match.group(0), output))
+            errors.append(
+                self._build_error("connection", mongo_match.group(0), output)
+            )
 
         port_match = ERROR_PATTERNS["PORT_IN_USE"].search(output)
         if port_match:
-            errors.append(self._build_error('connection', f"Port {port_match.group(1)} already in use", output))
+            errors.append(
+                self._build_error(
+                    "connection",
+                    f"Port {port_match.group(1)} already in use",
+                    output
+                )
+            )
+
+        router_match = ERROR_PATTERNS["EXPRESS_ROUTER_ERROR"].search(output)
+        if router_match:
+            errors.append(
+                self._build_error("runtime", router_match.group(0), output)
+            )
+
+        undefined_match = ERROR_PATTERNS["UNDEFINED_PROPERTY"].search(output)
+        if undefined_match:
+            errors.append(
+                self._build_error("runtime", undefined_match.group(0), output)
+            )
 
         if not errors and result["exitCode"] != 0:
-            lines = output.split('\n')
-            errors.append(RuntimeErrorInfo(
-                message=lines[0] if lines else "Unknown error",
-                stack=output,
-                type='unknown'
-            ))
+            first_line = output.splitlines()[0] if output.splitlines() else "Unknown error"
+
+            errors.append(
+                RuntimeErrorInfo(
+                    message=first_line,
+                    stack=output,
+                    type="unknown"
+                )
+            )
 
         return errors
 
     def _build_error(self, type_str: str, message: str, full_output: str) -> RuntimeErrorInfo:
-        error = RuntimeErrorInfo(message=message, stack=full_output, type=type_str)
+        error = RuntimeErrorInfo(
+            message=message,
+            stack=full_output,
+            type=type_str
+        )
 
-        file_match = ERROR_PATTERNS["STACK_FILE_LINE"].search(full_output) or ERROR_PATTERNS["STACK_FILE_LINE_ALT"].search(full_output)
+        file_match = (
+            ERROR_PATTERNS["STACK_FILE_LINE"].search(full_output)
+            or ERROR_PATTERNS["STACK_FILE_LINE_ALT"].search(full_output)
+        )
+
         if file_match:
             file_path = file_match.group(1)
-            segments = file_path.split('/')
-            known_dirs = ['models', 'controllers', 'routes', 'middleware', 'config']
-            dir_index = next((i for i, s in enumerate(segments) if s in known_dirs), -1)
-            
+            segments = file_path.replace("\\", "/").split("/")
+
+            known_dirs = [
+                "models",
+                "controllers",
+                "routes",
+                "middleware",
+                "config",
+                "services",
+                "utils"
+            ]
+
+            dir_index = next(
+                (i for i, segment in enumerate(segments) if segment in known_dirs),
+                -1
+            )
+
             if dir_index != -1:
-                error.file = '/'.join(segments[dir_index:])
+                error.file = "/".join(segments[dir_index:])
             else:
                 error.file = segments[-1]
-                
-            error.line = int(file_match.group(2))
-            error.column = int(file_match.group(3))
+
+            try:
+                error.line = int(file_match.group(2))
+                error.column = int(file_match.group(3))
+            except ValueError:
+                pass
 
         return error
 
     def _is_environment_error(self, error: RuntimeErrorInfo) -> bool:
-        if error.type == 'connection':
+        if error.type == "connection":
             return True
+
         for pattern in ENVIRONMENT_ERRORS:
             if pattern.search(error.message) or pattern.search(error.stack):
                 return True
+
         return False
-
-    def _get_fix_suggestions(self, errors: List[RuntimeErrorInfo], process_result: dict, file_contents: Dict[str, str]) -> List[FixSuggestion]:
-        prompt = build_debug_prompt(errors, process_result["stderr"], process_result["stdout"], file_contents)
-        try:
-            if self.use_openrouter:
-                raw_response = self._query_openrouter(prompt, DEBUG_SYSTEM_PROMPT)
-            else:
-                raw_response = self._query_ollama(prompt, DEBUG_SYSTEM_PROMPT)
-            return self._parse_fix_suggestions(raw_response)
-        except Exception as e:
-            logger.error(f"Failed to get AI fix suggestions: {e}")
-            return []
-
-    def _parse_fix_suggestions(self, raw_response: str) -> List[FixSuggestion]:
-        try:
-            data = self._extract_json(raw_response)
-            if "analysis" in data:
-                logger.info(f"AI Analysis: {data['analysis']}")
-                
-            if "fixes" in data and isinstance(data["fixes"], list):
-                fixes = []
-                for fix in data["fixes"]:
-                    if not fix.get("file") or not fix.get("fix"):
-                        continue
-                    fix["file"] = re.sub(r'^\.?/', '', fix["file"])
-                    fix["regenerate"] = fix.get("regenerate", True)
-                    fixes.append(FixSuggestion(**fix))
-                return fixes
-            return []
-        except:
-            logger.warning("First parse failed, retrying with fix prompt...")
-            try:
-                retry_prompt = build_debug_retry_prompt(raw_response)
-                if self.use_openrouter:
-                    retry_response = self._query_openrouter(retry_prompt, DEBUG_SYSTEM_PROMPT)
-                else:
-                    retry_response = self._query_ollama(retry_prompt, DEBUG_SYSTEM_PROMPT)
-                data = self._extract_json(retry_response)
-                fixes = []
-                for fix in data.get("fixes", []):
-                    if not fix.get("file") or not fix.get("fix"):
-                        continue
-                    fix["file"] = re.sub(r'^\.?/', '', fix["file"])
-                    fix["regenerate"] = fix.get("regenerate", True)
-                    fixes.append(FixSuggestion(**fix))
-                return fixes
-            except Exception as e:
-                logger.error(f"Failed to parse fix suggestions after retry: {e}")
-                return []
-
-    def _extract_json(self, raw_response: str) -> dict:
-        json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', raw_response, re.DOTALL | re.IGNORECASE)
-        if json_match:
-            raw_response = json_match.group(1).strip()
-        else:
-            start = raw_response.find('{')
-            end = raw_response.rfind('}')
-            if start != -1 and end != -1:
-                raw_response = raw_response[start:end+1]
-        return json.loads(raw_response)
-
-    def _query_ollama(self, prompt: str, system_prompt: str) -> str:
-        logger.info("\n" + "="*50)
-        logger.info(f"OLLAMA REQUEST [DebugAgent] | Model: {self.model}")
-        logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
-        logger.info(f"--- USER PROMPT ---\n{prompt[:1000]}{'...' if len(prompt) > 1000 else ''}")
-        logger.info("="*50)
-
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "system": system_prompt,
-            "stream": False,
-            "options": {
-                "temperature": 0.3,
-                "num_predict": 4096,
-            }
-        }
-        resp = requests.post(
-            f"{self.ollama_url}/api/generate",
-            json=payload,
-            timeout=120
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if "response" not in data:
-            raise ValueError("Ollama returned no response")
-            
-        response_text = data["response"]
-        logger.info("\n" + "="*50)
-        logger.info(f"OLLAMA RESPONSE [DebugAgent] | Length: {len(response_text)}")
-        logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
-        logger.info("="*50)
-        
-        return response_text
-
-    def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
-        logger.info("\n" + "="*50)
-        logger.info(f"OPENROUTER REQUEST [DebugAgent] | Model: {self.model}")
-        logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
-        logger.info(f"--- USER PROMPT ---\n{prompt[:1000]}{'...' if len(prompt) > 1000 else ''}")
-        logger.info("="*50)
-
-        headers = {
-            "Authorization": f"Bearer {self.openrouter_api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
-            "X-Title": "AI Backend Builder",
-        }
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.3,
-            "max_tokens": 4096,
-        }
-        resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
-        resp.raise_for_status()
-        data = resp.json()
-        
-        response_text = data['choices'][0]['message']['content']
-        logger.info("\n" + "="*50)
-        logger.info(f"OPENROUTER RESPONSE [DebugAgent] | Length: {len(response_text)}")
-        logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
-        logger.info("="*50)
-        
-        return response_text

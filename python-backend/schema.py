@@ -187,6 +187,7 @@ class BuildRequest(BaseModel):
     codegen_model: Optional[str] = None
     debug_model: Optional[str] = None
     critic_model: Optional[str] = None
+    max_retries: Optional[int] = None
 
 class BuildResponse(BaseModel):
     success: bool
@@ -196,3 +197,11 @@ class BuildResponse(BaseModel):
     debugAttempts: int
     errors: List[str]
     duration: float
+
+
+class GenerateRequest(BaseModel):
+    model: str
+    prompt: str
+    system: str = ""
+    temperature: float = 0.3
+    max_tokens: int = 4096
