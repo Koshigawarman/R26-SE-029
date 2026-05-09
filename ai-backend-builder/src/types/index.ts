@@ -153,13 +153,13 @@ export interface AIClientConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Overall system execution status */
-export type SystemStatus = 
-  | 'idle' 
-  | 'planning' 
-  | 'generating' 
-  | 'debugging' 
-  | 'fixing' 
-  | 'complete' 
+export type SystemStatus =
+  | 'idle'
+  | 'planning'
+  | 'generating'
+  | 'debugging'
+  | 'fixing'
+  | 'complete'
   | 'failed';
 
 /** The entire system state, maintained by the Memory module */

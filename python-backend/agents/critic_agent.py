@@ -28,9 +28,12 @@ class CriticAgent:
     It must NOT generate fixed source code.
     """
 
-    def __init__(self, ollama_url: str, model: str):
+    def __init__(self, ollama_url: str, model: str, use_openrouter: bool = False, openrouter_api_key: str = ""):
         self.ollama_url = ollama_url.rstrip("/")
         self.model = model
+        self.use_openrouter = use_openrouter
+        self.openrouter_api_key = openrouter_api_key
+        self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
 
     def execute(
         self,
@@ -54,7 +57,10 @@ class CriticAgent:
         )
 
         try:
-            raw_response = self._query_ollama(prompt, CRITIC_SYSTEM_PROMPT)
+            if self.use_openrouter:
+                raw_response = self._query_openrouter(prompt, CRITIC_SYSTEM_PROMPT)
+            else:
+                raw_response = self._query_ollama(prompt, CRITIC_SYSTEM_PROMPT)
             data = self._extract_json(raw_response)
             return self._to_strategy(data)
 
@@ -63,10 +69,10 @@ class CriticAgent:
 
             try:
                 retry_prompt = build_critic_retry_prompt(str(first_error))
-                retry_response = self._query_ollama(
-                    retry_prompt,
-                    CRITIC_SYSTEM_PROMPT
-                )
+                if self.use_openrouter:
+                    retry_response = self._query_openrouter(retry_prompt, CRITIC_SYSTEM_PROMPT)
+                else:
+                    retry_response = self._query_ollama(retry_prompt, CRITIC_SYSTEM_PROMPT)
                 data = self._extract_json(retry_response)
                 return self._to_strategy(data)
 
@@ -133,6 +139,27 @@ class CriticAgent:
             raise ValueError("Ollama returned no response field")
 
         return data["response"]
+
+    def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
+        headers = {
+            "Authorization": f"Bearer {self.openrouter_api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
+            "X-Title": "AI Backend Builder",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1024,
+        }
+        resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        return data['choices'][0]['message']['content']
 
     def _extract_json(self, raw_response: str) -> Dict[str, Any]:
         if not raw_response:
