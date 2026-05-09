@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict
 from pydantic import BaseModel, Field
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Planner Agent Schemas
 # ─────────────────────────────────────────────────────────────────────────────
@@ -12,24 +13,29 @@ class EntityField(BaseModel):
     unique: Optional[bool] = False
     default: Optional[str] = None
 
+
 class Entity(BaseModel):
     name: str
     fields: List[EntityField]
     description: Optional[str] = None
 
+
 class Feature(BaseModel):
     name: str
     description: str
 
+
 class FileSpec(BaseModel):
     path: str
     description: str
+
 
 class PlannerOutput(BaseModel):
     projectName: str
     entities: List[Entity]
     features: List[Feature]
     files: List[FileSpec]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Code Generator Agent Schemas
@@ -38,8 +44,9 @@ class PlannerOutput(BaseModel):
 class GeneratedFile(BaseModel):
     path: str
     content: str
-    status: str = 'pending' # 'pending', 'generated', 'error', 'fixed'
+    status: str = "pending"  # pending, generated, error, fixed
     errorMessage: Optional[str] = None
+
 
 class CodeGenContext(BaseModel):
     projectName: str
@@ -48,12 +55,11 @@ class CodeGenContext(BaseModel):
     allFiles: List[FileSpec]
     existingFileContents: Dict[str, str]
 
+
 class CodeFixRequest(BaseModel):
     """
     Used when the Orchestrator sends the Critic Agent's fixing strategy
     to the Code Agent.
-
-    The Code Agent should use this to generate corrected code.
     """
     file_path: str
     original_content: str
@@ -69,8 +75,10 @@ class CodeFixResult(BaseModel):
     file: str
     fixed_code: str
     explanation: Optional[str] = None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# Debug Agent Schemas
+# Debug / Testing Agent Schemas
 # ─────────────────────────────────────────────────────────────────────────────
 
 class RuntimeErrorInfo(BaseModel):
@@ -79,23 +87,15 @@ class RuntimeErrorInfo(BaseModel):
     line: Optional[int] = None
     column: Optional[int] = None
     stack: str
-    type: str # 'syntax', 'runtime', 'module', 'connection', 'unknown'
+    type: str
 
-class FixSuggestion(BaseModel):
-    file: str
-    issue: str
-    fix: str
-    regenerate: bool
 
 class DebugResult(BaseModel):
     success: bool
     errors: List[RuntimeErrorInfo] = Field(default_factory=list)
-    suggestions: List[FixSuggestion] = Field(default_factory=list)
     stdout: str = ""
     stderr: str = ""
     exitCode: Optional[int] = None
-
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Episodic Memory Schemas
@@ -105,8 +105,11 @@ class MemoryCase(BaseModel):
     """
     One error-to-success memory record.
 
-    For PP1 this will be stored in JSON.
-    Final version can move this into ChromaDB / FAISS.
+    PP1:
+    - Stored in JSON.
+
+    Final:
+    - Can be moved into ChromaDB / FAISS.
     """
     error_pattern: str
     root_cause: str
@@ -173,21 +176,26 @@ class OrchestrationAttempt(BaseModel):
     fixed_files: List[str] = Field(default_factory=list)
 
 
-
-
-
 # ─────────────────────────────────────────────────────────────────────────────
-# Orchestrator Request / Response
+# API Request / Response Schemas
 # ─────────────────────────────────────────────────────────────────────────────
 
 class BuildRequest(BaseModel):
     prompt: str
     workspace_uri: str
+
     planner_model: Optional[str] = None
     codegen_model: Optional[str] = None
+
+    # Kept only for VS Code extension compatibility.
+    # DebugAgent no longer uses a model.
     debug_model: Optional[str] = None
+
+    # Actual model used for Critic Agent.
     critic_model: Optional[str] = None
+
     max_retries: Optional[int] = None
+
 
 class BuildResponse(BaseModel):
     success: bool
