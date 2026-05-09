@@ -60,12 +60,6 @@ class PlannerAgent:
         return plan
 
     def _query_ollama(self, prompt: str, system_prompt: str) -> str:
-        logger.info("\n" + "="*50)
-        logger.info(f"OLLAMA REQUEST [PlannerAgent] | Model: {self.model}")
-        logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
-        logger.info(f"--- USER PROMPT ---\n{prompt}")
-        logger.info("="*50)
-
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -79,28 +73,15 @@ class PlannerAgent:
         resp = requests.post(
             f"{self.ollama_url}/api/generate",
             json=payload,
-            timeout=120
+            timeout=240
         )
         resp.raise_for_status()
         data = resp.json()
         if "response" not in data:
             raise ValueError("Ollama returned no response")
-            
-        response_text = data["response"]
-        logger.info("\n" + "="*50)
-        logger.info(f"OLLAMA RESPONSE [PlannerAgent] | Length: {len(response_text)}")
-        logger.info(f"--- CONTENT ---\n{response_text}")
-        logger.info("="*50)
-        
-        return response_text
+        return data["response"]
 
     def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
-        logger.info("\n" + "="*50)
-        logger.info(f"OPENROUTER REQUEST [PlannerAgent] | Model: {self.model}")
-        logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
-        logger.info(f"--- USER PROMPT ---\n{prompt}")
-        logger.info("="*50)
-
         headers = {
             "Authorization": f"Bearer {self.openrouter_api_key}",
             "Content-Type": "application/json",
@@ -119,14 +100,7 @@ class PlannerAgent:
         resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
         resp.raise_for_status()
         data = resp.json()
-        
-        response_text = data['choices'][0]['message']['content']
-        logger.info("\n" + "="*50)
-        logger.info(f"OPENROUTER RESPONSE [PlannerAgent] | Length: {len(response_text)}")
-        logger.info(f"--- CONTENT ---\n{response_text}")
-        logger.info("="*50)
-        
-        return response_text
+        return data['choices'][0]['message']['content']
 
     def _parse_and_validate(self, raw_response: str) -> PlannerOutput:
         # Extract JSON if the model wrapped it in markdown
