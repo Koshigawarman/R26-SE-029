@@ -146,24 +146,3 @@ Return ONLY valid JSON using this exact schema:
 
     return "\n".join(parts)
 
-
-def build_critic_retry_prompt(invalid_response: str) -> str:
-    return f"""
-Your previous response was not valid JSON.
-
-Previous response:
-{invalid_response[:2000]}
-
-Return ONLY one valid JSON object using this exact schema:
-{{
-  "root_cause": "brief root cause",
-  "affected_files": ["relative/path.js"],
-  "fixing_strategy": "high level repair strategy",
-  "instructions_for_code_agent": "specific instruction for the Code Agent, but no source code",
-  "confidence": 0.0
-}}
-
-Do NOT include markdown.
-Do NOT include source code.
-Do NOT include explanations outside JSON.
-"""
