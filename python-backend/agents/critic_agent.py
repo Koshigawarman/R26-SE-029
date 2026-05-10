@@ -1,15 +1,16 @@
 import json
 import logging
+import os
 import re
-from typing import List, Dict, Any
+import time
+from typing import Any, Dict, List
 
 import requests
 
-from schema import RuntimeErrorInfo, MemoryMatch, CriticStrategy
+from schema import CriticStrategy, MemoryMatch, RuntimeErrorInfo
 from prompts.critic_prompt import (
     CRITIC_SYSTEM_PROMPT,
     build_critic_prompt,
-    build_critic_retry_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,12 +29,9 @@ class CriticAgent:
     It must NOT generate fixed source code.
     """
 
-    def __init__(self, ollama_url: str, model: str, use_openrouter: bool = False, openrouter_api_key: str = ""):
+    def __init__(self, ollama_url: str, model: str):
         self.ollama_url = ollama_url.rstrip("/")
         self.model = model
-        self.use_openrouter = use_openrouter
-        self.openrouter_api_key = openrouter_api_key
-        self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
 
     def execute(
         self,
@@ -42,7 +40,7 @@ class CriticAgent:
         stdout: str,
         memory_matches: List[MemoryMatch],
         file_list: List[str],
-        attempt: int
+        attempt: int,
     ) -> CriticStrategy:
         logger.info("Critic Agent analyzing error logs...")
         logger.info(f"Using critic model: {self.model}")
@@ -56,36 +54,100 @@ class CriticAgent:
             attempt=attempt,
         )
 
-        try:
-            if self.use_openrouter:
-                raw_response = self._query_openrouter(prompt, CRITIC_SYSTEM_PROMPT)
-            else:
-                raw_response = self._query_ollama(prompt, CRITIC_SYSTEM_PROMPT)
-            data = self._extract_json(raw_response)
-            return self._to_strategy(data)
+        max_attempts = int(os.getenv("MODEL_MAX_RETRIES", "3"))
+        last_error = ""
 
-        except Exception as first_error:
-            logger.warning(f"Critic Agent first response failed: {first_error}")
-
+        for model_attempt in range(1, max_attempts + 1):
             try:
-                retry_prompt = build_critic_retry_prompt(str(first_error))
-                if self.use_openrouter:
-                    retry_response = self._query_openrouter(retry_prompt, CRITIC_SYSTEM_PROMPT)
-                else:
-                    retry_response = self._query_ollama(retry_prompt, CRITIC_SYSTEM_PROMPT)
-                data = self._extract_json(retry_response)
+                logger.info(
+                    "Critic model call attempt %s/%s",
+                    model_attempt,
+                    max_attempts,
+                )
+
+                raw_response = self._query_ollama(prompt, CRITIC_SYSTEM_PROMPT)
+                data = self._extract_json(raw_response)
+
                 return self._to_strategy(data)
 
-            except Exception as retry_error:
-                logger.error(f"Critic Agent failed after retry: {retry_error}")
-
-                return CriticStrategy(
-                    root_cause="Critic model failed to produce valid analysis.",
-                    affected_files=self._guess_affected_files(errors),
-                    fixing_strategy="Use the runtime error log to identify the affected file and apply the smallest possible fix.",
-                    instructions_for_code_agent="Patch only the affected file. Do not regenerate the full project.",
-                    confidence=0.3,
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning(
+                    "Critic Agent model attempt %s/%s failed: %s",
+                    model_attempt,
+                    max_attempts,
+                    last_error,
                 )
+
+                if model_attempt < max_attempts:
+                    time.sleep(2)
+
+        logger.error("Critic Agent failed after all retries: %s", last_error)
+
+        return self._fallback_strategy_from_errors(errors, stderr)
+
+    def _fallback_strategy_from_errors(
+        self,
+        errors: List[RuntimeErrorInfo],
+        stderr: str,
+    ) -> CriticStrategy:
+        combined_text = " ".join([err.message for err in errors]) + " " + stderr
+        combined_lower = combined_text.lower()
+
+        affected_files = self._guess_affected_files(errors)
+        
+        if "named export" in combined_lower and "cors" in combined_lower and "express" in combined_lower:
+            return CriticStrategy(
+                root_cause="The code incorrectly imports cors as a named export from express. cors is a separate package, and middleware/errorHandler.js should not import cors or json at all.",
+                affected_files=affected_files or ["middleware/errorHandler.js"],
+                fixing_strategy="Remove invalid imports from middleware/errorHandler.js. The error handler should not import json or cors. It should only export the errorHandler function.",
+                instructions_for_code_agent="Patch middleware/errorHandler.js only. Remove import { json, cors } from 'express'. Keep only a named export: export const errorHandler = (err, req, res, next) => {...}.",
+                confidence=0.9,
+            )
+            
+        if "does not provide an export named" in combined_lower or "export default" in combined_lower:
+            return CriticStrategy(
+                root_cause="The generated app or module does not export the value expected by the test or importing file.",
+                affected_files=affected_files or ["app.js"],
+                fixing_strategy="Update the affected file so that its exports match the import usage. If Supertest imports app from app.js, app.js must export default app.",
+                instructions_for_code_agent="Patch only the affected file. Ensure app.js exports default app and does not start the server during NODE_ENV=test.",
+                confidence=0.65,
+            )
+
+        if "cannot find module" in combined_lower or "err_module_not_found" in combined_lower:
+            return CriticStrategy(
+                root_cause="A local import path or external dependency cannot be resolved.",
+                affected_files=affected_files or ["app.js", "package.json"],
+                fixing_strategy="Check the missing module. If it is a local file, update the import path to an existing file. If it is an npm package, ensure package.json includes it.",
+                instructions_for_code_agent="Use only existing project files for local imports. Do not invent new files. Add missing dependency only if it is an external package.",
+                confidence=0.65,
+            )
+
+        if "syntaxerror" in combined_lower or "unexpected token" in combined_lower:
+            return CriticStrategy(
+                root_cause="The generated JavaScript contains invalid syntax.",
+                affected_files=affected_files or ["app.js"],
+                fixing_strategy="Patch the syntax error in the affected file while preserving existing behavior.",
+                instructions_for_code_agent="Fix only the syntax issue. Do not regenerate the whole project.",
+                confidence=0.6,
+            )
+
+        if "route" in combined_lower and "callback" in combined_lower:
+            return CriticStrategy(
+                root_cause="A route is referencing a controller function that is missing or not imported correctly.",
+                affected_files=affected_files or ["routes"],
+                fixing_strategy="Make route imports match the named exports from the controller file.",
+                instructions_for_code_agent="Patch the route file or controller export names so they match exactly.",
+                confidence=0.6,
+            )
+
+        return CriticStrategy(
+            root_cause="The Testing Agent reported a runtime or Jest/Supertest failure.",
+            affected_files=affected_files or ["app.js"],
+            fixing_strategy="Use the test error log to identify the affected file and apply the smallest possible fix.",
+            instructions_for_code_agent="Patch only the affected file. Do not regenerate the full project.",
+            confidence=0.4,
+        )
 
     def _to_strategy(self, data: Dict[str, Any]) -> CriticStrategy:
         affected_files = data.get("affected_files", [])
@@ -99,7 +161,7 @@ class CriticAgent:
             fixing_strategy=data.get("fixing_strategy", "No strategy generated"),
             instructions_for_code_agent=data.get(
                 "instructions_for_code_agent",
-                "Use the error log to apply a minimal fix."
+                "Use the error log to apply a minimal fix.",
             ),
             confidence=float(data.get("confidence", 0.0)),
         )
@@ -129,7 +191,7 @@ class CriticAgent:
         response = requests.post(
             f"{self.ollama_url}/api/generate",
             json=payload,
-            timeout=120,
+            timeout=int(os.getenv("MODEL_TIMEOUT", "240")),
         )
 
         response.raise_for_status()
@@ -139,27 +201,6 @@ class CriticAgent:
             raise ValueError("Ollama returned no response field")
 
         return data["response"]
-
-    def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
-        headers = {
-            "Authorization": f"Bearer {self.openrouter_api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
-            "X-Title": "AI Backend Builder",
-        }
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.1,
-            "max_tokens": 1024,
-        }
-        resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
-        resp.raise_for_status()
-        data = resp.json()
-        return data['choices'][0]['message']['content']
 
     def _extract_json(self, raw_response: str) -> Dict[str, Any]:
         if not raw_response:
@@ -180,6 +221,6 @@ class CriticAgent:
             end = text.rfind("}")
 
             if start != -1 and end != -1 and end > start:
-                text = text[start:end + 1]
+                text = text[start : end + 1]
 
         return json.loads(text)

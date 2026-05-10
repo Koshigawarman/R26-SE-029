@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import json
 import requests
@@ -13,9 +14,6 @@ from prompts.codegen_prompt import (
 logger = logging.getLogger(__name__)
 
 class CodeGenAgent:
-    MAX_RETRIES = 3          # Maximum retry attempts per file
-    RETRY_DELAY_BASE = 5     # Base delay in seconds (doubles each retry)
-
     def __init__(self, ollama_url: str, model: str, use_openrouter: bool = False, openrouter_api_key: str = ""):
         self.ollama_url = ollama_url
         self.model = model
@@ -26,66 +24,52 @@ class CodeGenAgent:
     def execute(self, file_spec: FileSpec, context: CodeGenContext, existing_content: str = None) -> GeneratedFile:
         logger.info(f"Generating: {file_spec.path}")
 
-        # Handle special files deterministically (no retry needed)
-        if file_spec.path == '.env':
-            return self._generate_env_file(file_spec, context)
-        if file_spec.path == 'package.json':
-            return self._generate_package_json(file_spec, context)
+        try:
+            # Handle special files deterministically
+            if file_spec.path == '.env':
+                return self._generate_env_file(file_spec, context)
+            if file_spec.path == 'package.json':
+                return self._generate_package_json(file_spec, context)
 
-        last_error = None
+            prompt = build_codegen_prompt(
+                file_spec=file_spec,
+                project_name=context.projectName,
+                entities=context.entities,
+                features=context.features,
+                all_files=context.allFiles,
+                existing_contents=context.existingFileContents,
+                existing_file_content=existing_content
+            )
 
-        for attempt in range(1, self.MAX_RETRIES + 1):
-            try:
-                if attempt > 1:
-                    import time
-                    delay = self.RETRY_DELAY_BASE * (2 ** (attempt - 2))
-                    logger.warning(f"⟳ Retry {attempt}/{self.MAX_RETRIES} for {file_spec.path} (waiting {delay}s)...")
-                    time.sleep(delay)
+            if self.use_openrouter:
+                raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
+            else:
+                raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
 
-                prompt = build_codegen_prompt(
-                    file_spec=file_spec,
-                    project_name=context.projectName,
-                    entities=context.entities,
-                    features=context.features,
-                    all_files=context.allFiles,
-                    existing_contents=context.existingFileContents,
-                    existing_file_content=existing_content
-                )
+            code = self._extract_code(raw_response)
 
-                if self.use_openrouter:
-                    raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
-                else:
-                    raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+            if not code or len(code.strip()) < 10:
+                raise ValueError(f"Generated code is too short ({len(code)} chars)")
 
-                code = self._extract_code(raw_response)
+            self._validate_code(file_spec.path, code)
 
-                if not code or len(code.strip()) < 10:
-                    raise ValueError(f"Generated code is too short ({len(code)} chars)")
+            logger.info(f"✓ Generated: {file_spec.path} ({len(code)} chars)")
 
-                self._validate_code(file_spec.path, code)
+            return GeneratedFile(
+                path=file_spec.path,
+                content=code,
+                status='generated'
+            )
 
-                logger.info(f"✓ Generated: {file_spec.path} ({len(code)} chars)" + (f" [attempt {attempt}]" if attempt > 1 else ""))
-
-                return GeneratedFile(
-                    path=file_spec.path,
-                    content=code,
-                    status='generated'
-                )
-
-            except Exception as e:
-                last_error = e
-                logger.error(f"✗ Attempt {attempt}/{self.MAX_RETRIES} failed for {file_spec.path}: {str(e)}")
-
-        # All retries exhausted
-        logger.error(f"✗ All {self.MAX_RETRIES} attempts failed for {file_spec.path}: {str(last_error)}")
-
-        return GeneratedFile(
-            path=file_spec.path,
-            content='',
-            status='error',
-            errorMessage=f"Failed after {self.MAX_RETRIES} attempts: {str(last_error)}"
-        )
-
+        except Exception as e:
+            logger.error(f"✗ Failed to generate {file_spec.path}: {str(e)}")
+            return GeneratedFile(
+                path=file_spec.path,
+                content='',
+                status='error',
+                errorMessage=str(e)
+            )
+            
     def fix_file_with_strategy(
         self,
         file_path: str,
@@ -117,6 +101,7 @@ class CodeGenAgent:
                 raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
             else:
                 raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+           
             fixed_code = self._extract_code(raw_response)
 
             if not fixed_code or len(fixed_code.strip()) < 10:
@@ -140,14 +125,15 @@ class CodeGenAgent:
                 content="",
                 status="error",
                 errorMessage=str(e)
-            )
+            )        
+
     def _query_ollama(self, prompt: str, system_prompt: str) -> str:
         logger.info("\n" + "="*50)
         logger.info(f"OLLAMA REQUEST [CodeGenAgent] | Model: {self.model}")
         logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
         logger.info(f"--- USER PROMPT ---\n{prompt[:1000]}{'...' if len(prompt) > 1000 else ''}")
         logger.info("="*50)
-
+        
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -161,13 +147,13 @@ class CodeGenAgent:
         resp = requests.post(
             f"{self.ollama_url}/api/generate",
             json=payload,
-            timeout=120
+            timeout=int(os.getenv("MODEL_TIMEOUT", "240"))
         )
         resp.raise_for_status()
         data = resp.json()
         if "response" not in data:
             raise ValueError("Ollama returned no response")
-            
+        
         response_text = data["response"]
         logger.info("\n" + "="*50)
         logger.info(f"OLLAMA RESPONSE [CodeGenAgent] | Length: {len(response_text)}")
@@ -177,12 +163,13 @@ class CodeGenAgent:
         return response_text
 
     def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
+        
         logger.info("\n" + "="*50)
         logger.info(f"OPENROUTER REQUEST [CodeGenAgent] | Model: {self.model}")
         logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
         logger.info(f"--- USER PROMPT ---\n{prompt[:1000]}{'...' if len(prompt) > 1000 else ''}")
         logger.info("="*50)
-
+        
         headers = {
             "Authorization": f"Bearer {self.openrouter_api_key}",
             "Content-Type": "application/json",
@@ -201,7 +188,6 @@ class CodeGenAgent:
         resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
         resp.raise_for_status()
         data = resp.json()
-        
         response_text = data['choices'][0]['message']['content']
         logger.info("\n" + "="*50)
         logger.info(f"OPENROUTER RESPONSE [CodeGenAgent] | Length: {len(response_text)}")
