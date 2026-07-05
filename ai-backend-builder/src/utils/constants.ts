@@ -7,13 +7,13 @@
 
 /** Default configuration values matching package.json contributes */
 export const DEFAULT_CONFIG = {
-  backendUrl: 'http://localhost:5001',
+  backendUrl: 'http://localhost:5000',
   openaiApiKey: '',
   openaiModel: 'gpt-4',
   models: {
-    planner: 'mistral:7b',
-    codegen: 'codellama:13b',
-    debug: 'mistral:7b',
+    planner: 'qwen2.5-coder:1.5b',
+    codegen: 'qwen2.5-coder:1.5b',
+    debug: 'qwen2.5-coder:1.5b',
   },
   maxRetries: 3,
   debugTimeout: 10_000,

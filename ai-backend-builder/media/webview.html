@@ -443,6 +443,22 @@
         color: var(--warn);
         background: rgba(245, 158, 11, 0.1);
       }
+      .ai.or {
+        color: #a78bfa;
+        background: rgba(167, 139, 250, 0.1);
+      }
+      .ai.ts {
+        color: #f59e0b;
+        background: rgba(245, 158, 11, 0.1);
+      }
+      .ai.cr {
+        color: #f472b6;
+        background: rgba(244, 114, 182, 0.1);
+      }
+      .ai.me {
+        color: #34d399;
+        background: rgba(52, 211, 153, 0.1);
+      }
 
       .ac.act .ai {
         animation: pulse-icon 2s infinite;
@@ -1015,10 +1031,18 @@
       <div class="sec">
         <div class="sec-hdr" data-target="pipe-body">
           <i class="codicon codicon-chevron-down chevron"></i>
-          <span class="lbl">Agent Pipeline</span>
+          <span class="lbl">Build Workflow</span>
         </div>
         <div class="sec-body" id="pipe-body">
           <div class="pipe" id="pipe">
+            <div class="ac" id="aO">
+              <div class="ai or"><i class="codicon codicon-git-branch"></i></div>
+              <div style="flex: 1; min-width: 0">
+                <div class="an">Orchestration Engine</div>
+                <div class="as" id="sO">Waiting</div>
+              </div>
+              <div class="ak" id="kO"></div>
+            </div>
             <div class="ac" id="aP">
               <div class="ai pl"><i class="codicon codicon-lightbulb"></i></div>
               <div style="flex: 1; min-width: 0">
@@ -1030,18 +1054,26 @@
             <div class="ac" id="aC">
               <div class="ai cg"><i class="codicon codicon-code"></i></div>
               <div style="flex: 1; min-width: 0">
-                <div class="an">Code Generator</div>
+                <div class="an">CodeGen Agent</div>
                 <div class="as" id="sC">Waiting</div>
               </div>
               <div class="ak" id="kC"></div>
             </div>
-            <div class="ac" id="aD">
-              <div class="ai db"><i class="codicon codicon-bug"></i></div>
+            <div class="ac" id="aT">
+              <div class="ai ts"><i class="codicon codicon-beaker"></i></div>
               <div style="flex: 1; min-width: 0">
-                <div class="an">Debug Agent</div>
-                <div class="as" id="sD">Waiting</div>
+                <div class="an">Testing / Debug Agent</div>
+                <div class="as" id="sT">Waiting</div>
               </div>
-              <div class="ak" id="kD"></div>
+              <div class="ak" id="kT"></div>
+            </div>
+            <div class="ac" id="aR">
+              <div class="ai cr"><i class="codicon codicon-comment-discussion"></i></div>
+              <div style="flex: 1; min-width: 0">
+                <div class="an">Critic Agent / Repair Strategy</div>
+                <div class="as" id="sR">Waiting</div>
+              </div>
+              <div class="ak" id="kR"></div>
             </div>
           </div>
           <div class="ps" id="ps">
@@ -1119,9 +1151,11 @@
 
         const $ = (id) => document.getElementById(id);
         const ag = {
+          O: { c: $("aO"), s: $("sO"), k: $("kO") },
           P: { c: $("aP"), s: $("sP"), k: $("kP") },
           C: { c: $("aC"), s: $("sC"), k: $("kC") },
-          D: { c: $("aD"), s: $("sD"), k: $("kD") },
+          T: { c: $("aT"), s: $("sT"), k: $("kT") },
+          R: { c: $("aR"), s: $("sR"), k: $("kR") },
         };
 
         // Initialize
@@ -1379,44 +1413,144 @@
           ag[k].k.innerHTML = '<i class="codicon codicon-error"></i>';
         }
 
-        function phase(m, p) {
-          const l = m.toLowerCase();
-          if (
-            l.includes("planning") ||
+        function cleanStateMessage(m) {
+          return String(m || "")
+            .replace(/[🧠📋📁⚙️🔍🔧✅❌🧾📦🧩🛑📄🔁⏭️👤]/g, "")
+            .replace(/STATE\s*→\s*/g, "")
+            .trim();
+        }
+
+        function markDone(keys) {
+          keys.forEach((k) => aDn(k));
+        }
+
+        function phase(m, p, state) {
+          const st = String(state || "").toUpperCase();
+          const l = String(m || "").toLowerCase();
+          const msg = cleanStateMessage(m);
+
+          // Keep Orchestration active for every backend state.
+          aAct("O", st ? st.replace(/_/g, " ") : "Coordinating");
+
+          // IMPORTANT: match specific backend states first.
+          // Do not use broad words like "plan" before generation/debug checks,
+          // otherwise later messages can be displayed as Planning incorrectly.
+
+          const isFailure =
+            st.includes("FAILED") ||
+            st.includes("FATAL") ||
+            st.includes("CANCELLED") ||
+            l.includes("fatal error");
+
+          if (isFailure) {
+            if (activeAgentKey) aEr(activeAgentKey, msg || "Failed");
+            aEr("O", msg || "Stopped");
+            return st.includes("CANCELLED") ? "Cancelled" : "Failed";
+          }
+
+          // Code generation and consistency states
+          const isCodeGen =
+            st.includes("CREATING_STRUCTURE") ||
+            st.includes("GENERATING") ||
+            st.includes("FILE_GENERATED") ||
+            st.includes("FILE_GENERATION") ||
+            st.includes("FILE_SKIPPED") ||
+            st.includes("CONSISTENCY") ||
+            st.includes("DEPENDENCY") ||
+            st.includes("CODEGEN") ||
+            l.includes("generating backend files") ||
+            l.includes("generated file") ||
+            l.includes("file generation") ||
+            l.includes("checking imports") ||
+            l.includes("package dependencies");
+
+          if (isCodeGen) {
+            markDone(["P"]);
+            aAct("C", msg || "Generating files");
+
+            if (st.includes("CONSISTENCY")) return "Consistency check";
+            if (st.includes("DEPENDENCY")) return "Dependency sync";
+            if (st.includes("CREATING_STRUCTURE")) return "Creating structure";
+            return "Code generation";
+          }
+
+          // Testing/debug states
+          const isTesting =
+            st.includes("TESTING") ||
+            st.includes("TEST") ||
+            st.includes("ERROR_RECEIVED") ||
+            st.includes("RETESTING") ||
+            st.includes("DEBUG_REPORT") ||
+            st.includes("FAILED_SAFE_EXIT") ||
+            l.includes("debug attempt") ||
+            l.includes("testing") ||
+            l.includes("runtime errors") ||
+            l.includes("error(s) captured");
+
+          if (isTesting) {
+            markDone(["P", "C"]);
+            aAct("T", msg || "Running tests");
+
+            if (st.includes("RETESTING")) return "Retesting";
+            if (st.includes("DEBUG_REPORT")) return "Debug report";
+            if (st.includes("FAILED_SAFE_EXIT")) return "Safe exit";
+            if (st.includes("ERROR_RECEIVED")) return "Errors captured";
+            return "Testing";
+          }
+
+          // Memory retrieval is shown as Orchestration context, not a separate card.
+          if (st.includes("MEMORY")) {
+            markDone(["P", "C"]);
+            aDn("T", "Errors captured");
+            aAct("O", msg || "Retrieving repair context");
+            return "Retrieving repair context";
+          }
+
+          // Critic Agent states
+          if (st.includes("CRITIC")) {
+            markDone(["P", "C", "T"]);
+            aAct("R", msg || "Analyzing errors");
+            return "Critic analysis";
+          }
+
+          // Code fixing / repair strategy application
+          if (st.includes("CODE_FIXING") || st.includes("FIX_")) {
+            markDone(["P", "C", "T", "R"]);
+            aAct("C", msg || "Applying fix");
+
+            if (st.includes("FIX_SKIPPED")) return "Fix skipped";
+            if (st.includes("FIX_FAILED")) return "Fix failed";
+            return "Code fixing";
+          }
+
+          // Planning states must be after generation/debug checks.
+          const isPlanning =
+            st === "PLANNING" ||
+            st === "PLANNING_RETRY" ||
+            st === "PLAN_READY" ||
+            st === "PLAN_APPROVAL" ||
+            st === "RE_PLANNING" ||
+            st === "RE_PLANNING_RETRY" ||
+            st === "REVISED_PLAN_READY" ||
+            l.includes("planning project architecture") ||
             l.includes("plan ready") ||
-            l.includes("plan approved")
-          ) {
-            if (p <= 10) aAct("P", m.replace(/[🧠📋]/g, "").trim());
-            else aDn("P");
+            l.includes("re-planning");
+
+          if (isPlanning) {
+            aAct("P", msg || "Planning");
+
+            if (st.includes("RE_PLANNING")) return "Re-planning";
+            if (st.includes("PLAN_APPROVAL")) return "Plan approval";
+            if (st.includes("PLAN_READY")) return "Plan ready";
             return "Planning";
           }
-          if (l.includes("structure")) {
-            aDn("P");
-            return "Scaffolding";
-          }
-          if (l.includes("generating")) {
-            aDn("P");
-            aAct("C", m.replace(/[⚙️]/g, "").trim());
-            return "Generating";
-          }
-          if (l.includes("debug") || l.includes("attempt")) {
-            aDn("P");
-            aDn("C");
-            aAct("D", m.replace(/[🔍🔧]/g, "").trim());
-            return "Debugging";
-          }
-          if (l.includes("fix") || l.includes("applying")) {
-            aAct("D", m.replace(/[🔧]/g, "").trim());
-            return "Fixing";
-          }
-          if (l.includes("complete") || l.includes("✅")) {
-            aDn("P");
-            aDn("C");
-            aDn("D");
+
+          if (st.includes("COMPLETE") || l.includes("build complete")) {
+            markDone(["O", "P", "C", "T", "R"]);
             return "Complete";
           }
-          if (l.includes("failed") || l.includes("❌")) return "Error";
-          return $("ph").textContent;
+
+          return st ? st.replace(/_/g, " ") : $("ph").textContent;
         }
 
         // Result card event delegation
@@ -1564,7 +1698,7 @@
           } else if (step === "codegen_error") {
             h =
               '<h3><i class="codicon codicon-error"></i> File Generation Failed</h3><div class="desc">' +
-              d.explanation +
+              (d.message || "The CodeGen Agent could not generate this file.") +
               "</div>";
             h +=
               '<div class="detail-list" style="margin-top:6px"><div class="item" style="color:var(--err)">File: ' +
@@ -1593,35 +1727,46 @@
               '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-play"></i> Run Debug Phase</button><button class="btn bd" data-action="cancel">Skip Debug</button></div>';
           } else if (step === "debug_fix") {
             h =
-              '<h3><i class="codicon codicon-wrench"></i> Debug Fixes Proposed</h3><div class="desc">' +
-              d.explanation +
+              '<h3><i class="codicon codicon-wrench"></i> Critic Strategy Review</h3><div class="desc">' +
+              (d.message || "Review the critic strategy before applying code fixes.") +
               "</div>";
-            if (d.errors) {
+            if (d.strategy) {
+              h +=
+                '<div class="lbl" style="margin-top:6px">Fixing Strategy</div><div class="detail-list"><div class="item diff-add">' +
+                linkify(String(d.strategy)) +
+                "</div></div>";
+            }
+            if (d.instructions) {
+              h +=
+                '<div class="lbl" style="margin-top:6px">Instructions to CodeGen</div><div class="detail-list"><div class="item">' +
+                linkify(String(d.instructions)) +
+                "</div></div>";
+            }
+            if (d.affectedFiles && d.affectedFiles.length) {
+              h +=
+                '<div class="lbl" style="margin-top:6px">Affected Files</div><div class="detail-list">';
+              d.affectedFiles.forEach((f) => {
+                h +=
+                  '<div class="item"><i class="codicon codicon-file-code" style="margin-right:6px"></i> ' +
+                  f +
+                  "</div>";
+              });
+              h += "</div>";
+            }
+            if (d.errors && d.errors.length) {
               h +=
                 '<div class="lbl" style="margin-top:6px">Errors Found</div><div class="detail-list">';
               d.errors.forEach((e) => {
                 h +=
                   '<div class="item diff-rem"><i class="codicon codicon-error" style="margin-right:6px"></i> ' +
-                  e.substring(0, 150) +
-                  "...</div>";
-              });
-              h += "</div>";
-            }
-            if (d.fixes) {
-              h +=
-                '<div class="lbl" style="margin-top:6px">Proposed Fixes</div><div class="detail-list">';
-              d.fixes.forEach((f) => {
-                h +=
-                  '<div class="item diff-add"><i class="codicon codicon-file-code" style="margin-right:6px"></i> <div><b>' +
-                  f.file +
-                  '</b><br><span style="opacity:0.8">' +
-                  f.issue +
-                  "</span></div></div>";
+                  linkify(String(e).substring(0, 220)) +
+                  (String(e).length > 220 ? "..." : "") +
+                  "</div>";
               });
               h += "</div>";
             }
             h +=
-              '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-check"></i> Apply Fixes</button><button class="btn bg" data-action="skip"><i class="codicon codicon-debug-step-over"></i> Skip</button><button class="btn bd" data-action="cancel">Cancel</button></div>';
+              '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-check"></i> Apply Fix</button><button class="btn bg" data-action="skip"><i class="codicon codicon-debug-step-over"></i> Skip</button><button class="btn bd" data-action="cancel">Cancel</button></div>';
           }
           a.innerHTML = h;
           a.classList.add("v");
@@ -1674,8 +1819,8 @@
               $("pf").style.width = m.progress + "%";
               $("pc").textContent = m.progress + "%";
               $("pm").textContent = m.message;
-              $("ph").textContent = phase(m.message, m.progress);
-              log(m.message.replace(/[🧠📋📁⚙️🔍🔧✅❌]/g, "").trim());
+              $("ph").textContent = phase(m.message, m.progress, m.state);
+              log(cleanStateMessage(m.message));
               break;
             case "approvalNeeded":
               showApproval(m.step, m.details);
@@ -1688,7 +1833,7 @@
               else log("Failed: " + m.path, "er");
               break;
             case "fixApplied":
-              log("Fixed: " + m.file + " (" + m.type + ") — " + m.issue, "fx");
+              log("Fixed: " + m.file + " (" + (m.type || "critic_fix") + ")", "fx");
               break;
             case "buildComplete": {
               stopTimer();
@@ -1703,9 +1848,11 @@
               const r = m.result,
                 rc = $("rc");
               if (r.success) {
+                aDn("O");
                 aDn("P");
                 aDn("C");
-                aDn("D");
+                aDn("T");
+                aDn("R");
                 rc.innerHTML =
                   '<div style="display:flex;align-items:center;gap:6px;color:var(--ok)"><i class="codicon codicon-pass ri"></i><span class="rt">' +
                   r.projectName +
@@ -1720,7 +1867,8 @@
                   '"><i class="codicon codicon-folder-opened"></i> Open Project</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>';
                 log("Build succeeded!", "ok");
               } else {
-                aEr("D", "Failed");
+                aEr("O", "Failed");
+                if (activeAgentKey) aEr(activeAgentKey, "Failed");
                 let errs = "";
                 if (r.errors && r.errors.length) {
                   errs =
