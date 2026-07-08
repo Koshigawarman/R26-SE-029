@@ -236,7 +236,10 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
     this._logger.section("NEW BUILD REQUEST (Interactive)");
     this._logger.info(`User prompt: "${prompt}"`);
 
-    this._postMessage({ command: "buildStarted" });
+    this._postMessage({ 
+      command: "buildStarted",
+      workspaceRoot: workspaceUri
+    });
 
     try {
       const response = await fetch(`${config.backendUrl}/api/build`, {
@@ -307,6 +310,14 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
                   this._logger.info(
                     `⏸️ Approval needed: ${data.data.step} — ${data.data.message}`,
                   );
+                  break;
+
+                case "memory_retrieved":
+                  this._postMessage({
+                    command: "memoryRetrieved",
+                    ...data.data,
+                  });
+                  this._logger.info(`🧠 Memory retrieved: ${data.data.count} matches found`);
                   break;
 
                 case "file_generated":

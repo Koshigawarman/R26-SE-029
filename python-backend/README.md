@@ -45,25 +45,42 @@ PLANNER_MODEL=llama3.1:8b
 CODEGEN_MODEL=qwen2.5-coder:7b
 DEBUG_MODEL=llama3.1:8b
 REQUEST_TIMEOUT=120
+ORCHESTRATOR_OPERATION_RETRIES=3
+REGENERATE_TESTS_EACH_ATTEMPT=false
+DEBUG_TIMEOUT=10000
 ```
 
 ## API Endpoints
 
 ### `POST /api/build`
-
 Start the full autonomous multi-agent pipeline (Streaming SSE).
 
-### `POST /api/generate`
+### `POST /api/build/{id}/approve`
+Submit user approval (or rejection) for a plan or pre-debug checkpoint.
 
-Generate text from a local AI model.
+### `GET /api/build/sessions`
+List all active build sessions.
+
+### `POST /api/generate`
+Generate text directly from a local AI model.
 
 ### `GET /api/health`
-
 Health check — also verifies Ollama connectivity.
 
-### `GET /api/models`
+### `GET /api/info`
+Returns server metadata: version, uptime, config, model defaults.
 
+### `GET /api/models`
 List available Ollama models.
+
+## Build State Machine
+
+The orchestration pipeline streams states back to the client:
+1. `PLANNING` -> `PLAN_READY` (Waits for user approval)
+2. `GENERATING` -> `CONSISTENCY_CHECK`
+3. `PRE_DEBUG` (Waits for user approval)
+4. `TESTING` -> `VERIFIED` (or `ERROR_RECEIVED` to retry)
+5. `MEMORY_UPDATE` -> `COMPLETE`
 
 ## Troubleshooting
 

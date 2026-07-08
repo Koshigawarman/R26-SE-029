@@ -26,6 +26,7 @@ from schema import (
     CriticStrategy,
     RuntimeErrorInfo,
     OrchestrationAttempt,
+    TestResults,
 )
 from agents.planner_agent import PlannerAgent
 from agents.codegen_agent import CodeGenAgent
@@ -39,6 +40,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_OPERATION_RETRIES = int(os.getenv("ORCHESTRATOR_OPERATION_RETRIES", "3"))
 DEFAULT_RETRY_DELAY_SECONDS = float(os.getenv("ORCHESTRATOR_RETRY_DELAY_SECONDS", "2"))
 
+
+class AbortBuildException(Exception):
+    """Raised when a build is manually aborted by the user during an interactive fallback."""
+    pass
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Build Session
@@ -138,7 +143,7 @@ class OrchestratorAgent:
         self.max_retries = max_retries
 
         self.episodic_memory = EpisodicMemory(
-            memory_path=os.getenv("EPISODIC_MEMORY_PATH", "memory/episodic_memory.json")
+            memory_dir=os.getenv("EPISODIC_MEMORY_DIR", "memory/chroma_db")
         )
 
         # For PP1: seed initial curated cases if available.
@@ -201,6 +206,7 @@ class OrchestratorAgent:
         latest_errors: List[str] = []
         debug_attempt_count = 0
         files_generated = 0
+        final_test_results: Optional[TestResults] = None
 
         previous_failed_errors: Optional[List[RuntimeErrorInfo]] = None
         previous_critic_strategy: Optional[CriticStrategy] = None
@@ -439,6 +445,7 @@ class OrchestratorAgent:
                             session=session,
                             progress=progress_pct,
                             state="GENERATING_MODEL_RETRY",
+                            allow_user_fallback=False,
                         )
                     except Exception as exc:
                         generated = None
@@ -510,6 +517,7 @@ class OrchestratorAgent:
                                 session=session,
                                 progress=progress_pct,
                                 state="GENERATING_USER_RETRY",
+                                allow_user_fallback=False,
                             )
                         except Exception as exc:
                             regenerated = None
@@ -558,6 +566,73 @@ class OrchestratorAgent:
                             f"⚠️ STATE → FILE_SKIPPED: Skipped failed file {file_spec.path}",
                             progress_pct,
                             "FILE_SKIPPED",
+                        )
+
+            # Phase 3.2: Missing Files Cross-Check
+            status("🔍 STATE → CROSS_CHECK: Verifying all planned files were created...", 65, "CROSS_CHECK")
+            
+            for file_spec in plan.files:
+                if file_spec.path not in existing_contents:
+                    logger.warning("Missing file detected during cross-check: %s. Forcing creation...", file_spec.path)
+                    
+                    status(f"⚡ Forcing creation of missing file: {file_spec.path}", 66, "FORCING_CREATION")
+                    
+                    file_forced_success = False
+                    for force_attempt in range(1, 3):
+                        status(
+                            f"⚡ Forcing creation of missing file: {file_spec.path} (Attempt {force_attempt}/2)",
+                            66 + force_attempt,
+                            "FORCING_CREATION_RETRY"
+                        )
+                        try:
+                            regenerated = self._retry_operation(
+                                operation_name=f"CodeGen Agent force create {file_spec.path}",
+                                operation=lambda: self.codegen_agent.execute(file_spec, context),
+                                session=session,
+                                progress=66 + force_attempt,
+                                state="FORCING_CREATION_RETRY",
+                                allow_user_fallback=False,
+                            )
+                            
+                            if regenerated and regenerated.status == "generated" and regenerated.content:
+                                self._write_project_file(project_path, regenerated.path, regenerated.content)
+                                existing_contents[regenerated.path] = regenerated.content
+                                context.existingFileContents = existing_contents
+                                files_generated += 1
+                                logger.info("Successfully forced creation of %s", regenerated.path)
+                                
+                                session.emit(
+                                    "file_generated",
+                                    {
+                                        "path": regenerated.path,
+                                        "status": "success",
+                                        "chars": len(regenerated.content),
+                                        "index": files_generated,
+                                        "total": total_files,
+                                    },
+                                )
+                                status(f"✅ Successfully forced creation of: {regenerated.path}", 68, "FILE_GENERATED")
+                                file_forced_success = True
+                                break
+                            else:
+                                logger.error("Failed to force create %s on attempt %s", file_spec.path, force_attempt)
+                        except Exception as exc:
+                            logger.error("Error force creating %s on attempt %s: %s", file_spec.path, force_attempt, exc)
+                        
+                        if force_attempt < 2:
+                            time.sleep(2)
+                    
+                    if not file_forced_success:
+                        status(f"❌ CRITICAL: Failed to force create missing file: {file_spec.path} after 2 attempts", 68, "FILE_GENERATION_FAILED")
+                        session.emit(
+                            "file_generated",
+                            {
+                                "path": file_spec.path,
+                                "status": "failed",
+                                "chars": 0,
+                                "index": files_generated,
+                                "total": total_files,
+                            },
                         )
 
             # Phase 3.5: Project Consistency Validation
@@ -647,6 +722,9 @@ class OrchestratorAgent:
                 debug_attempt_count = attempt
                 progress_pct = 70 + int((attempt / self.max_retries) * 25)
 
+                # Signal to debug_agent whether this is a first run or a retry
+                os.environ["CURRENT_DEBUG_ATTEMPT"] = str(attempt)
+
                 status(
                     f"🔍 STATE → TESTING: Debug attempt {attempt}/{self.max_retries}",
                     progress_pct,
@@ -659,10 +737,29 @@ class OrchestratorAgent:
                     session=session,
                     progress=progress_pct,
                     state="TESTING_RETRY",
+                    allow_user_fallback=False,
                 )
 
                 if debug_result.success:
                     debug_success = True
+
+                    # Capture test results for the final buildComplete event
+                    try:
+                        report_path = os.path.join(project_path, "testing-report.json")
+                        if os.path.exists(report_path):
+                            import json as _json
+                            with open(report_path, "r", encoding="utf-8") as _f:
+                                rpt = _json.load(_f)
+                            final_test_results = TestResults(
+                                total=rpt.get("tests_total", 0),
+                                passed=rpt.get("tests_passed", 0),
+                                failed=rpt.get("tests_failed", 0),
+                                skipped=rpt.get("tests_skipped", 0),
+                                duration_ms=rpt.get("duration_ms", 0.0),
+                                stage=rpt.get("stage", ""),
+                            )
+                    except Exception as _exc:
+                        logger.warning("Could not read testing-report.json: %s", _exc)
 
                     status("✅ STATE → VERIFIED: Generated backend started successfully", 95, "VERIFIED")
 
@@ -678,6 +775,7 @@ class OrchestratorAgent:
                             session=session,
                             progress=97,
                             state="MEMORY_UPDATE_RETRY",
+                            allow_user_fallback=False,
                         )
 
                         status(
@@ -736,6 +834,7 @@ class OrchestratorAgent:
                         session=session,
                         progress=100,
                         state="DEBUG_REPORT_RETRY",
+                        allow_user_fallback=False,
                     )
 
                     status(f"📄 Debug report generated: {report_path}", 100, "DEBUG_REPORT_GENERATED")
@@ -759,6 +858,7 @@ class OrchestratorAgent:
                     session=session,
                     progress=progress_pct + 2,
                     state="MEMORY_RETRIEVAL_RETRY",
+                    allow_user_fallback=False,
                 )
 
                 # Critic Strategy Generation
@@ -775,6 +875,7 @@ class OrchestratorAgent:
                     session=session,
                     progress=progress_pct + 3,
                     state="FILE_LIST_RETRY",
+                    allow_user_fallback=False,
                 )
 
                 critic_strategy = self._retry_operation(
@@ -786,10 +887,12 @@ class OrchestratorAgent:
                         memory_matches=memory_matches,
                         file_list=file_list,
                         attempt=attempt,
+                        file_contents=existing_contents,
                     ),
                     session=session,
                     progress=progress_pct + 4,
                     state="CRITIC_ANALYSIS_RETRY",
+                    allow_user_fallback=False,
                 )
 
                 status(
@@ -855,6 +958,7 @@ class OrchestratorAgent:
                     session=session,
                     progress=progress_pct + 7,
                     state="AFFECTED_FILES_RETRY",
+                    allow_user_fallback=False,
                 )
 
                 fixed_files: List[str] = []
@@ -864,6 +968,7 @@ class OrchestratorAgent:
                         operation_name=f"Read affected file {affected_file}",
                         operation=lambda: self._read_project_file(project_path, affected_file),
                         max_attempts=2,
+                        allow_user_fallback=False,
                     )
 
                     if not original_content:
@@ -986,6 +1091,23 @@ class OrchestratorAgent:
                 attempts=debug_attempt_count,
                 errors=latest_errors if not debug_success else [],
                 start=start_time,
+                test_results=final_test_results,
+            )
+
+        except AbortBuildException as abort_exc:
+            logger.info("Build aborted by user: %s", abort_exc)
+            
+            status(f"🛑 Build Cancelled: {str(abort_exc)}", 100, "CANCELLED")
+
+            self._emit_complete(
+                session=session,
+                success=False,
+                name="cancelled",
+                root=project_path,
+                files=files_generated,
+                attempts=debug_attempt_count,
+                errors=[str(abort_exc)],
+                start=start_time,
             )
 
         except Exception as exc:
@@ -1017,6 +1139,7 @@ class OrchestratorAgent:
         session: Optional[BuildSession] = None,
         progress: Optional[int] = None,
         state: str = "OPERATION_RETRY",
+        allow_user_fallback: bool = True,
     ) -> Any:
         """
         Retry wrapper for unstable orchestration operations.
@@ -1029,57 +1152,75 @@ class OrchestratorAgent:
 
         last_error: Optional[Exception] = None
 
-        for attempt in range(1, max_attempts + 1):
-            try:
-                if attempt > 1:
+        while True:
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    if attempt > 1:
+                        logger.warning(
+                            "Retrying %s (%s/%s)",
+                            operation_name,
+                            attempt,
+                            max_attempts,
+                        )
+
+                        if session and progress is not None:
+                            session.emit(
+                                "status",
+                                {
+                                    "message": (
+                                        f"🔁 Retrying {operation_name} "
+                                        f"({attempt}/{max_attempts})"
+                                    ),
+                                    "progress": progress,
+                                    "state": state,
+                                }
+                            )
+
+                        time.sleep(delay_seconds * (2 ** (attempt - 2)))
+
+                    result = operation()
+
+                    if attempt > 1:
+                        logger.info("%s succeeded on retry %s", operation_name, attempt)
+
+                    return result
+
+                except Exception as exc:
+                    last_error = exc
                     logger.warning(
-                        "Retrying %s (%s/%s)",
+                        "%s failed on attempt %s/%s: %s",
                         operation_name,
                         attempt,
                         max_attempts,
+                        exc,
                     )
 
-                    if session and progress is not None:
-                        session.emit(
-                            "status",
-                            {
-                                "message": (
-                                    f"🔁 Retrying {operation_name} "
-                                    f"({attempt}/{max_attempts})"
-                                ),
-                                "progress": progress,
-                                "state": state,
-                            },
-                        )
+            logger.error(
+                "%s failed after %s automatic attempt(s)",
+                operation_name,
+                max_attempts,
+            )
 
-                    time.sleep(delay_seconds * (2 ** (attempt - 2)))
-
-                result = operation()
-
-                if attempt > 1:
-                    logger.info("%s succeeded on retry %s", operation_name, attempt)
-
-                return result
-
-            except Exception as exc:
-                last_error = exc
-                logger.warning(
-                    "%s failed on attempt %s/%s: %s",
-                    operation_name,
-                    attempt,
-                    max_attempts,
-                    exc,
+            if session and allow_user_fallback:
+                action = session.wait_for_approval(
+                    "agent_error",
+                    {
+                        "agent_name": operation_name,
+                        "error": str(last_error),
+                    }
                 )
-
-                if attempt == max_attempts:
-                    logger.error(
-                        "%s failed after %s attempt(s)",
-                        operation_name,
-                        max_attempts,
-                    )
-                    raise
-
-        raise RuntimeError(f"{operation_name} failed: {last_error}")
+                
+                if action == "retry":
+                    logger.info("User requested manual retry for %s", operation_name)
+                    continue
+                elif action == "cancel":
+                    logger.warning("User cancelled orchestration during %s failure", operation_name)
+                    raise AbortBuildException(f"Aborted by user during {operation_name} failure.")
+                else:
+                    raise RuntimeError(f"{operation_name} failed after user chose {action}: {last_error}")
+            
+            # If no session or fallback not allowed
+            raise RuntimeError(f"{operation_name} failed: {last_error}")
 
     # ─────────────────────────────────────────────────────────────────────
     # Helper methods
@@ -1095,6 +1236,7 @@ class OrchestratorAgent:
         attempts: int,
         errors: List[str],
         start: float,
+        test_results: Optional[TestResults] = None,
     ) -> None:
         duration = time.time() - start
 
@@ -1106,6 +1248,7 @@ class OrchestratorAgent:
             debugAttempts=attempts,
             errors=errors,
             duration=duration,
+            testResults=test_results,
         )
 
         session.emit("complete", response.model_dump())
@@ -1278,6 +1421,9 @@ class OrchestratorAgent:
                 if filename == basename:
                     full_path = os.path.join(root, filename)
                     return os.path.relpath(full_path, project_path).replace("\\", "/")
+
+        if cleaned.endswith(('.js', '.json', '.env', '.ts', '.py')):
+            return cleaned
 
         return None
 

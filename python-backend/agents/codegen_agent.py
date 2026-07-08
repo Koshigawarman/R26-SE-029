@@ -3,7 +3,6 @@ import os
 import re
 import json
 import requests
-from typing import Dict, Any
 
 from schema import FileSpec, CodeGenContext, GeneratedFile
 from prompts.codegen_prompt import (
@@ -259,13 +258,16 @@ class CodeGenAgent:
 
     def _validate_code(self, path: str, code: str):
         warnings = []
+        errors = []
         
         if 'require(' in code and 'import ' in code:
-            warnings.append("Mixed require() and import statements detected")
-        if 'require(' in code and 'import ' not in code:
-            warnings.append("Using require() instead of ES module imports")
+            errors.append("Mixed require() and import statements detected. Use ES modules only (import/export).")
+        elif 'require(' in code:
+            errors.append("Using require() instead of ES module imports. Use ES modules only (import/export).")
+            
         if 'module.exports' in code:
-            warnings.append("Using module.exports instead of ES module exports")
+            errors.append("Using module.exports instead of ES module exports. Use ES modules only (export default / export const).")
+            
         if '// TODO' in code or '/* TODO' in code:
             warnings.append("Contains TODO placeholders")
 
@@ -273,7 +275,10 @@ class CodeGenAgent:
         for match in import_regex.finditer(code):
             import_path = match.group(1)
             if not import_path.endswith('.js') and not import_path.endswith('.json'):
-                warnings.append(f"Import '{import_path}' missing .js extension")
+                errors.append(f"Import '{import_path}' missing .js extension")
 
         for w in warnings:
             logger.warning(f"{path}: {w}")
+            
+        if errors:
+            raise ValueError("\n".join(errors))

@@ -1,21 +1,22 @@
 """
 AI Backend Builder — FastAPI Proxy Server
 
-Proxies AI requests from the VS Code extension to locally running
-AI models (Ollama or compatible). Acts as a unified interface so
-the extension doesn't need to handle multiple AI model APIs directly.
+Acts as the orchestration hub between the VS Code extension and the
+local AI model provider (Ollama) or a cloud router (OpenRouter).
 
 Endpoints:
-  POST /api/generate  — Generate text from a local AI model
-  GET  /api/health    — Health check
-  GET  /api/models    — List available models
-  POST /api/build     — Run the full autonomous multi-agent pipeline
+  GET  /api/health              — Health check + Ollama connectivity
+  GET  /api/info                — Server info, uptime, default models
+  GET  /api/models              — List available models from Ollama
+  POST /api/generate            — Direct text generation from a model
+  POST /api/build               — Run the full autonomous pipeline (SSE stream)
+  POST /api/build/{id}/approve  — Approve/reject a build checkpoint
+  GET  /api/build/sessions      — List active build sessions
 
-Usage:
-  1. Ensure Ollama is running: `ollama serve`
-  2. Install dependencies: `pip install -r requirements.txt`
-  3. Run the server: `uvicorn main:app --host 0.0.0.0 --port 5000 --reload`
-  4. Extension connects to http://localhost:5000 (configured via API_PORT)
+Quick Start:
+  1. Ensure Ollama is running:  ollama serve
+  2. Install Python deps:       pip install -r requirements.txt
+  3. Start server:              uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 """
 
 import os
@@ -37,6 +38,8 @@ load_dotenv()
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+SERVER_START_TIME = time.time()
 
 app = FastAPI(title="AI Backend Builder API")
 
@@ -90,6 +93,20 @@ async def health_check():
         "ollama": ollama_status,
         "ollama_url": OLLAMA_URL,
         "timestamp": time.time(),
+    }
+
+
+@app.get("/api/info")
+async def server_info():
+    """Return server metadata: version, uptime, config, model defaults."""
+    return {
+        "name": "AI Backend Builder",
+        "version": "1.0.0",
+        "uptime_seconds": round(time.time() - SERVER_START_TIME, 1),
+        "use_openrouter": USE_OPENROUTER,
+        "max_retries": MAX_RETRIES,
+        "default_models": DEFAULT_MODELS,
+        "active_sessions": len(_active_sessions),
     }
 
 
@@ -268,7 +285,7 @@ async def build_project(req: BuildRequest, request: Request):
         # First event: send the session ID so the client can POST approvals
         yield {"data": _json.dumps({"type": "session", "data": {"sessionId": session.id}})}
 
-        while session.active:
+        while session.active or not session.event_queue.empty():
             try:
                 event = session.event_queue.get(timeout=0.3)
                 yield {"data": _json.dumps(event)}

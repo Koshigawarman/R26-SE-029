@@ -29,6 +29,8 @@ CODEGEN_SYSTEM_PROMPT = """You are an expert Node.js/Express.js backend develope
 8. Do NOT import local files that are not listed in the project file list.
 9. Do NOT import external npm packages unless package.json includes them.
 10. Keep the implementation simple and reliable for PP1.
+11. ENTITY CONSISTENCY: Every import path and variable name MUST reference the exact entity from the current project's file list. If the project has models/Car.js, you MUST import Car, not Task or Product or any other entity.
+12. Before writing any import, verify the filename matches a file in ALL PROJECT FILES exactly.
 
 ## PROJECT CONTRACT RULES
 The project file list provided in the prompt is the single source of truth.
@@ -69,6 +71,15 @@ Do NOT import these packages unless the package.json content or file description
 - bcryptjs
 - jsonwebtoken
 - express-validator
+
+## CRITICAL: express-validator IS A COMMONJS MODULE
+Do NOT do:
+  import { validate, body } from 'express-validator';  // WRONG — named ESM imports will crash
+If express-validator appears in package.json, use:
+  import pkg from 'express-validator';
+  const { body, validationResult } = pkg;
+
+But for simple CRUD APIs (PP1), do NOT use express-validator at all.
 
 If the target file is package.json:
 - Include all runtime packages that the generated code will import.
@@ -244,6 +255,9 @@ export default connectDB;
 Required app.js pattern:
 const app = express();
 
+// Call connectDB before starting server
+connectDB().catch(console.dir);
+
 if (process.env.NODE_ENV !== 'test') {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
@@ -399,7 +413,6 @@ def get_related_files(
 ) -> List[tuple]:
     related = []
 
-    is_model = target_path.startswith("models/")
     is_controller = target_path.startswith("controllers/")
     is_route = target_path.startswith("routes/")
     is_app = target_path == "app.js"
