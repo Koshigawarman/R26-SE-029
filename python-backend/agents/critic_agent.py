@@ -59,6 +59,8 @@ class CriticAgent:
         max_attempts = int(os.getenv("MODEL_MAX_RETRIES", "3"))
         last_error = ""
 
+        strategy: Optional[CriticStrategy] = None
+
         for model_attempt in range(1, max_attempts + 1):
             try:
                 logger.info(
@@ -69,8 +71,8 @@ class CriticAgent:
 
                 raw_response = self._query_ollama(prompt, CRITIC_SYSTEM_PROMPT)
                 data = self._extract_json(raw_response)
-
-                return self._to_strategy(data)
+                strategy = self._to_strategy(data)
+                break
 
             except Exception as exc:
                 last_error = str(exc)
@@ -84,9 +86,17 @@ class CriticAgent:
                 if model_attempt < max_attempts:
                     time.sleep(2)
 
-        logger.error("Critic Agent failed after all retries: %s", last_error)
+        if strategy is None:
+            logger.error("Critic Agent failed after all retries: %s", last_error)
+            strategy = self._fallback_strategy_from_errors(errors, stderr, file_list=file_list)
 
-        return self._fallback_strategy_from_errors(errors, stderr, file_list=file_list)
+        # ── Agentic Strategy Validation ───────────────────────────────────────────
+        strategy = self._validate_affected_files(strategy, file_list)
+        strategy = self._ensure_instructions_not_vague(strategy, errors, stderr, file_list)
+        strategy = self._enrich_with_file_list(strategy, file_list)
+        # ─────────────────────────────────────────────────────────────────
+
+        return strategy
 
     def _fallback_strategy_from_errors(
         self,
@@ -121,26 +131,31 @@ class CriticAgent:
         if "cannot find module" in combined_lower or "err_module_not_found" in combined_lower:
             # --- Entity mismatch detection ---
             module_match = re.search(r"cannot find module ['\"](.*?)['\"]", combined_lower)
+            if not module_match:
+                module_match = re.search(r"err_module_not_found.*?['\"](.*?)['\"]", combined_lower, re.DOTALL)
+                
             if module_match and file_list:
                 missing_path = module_match.group(1).replace("\\", "/").lstrip("./")
-                # Get all model files that actually exist
-                existing_models = [f for f in file_list if f.startswith("models/") and f.endswith(".js")]
-
-                # Check if the missing path looks like a model and doesn't match existing models
-                if "models/" in missing_path and existing_models:
-                    missing_lower = missing_path.lower()
-                    exact_exists = any(missing_lower in f.lower() for f in file_list)
-                    if not exact_exists:
-                        correct_model = existing_models[0]  # Most likely the right model
-                        missing_basename = os.path.basename(missing_path)
-                        correct_basename = os.path.basename(correct_model)
-                        return CriticStrategy(
-                            root_cause=f"app.js (or a route file) imports '{missing_basename}' but the actual model file is '{correct_basename}'. The LLM generated the wrong entity name in the import.",
-                            affected_files=["app.js"],
-                            fixing_strategy=f"Find and replace all imports of '{missing_path}' (wrong entity) with the correct file '{correct_model}' throughout app.js and all route files.",
-                            instructions_for_code_agent=f"In app.js: find any import statement referencing '{missing_basename}' and change it to use '{correct_basename}'. Also update any variable names that used the wrong entity (e.g., TaskRouter -> CarRouter). Only change import paths and references, not the business logic.",
-                            confidence=1.0,
-                        )
+                missing_basename = os.path.basename(missing_path)
+                
+                if missing_basename:
+                    import difflib
+                    basenames = {os.path.basename(f): f for f in file_list if f.endswith('.js') or f.endswith('.json')}
+                    closest = difflib.get_close_matches(missing_basename, basenames.keys(), n=1, cutoff=0.5)
+                    
+                    if closest:
+                        correct_basename = closest[0]
+                        correct_full_path = basenames[correct_basename]
+                        
+                        # If the name is wrong or the directory is wrong
+                        if missing_basename != correct_basename or missing_path not in correct_full_path:
+                            return CriticStrategy(
+                                root_cause=f"The code incorrectly imports '{missing_path}' but the actual existing file is '{correct_full_path}'.",
+                                affected_files=affected_files or ["app.js"],
+                                fixing_strategy=f"Replace the invalid import '{missing_path}' with the correct file path '{correct_full_path}'.",
+                                instructions_for_code_agent=f"Search for any import statement referencing '{missing_path}' or '{missing_basename}' and update it to strictly use '{correct_full_path}'. Ensure case sensitivity matches exactly.",
+                                confidence=0.95,
+                            )
 
             return CriticStrategy(
                 root_cause="A local import path or external dependency cannot be resolved.",
@@ -222,6 +237,101 @@ class CriticAgent:
                 files.append(err.file)
 
         return files
+
+    # ─────────────────────────────────────────────────────────────────
+    # Agentic Strategy Validation Methods
+    # ─────────────────────────────────────────────────────────────────
+
+    def _validate_affected_files(
+        self, strategy: CriticStrategy, file_list: List[str]
+    ) -> CriticStrategy:
+        """
+        For each file in affected_files, verify it actually exists in the project.
+        If not, use difflib to find the closest real file and substitute it.
+        """
+        if not file_list:
+            return strategy
+
+        import difflib
+        corrected = []
+        for af in strategy.affected_files:
+            if af in file_list:
+                corrected.append(af)
+            else:
+                closest = difflib.get_close_matches(af, file_list, n=1, cutoff=0.5)
+                if closest:
+                    logger.info(
+                        "[critic] Corrected affected_file '%s' → '%s' (actual file)",
+                        af, closest[0]
+                    )
+                    corrected.append(closest[0])
+                else:
+                    # Keep the original; CodeGen will get the ground truth file_list anyway
+                    corrected.append(af)
+        strategy.affected_files = corrected
+        return strategy
+
+    _VAGUE_INSTRUCTION_PATTERNS = [
+        r"verify\s+(if|that)\s+the\s+(file|path)",
+        r"ensure\s+that\s+the\s+(correct|file|path)",
+        r"scan\s+the\s+directory",
+        r"check\s+if\s+the\s+file\s+exists",
+        r"make\s+sure\s+the\s+path\s+is\s+correct",
+    ]
+
+    def _ensure_instructions_not_vague(
+        self,
+        strategy: CriticStrategy,
+        errors: List[RuntimeErrorInfo],
+        stderr: str,
+        file_list: List[str],
+    ) -> CriticStrategy:
+        """
+        Detect vague instructions like 'verify that the file exists' and replace the
+        strategy with one from the deterministic fallback engine which always provides
+        exact file paths.
+        """
+        instructions = strategy.instructions_for_code_agent or ""
+        fixing_str   = strategy.fixing_strategy or ""
+
+        combined = (instructions + " " + fixing_str).lower()
+        is_vague = any(
+            re.search(p, combined, re.IGNORECASE)
+            for p in self._VAGUE_INSTRUCTION_PATTERNS
+        )
+
+        if is_vague:
+            logger.warning(
+                "[critic] Vague instructions detected ('%s'). Replacing with deterministic fallback.",
+                instructions[:120]
+            )
+            fallback = self._fallback_strategy_from_errors(errors, stderr, file_list=file_list)
+            # Merge: keep the LLM root_cause if it looks reasonable, override instructions
+            strategy.fixing_strategy              = fallback.fixing_strategy
+            strategy.instructions_for_code_agent = fallback.instructions_for_code_agent
+            strategy.confidence                   = max(strategy.confidence, fallback.confidence)
+
+        return strategy
+
+    def _enrich_with_file_list(
+        self, strategy: CriticStrategy, file_list: List[str]
+    ) -> CriticStrategy:
+        """
+        Append the real file_list to instructions so CodeGen always has ground truth,
+        regardless of what the Critic said.
+        """
+        if not file_list:
+            return strategy
+
+        appendix = (
+            "\n\n[SYSTEM GROUND TRUTH] Actual files in the project:\n"
+            + "\n".join(f"  - {f}" for f in sorted(file_list))
+            + "\nOnly import from paths in this list."
+        )
+        strategy.instructions_for_code_agent = (
+            (strategy.instructions_for_code_agent or "") + appendix
+        )
+        return strategy
 
     def _query_ollama(self, prompt: str, system_prompt: str) -> str:
         payload = {

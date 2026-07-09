@@ -1069,6 +1069,14 @@
               h += "</div>";
             }
             h += '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-check"></i> Apply Fix</button><button class="btn bg" data-action="skip"><i class="codicon codicon-debug-step-over"></i> Skip</button><button class="btn bd" data-action="cancel">Cancel</button></div>';
+          } else if (step === "debug_exhausted") {
+            h = '<h3><i class="codicon codicon-warning"></i> Retry Budget Exhausted</h3><div class="desc">' + (d.message || "Testing failed after max retries.") + "</div>";
+            if (d.errors && d.errors.length) {
+              h += '<div class="lbl" style="margin-top:6px">Final Errors</div><div class="detail-list">';
+              d.errors.forEach((e) => { h += '<div class="item diff-rem"><i class="codicon codicon-error" style="margin-right:6px"></i> ' + linkify(String(e).substring(0, 220)) + (String(e).length > 220 ? "..." : "") + "</div>"; });
+              h += "</div>";
+            }
+            h += '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="retry"><i class="codicon codicon-refresh"></i> Extend Retries (+2)</button><button class="btn bd" data-action="cancel">Cancel Build</button></div>';
           }
           a.innerHTML = h;
           a.classList.add("v");

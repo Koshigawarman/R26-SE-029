@@ -10,6 +10,8 @@ from prompts.codegen_prompt import (
     build_codegen_prompt,
     build_code_fix_prompt,
 )
+from code_validator import validate_and_fix
+
 logger = logging.getLogger(__name__)
 
 class CodeGenAgent:
@@ -50,7 +52,24 @@ class CodeGenAgent:
             if not code or len(code.strip()) < 10:
                 raise ValueError(f"Generated code is too short ({len(code)} chars)")
 
-            self._validate_code(file_spec.path, code)
+            # ── Agentic Validation Layer ──────────────────────────────────────
+            file_list = [f.path for f in (context.allFiles or [])]
+            result = validate_and_fix(
+                file_path=file_spec.path,
+                code=code,
+                file_list=file_list,
+                original_code=existing_content,
+            )
+
+            if not result.is_valid:
+                raise ValueError("; ".join(result.fatal_errors))
+
+            if result.auto_fixes:
+                logger.info("[codegen] %d auto-fix(es) applied to %s: %s",
+                            len(result.auto_fixes), file_spec.path, result.auto_fixes)
+
+            code = result.final_code
+            # ─────────────────────────────────────────────────────────────────
 
             logger.info(f"✓ Generated: {file_spec.path} ({len(code)} chars)")
 
@@ -75,7 +94,8 @@ class CodeGenAgent:
         original_content: str,
         error_log: str,
         critic_strategy: str,
-        instructions_for_code_agent: str
+        instructions_for_code_agent: str,
+        file_list: list = None,
     ) -> GeneratedFile:
         """
         Applies the Critic Agent's fixing strategy to one affected file.
@@ -83,48 +103,85 @@ class CodeGenAgent:
         This method belongs to the CodeGenAgent because:
         - CriticAgent diagnoses and creates strategy only.
         - CodeGenAgent generates the actual fixed code.
+        - code_validator then programmatically verifies and auto-fixes the output.
         """
 
         logger.info(f"Applying critic strategy to fix: {file_path}")
 
-        try:
-            prompt = build_code_fix_prompt(
-                file_path=file_path,
-                original_content=original_content,
-                error_log=error_log,
-                critic_strategy=critic_strategy,
-                instructions_for_code_agent=instructions_for_code_agent,
-            )
+        # Allow up to 2 internal retries if the LLM returns a partial file
+        _MAX_INTERNAL_RETRIES = 2
 
-            if self.use_openrouter:
-                raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
-            else:
-                raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
-           
-            fixed_code = self._extract_code(raw_response)
+        for internal_attempt in range(1, _MAX_INTERNAL_RETRIES + 1):
+            try:
+                prompt = build_code_fix_prompt(
+                    file_path=file_path,
+                    original_content=original_content,
+                    error_log=error_log,
+                    critic_strategy=critic_strategy,
+                    instructions_for_code_agent=instructions_for_code_agent,
+                )
 
-            if not fixed_code or len(fixed_code.strip()) < 10:
-                raise ValueError("Generated fixed code is too short")
+                if self.use_openrouter:
+                    raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
+                else:
+                    raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
 
-            self._validate_code(file_path, fixed_code)
+                fixed_code = self._extract_code(raw_response)
 
-            logger.info(f"✓ Fixed file generated: {file_path} ({len(fixed_code)} chars)")
+                if not fixed_code or len(fixed_code.strip()) < 10:
+                    raise ValueError("Generated fixed code is too short")
 
-            return GeneratedFile(
-                path=file_path,
-                content=fixed_code,
-                status="fixed"
-            )
+                # ── Agentic Validation Layer ──────────────────────────────────
+                result = validate_and_fix(
+                    file_path=file_path,
+                    code=fixed_code,
+                    file_list=file_list or [],
+                    original_code=original_content,  # enables partial-generation guard
+                )
 
-        except Exception as e:
-            logger.error(f"✗ Failed to fix {file_path}: {str(e)}")
+                if not result.is_valid:
+                    if internal_attempt < _MAX_INTERNAL_RETRIES:
+                        logger.warning(
+                            "[codegen] Fix attempt %d/%d rejected by validator (%s): %s. Retrying...",
+                            internal_attempt, _MAX_INTERNAL_RETRIES, file_path,
+                            result.fatal_errors
+                        )
+                        continue  # retry the LLM call
+                    else:
+                        raise ValueError("; ".join(result.fatal_errors))
 
-            return GeneratedFile(
-                path=file_path,
-                content="",
-                status="error",
-                errorMessage=str(e)
-            )        
+                if result.auto_fixes:
+                    logger.info(
+                        "[codegen] %d auto-fix(es) applied to %s: %s",
+                        len(result.auto_fixes), file_path, result.auto_fixes
+                    )
+
+                fixed_code = result.final_code
+                # ─────────────────────────────────────────────────────────────
+
+                logger.info(f"✓ Fixed file generated: {file_path} ({len(fixed_code)} chars)")
+
+                return GeneratedFile(
+                    path=file_path,
+                    content=fixed_code,
+                    status="fixed"
+                )
+
+            except Exception as e:
+                if internal_attempt < _MAX_INTERNAL_RETRIES:
+                    logger.warning(
+                        "[codegen] Fix attempt %d/%d failed (%s): %s. Retrying...",
+                        internal_attempt, _MAX_INTERNAL_RETRIES, file_path, e
+                    )
+                    continue
+
+                logger.error(f"✗ Failed to fix {file_path}: {str(e)}")
+                return GeneratedFile(
+                    path=file_path,
+                    content="",
+                    status="error",
+                    errorMessage=str(e)
+                )
 
     def _query_ollama(self, prompt: str, system_prompt: str) -> str:
         logger.info("\n" + "="*50)

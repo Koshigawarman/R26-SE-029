@@ -800,7 +800,14 @@ describe('Generated API validation tests', () => {{
     # ─────────────────────────────────────────────────────────────────────
 
     def _parse_errors(self, result: Dict[str, object]) -> List[RuntimeErrorInfo]:
-        output = f"{result.get('stderr', '')}\n{result.get('stdout', '')}".strip()
+        raw_stderr = result.get("stderr", "") or ""
+        raw_stdout = result.get("stdout", "") or ""
+
+        # \u2500\u2500 Agentic: Clean noise before classifying errors \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        clean_stderr = self._filter_test_noise(raw_stderr)
+        output = f"{clean_stderr}\n{raw_stdout}".strip()
+        # \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
         errors: List[RuntimeErrorInfo] = []
 
         if not output:
@@ -917,6 +924,84 @@ describe('Generated API validation tests', () => {{
                     type="test_failure",
                 )
             )
+
+        # \u2500\u2500 Agentic: Enrich errors with file/line from stack trace \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        errors = self._enrich_errors_with_location(errors, raw_stderr + "\n" + raw_stdout)
+        # \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+        return errors
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Agentic Error Processing Methods
+    # ─────────────────────────────────────────────────────────────────────
+
+    # Lines matching these patterns are pure noise — they don't help the Critic identify root cause
+    _NOISE_PATTERNS = [
+        re.compile(r"^npm\s+(warn|notice|ERR!)\s", re.IGNORECASE),
+        re.compile(r"^npm\s+WARN\s", re.IGNORECASE),
+        re.compile(r"Downloading\s+@"),
+        re.compile(r"^added\s+\d+\s+packages"),
+        re.compile(r"^up to date"),
+        re.compile(r"ExperimentalWarning:"),
+        re.compile(r"^\s*\(Use\s+`node\s+--trace"),
+        re.compile(r"^\s*$"),  # blank lines
+        re.compile(r"^jest-circus"),
+        re.compile(r"^\s*●\s*$"),  # lone bullet
+        re.compile(r"^PASS\s+"),    # Jest PASS lines (not failures)
+    ]
+
+    def _filter_test_noise(self, stderr: str) -> str:
+        """
+        Remove npm warnings, Node.js deprecation notices, and Jest verbose lines
+        from stderr so the Critic sees only actionable error content.
+        """
+        if not stderr:
+            return stderr
+
+        filtered = []
+        for line in stderr.splitlines():
+            if any(p.search(line) for p in self._NOISE_PATTERNS):
+                continue
+            filtered.append(line)
+
+        cleaned = "\n".join(filtered).strip()
+        if len(cleaned) < len(stderr) * 0.9:
+            logger.info(
+                "[debug] Noise filter reduced stderr from %d to %d chars",
+                len(stderr), len(cleaned)
+            )
+        return cleaned
+
+    def _enrich_errors_with_location(
+        self, errors: List[RuntimeErrorInfo], full_output: str
+    ) -> List[RuntimeErrorInfo]:
+        """
+        For any error that has no .file set, try to extract the originating JS file
+        path from the stack trace using regex. This gives the Critic accurate
+        affected_files without needing LLM interpretation.
+        """
+        for err in errors:
+            if err.file:
+                continue  # already has a file
+
+            # Try file:///.../X.js:line pattern (Node ESM)
+            url_match = ERROR_PATTERNS["FILE_URL_LINE"].search(full_output)
+            if url_match:
+                err.file = self._extract_project_relative_file(url_match.group(1))
+                try:
+                    err.line = int(url_match.group(2))
+                except (ValueError, TypeError):
+                    pass
+                continue
+
+            # Try "at X (path/to/file.js:line:col)" pattern
+            stack_match = ERROR_PATTERNS["STACK_FILE_LINE"].search(full_output)
+            if stack_match:
+                err.file = self._extract_project_relative_file(stack_match.group(1))
+                try:
+                    err.line = int(stack_match.group(2))
+                except (ValueError, TypeError):
+                    pass
 
         return errors
 

@@ -713,14 +713,17 @@ class OrchestratorAgent:
 
             # Phase 4: Debug Loop
             debug_success = False
+            attempt = 0
 
-            for attempt in range(1, self.max_retries + 1):
+            while attempt < self.max_retries:
+                attempt += 1
                 if not session.active:
                     logger.warning("Session became inactive during debug loop")
                     return
 
                 debug_attempt_count = attempt
                 progress_pct = 70 + int((attempt / self.max_retries) * 25)
+                progress_pct = min(progress_pct, 99)
 
                 # Signal to debug_agent whether this is a first run or a retry
                 os.environ["CURRENT_DEBUG_ATTEMPT"] = str(attempt)
@@ -838,7 +841,22 @@ class OrchestratorAgent:
                     )
 
                     status(f"📄 Debug report generated: {report_path}", 100, "DEBUG_REPORT_GENERATED")
-                    break
+                    
+                    action = session.wait_for_approval(
+                        "debug_exhausted",
+                        {
+                            "message": f"❌ Testing failed after {self.max_retries} attempts. Extend retry budget by 2?",
+                            "errors": latest_errors,
+                            "options": ["retry", "cancel"],
+                        },
+                    )
+                    
+                    if action == "retry":
+                        self.max_retries += 2
+                        status("🔄 STATE → RETRY_EXTENDED: Retry budget extended by 2.", 99, "RETRY_EXTENDED")
+                        # Do not break, proceed to memory retrieval and critic analysis to fix this error
+                    else:
+                        break
 
                 # Memory Retrieval
                 status(
@@ -1002,6 +1020,7 @@ class OrchestratorAgent:
                                     error_log=error_log,
                                     critic_strategy=critic_strategy.fixing_strategy,
                                     instructions_for_code_agent=critic_strategy.instructions_for_code_agent,
+                                    file_list=list(existing_contents.keys()),
                                 ),
                                 session=session,
                                 progress=progress_pct + 8,
@@ -1034,6 +1053,33 @@ class OrchestratorAgent:
                                 progress_pct + 10,
                                 "CODE_FIXING",
                             )
+
+                            # ── Agentic post-fix verification ─────────────────────────────
+                            resolved = self._verify_fix_applied(
+                                latest_errors, fixed_result.content
+                            )
+                            if not resolved:
+                                logger.warning(
+                                    "[orchestrator] Fix for %s did NOT remove the original error token. "
+                                    "Next test cycle will reveal whether it resolved the issue.",
+                                    fixed_result.path
+                                )
+                                status(
+                                    f"⚠️ Fix applied but original error pattern still detected in {fixed_result.path}",
+                                    progress_pct + 10,
+                                    "FIX_UNVERIFIED",
+                                )
+
+                            dangling = self._cross_check_project_imports(existing_contents)
+                            if dangling:
+                                status(
+                                    f"⚠️ {len(dangling)} unresolved import(s) detected across project files",
+                                    progress_pct + 11,
+                                    "IMPORT_WARNINGS",
+                                )
+                                for warn in dangling[:5]:  # cap at 5 to avoid log spam
+                                    session.emit("importWarning", {"message": warn})
+                            # ──────────────────────────────────────────────────────────────
 
                             break
 
@@ -1125,6 +1171,95 @@ class OrchestratorAgent:
                 errors=[str(exc)],
                 start=start_time,
             )
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Agentic Post-Fix Verification Helpers
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _verify_fix_applied(
+        self,
+        original_errors: list,
+        fixed_code: str,
+    ) -> bool:
+        """
+        Programmatically verify that the fix actually removed the error-causing
+        pattern from the code. Does NOT call any LLM.
+
+        Returns True if the fix is likely effective, False if suspicious.
+        """
+        if not original_errors or not fixed_code:
+            return True  # Cannot verify; optimistically proceed
+
+        for err in original_errors:
+            msg = getattr(err, "message", "") or ""
+
+            # For MODULE_NOT_FOUND: check the bad import path is gone
+            import re as _re
+            mod_match = _re.search(r"Cannot find module ['\"]([^'\"]+)['\"]", msg, _re.IGNORECASE)
+            if mod_match:
+                bad_module = mod_match.group(1)
+                # Extract just the filename part for a loose match
+                bad_name = os.path.basename(bad_module).replace(".js", "")
+                if bad_name and bad_name.lower() in fixed_code.lower():
+                    logger.warning(
+                        "[orchestrator] Bad module '%s' still appears in fixed code", bad_name
+                    )
+                    return False
+
+            # For SyntaxError: check the bad line reference is gone (heuristic)
+            # We can't run JS, but a significantly changed file is a good sign
+
+        return True
+
+    def _cross_check_project_imports(
+        self, existing_contents: dict
+    ) -> list:
+        """
+        Scan every JS file in the project. For each `import ... from '...'`,
+        resolve the path relative to the file and verify the target exists in
+        existing_contents. Return a list of human-readable warning strings for
+        any missing targets.
+
+        This is pure Python — no LLM involved.
+        """
+        import re as _re
+
+        _import_re = _re.compile(r"""import\s+[^'"]+from\s+['"](\.[^'"]+)['"]""")
+        warnings = []
+
+        for file_path, code in existing_contents.items():
+            if not file_path.endswith(".js"):
+                continue
+
+            file_dir = os.path.dirname(file_path)
+
+            for m in _import_re.finditer(code):
+                raw_import = m.group(1)
+
+                # Resolve to project-root-relative path
+                resolved = os.path.normpath(
+                    os.path.join(file_dir, raw_import)
+                ).replace("\\", "/").lstrip("./")
+
+                # Ensure .js extension for lookup
+                if not resolved.endswith(".js") and not resolved.endswith(".json"):
+                    resolved_js = resolved + ".js"
+                else:
+                    resolved_js = resolved
+
+                if resolved_js not in existing_contents and resolved not in existing_contents:
+                    warnings.append(
+                        f"{file_path}: imports '{raw_import}' → resolves to '{resolved_js}' "
+                        f"which does not exist in the project"
+                    )
+
+        if warnings:
+            logger.warning(
+                "[orchestrator] Cross-check found %d unresolved import(s): %s",
+                len(warnings), warnings[:3]
+            )
+
+        return warnings
 
     # ─────────────────────────────────────────────────────────────────────
     # Retry helper

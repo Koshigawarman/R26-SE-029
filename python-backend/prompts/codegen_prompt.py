@@ -484,14 +484,15 @@ def build_code_fix_prompt(
     parts.append("4. Generate the corrected content for the target file only.")
     parts.append("")
     
-    parts.append("## IMPORTANT RULES")
-    parts.append("1. Output ONLY the complete corrected source code for the target file.")
-    parts.append("2. Do NOT include markdown code fences.")
-    parts.append("3. Do NOT include explanations before or after the code.")
-    parts.append("4. Modify only what is necessary to fix the error.")
-    parts.append("5. Do NOT add new features.")
-    parts.append("6. Preserve existing working logic.")
-    parts.append("7. Use ES6 modules: import/export only. Do NOT use require/module.exports.")
+    parts.append("## IMPORTANT RULES (CRITICAL FOR SMALL MODELS)")
+    parts.append("1. YOU MUST OUTPUT THE ENTIRE FULL SOURCE CODE FOR THE FILE FROM START TO FINISH.")
+    parts.append("2. DO NOT output a diff, a patch, or only the modified lines.")
+    parts.append("3. If you only output the fixed line, you will DELETE the rest of the file and destroy the system.")
+    parts.append("4. Copy all unchanged lines from CURRENT FILE CONTENT exactly as they are.")
+    parts.append("5. Do NOT include markdown code fences (```javascript or ```).")
+    parts.append("6. Do NOT include explanations before or after the code.")
+    parts.append("7. Preserve existing working logic.")
+    parts.append("8. Use ES6 modules: import/export only. Do NOT use require/module.exports.")
     parts.append("")
 
     parts.append("## IMPORTANT IMPORT REPAIR RULES")
@@ -534,5 +535,6 @@ def build_code_fix_prompt(
     parts.append("")
 
     parts.append("Return raw JavaScript code only. No markdown. No explanation.")
+    parts.append("FINAL REMINDER: You MUST output the entire full source code of the file. Do NOT output just the changed lines. Do NOT use placeholders.")
 
     return "\n".join(parts)

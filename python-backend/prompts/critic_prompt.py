@@ -22,6 +22,7 @@ IMPORTANT RULES:
 5. Use episodic memory cases if they are relevant.
 6. Suggest minimal and targeted changes only.
 7. Output ONLY valid JSON. No markdown. No explanations outside JSON.
+8. NEVER tell the Code Agent to "verify if a file exists" or "scan the directory". YOU must scan the PROJECT FILE LIST provided to you and explicitly provide the EXACT correct file path or import statement in your instructions.
 
 OUTPUT JSON SCHEMA:
 {
@@ -36,11 +37,11 @@ COMMON NODE.JS ERROR PATTERNS:
 
 1. Cannot find module / MODULE_NOT_FOUND
 - CRITICAL RULE: First check if the missing module name matches ANY file in the PROJECT FILE LIST.
-- If it does NOT match (e.g., error says '../models/Task.js' but only '../models/Car.js' exists):
-  - The problem is a WRONG ENTITY NAME in the import, not a missing file.
-  - The fix is to UPDATE THE IMPORT in the file that contains the wrong import (usually app.js or a route file).
-  - The affected_files must be the FILE CONTAINING THE BAD IMPORT (e.g., app.js), NOT the missing module itself.
-  - instructions_for_code_agent must explicitly say: "Replace the wrong import '../models/Task.js' with '../models/Car.js'".
+- If it does NOT match (e.g., error says '../controllers/MenuItemController.js' but only '../controllers/menuItemController.js' exists):
+  - YOU must find the closest matching file name in the PROJECT FILE LIST.
+  - The fix is to UPDATE THE IMPORT in the file that contains the wrong import (usually a route file or app.js).
+  - The affected_files must be the FILE CONTAINING THE BAD IMPORT, NOT the missing module itself.
+  - instructions_for_code_agent must explicitly provide the EXACT string replacement. NEVER say "Verify if the file exists". ALWAYS say "Change the import from 'X' to 'Y' because Y is the actual existing file."
 - If the missing module IS an npm package: add it to package.json.
 - If the missing module is a legitimately missing local file: create it.
 
