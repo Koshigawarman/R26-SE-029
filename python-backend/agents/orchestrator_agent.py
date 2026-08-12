@@ -33,6 +33,7 @@ from agents.debug_agent import DebugAgent
 from agents.critic_agent import CriticAgent
 from services.episodic_memory import EpisodicMemory
 from services.project_consistency_validator import ProjectConsistencyValidator
+from services.research_artifact_recorder import ResearchArtifactRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +207,7 @@ class OrchestratorAgent:
         previous_failed_errors: Optional[List[RuntimeErrorInfo]] = None
         previous_critic_strategy: Optional[CriticStrategy] = None
         previous_fixed_files: List[str] = []
+        artifact_recorder: Optional[ResearchArtifactRecorder] = None
 
         def status(message: str, progress: int, state: str) -> None:
             logger.info("STATE -> %s: %s", state, message)
@@ -236,6 +238,12 @@ class OrchestratorAgent:
                 state="PLANNING_RETRY",
             )
             project_path = os.path.join(project_root, plan.projectName)
+            artifact_recorder = ResearchArtifactRecorder(project_root, plan.projectName)
+            artifact_recorder.record_planner(
+                user_prompt=request.prompt,
+                trace=self.planner_agent.last_request_trace,
+                planner_output=plan.model_dump(),
+            )
 
             logger.info("📋 Plan generated: %s", plan.projectName)
             logger.info("📁 Planned file count: %s", len(plan.files))
@@ -343,6 +351,14 @@ class OrchestratorAgent:
                         file_generation_error = str(exc)
 
                     if generated and generated.status == "generated" and generated.content:
+                        if artifact_recorder:
+                            artifact_recorder.record_codegen(
+                                file_path=generated.path,
+                                trace=self.codegen_agent.last_request_trace,
+                                generated_content=generated.content,
+                                status=generated.status,
+                            )
+
                         self._write_project_file(project_path, generated.path, generated.content)
 
                         existing_contents[generated.path] = generated.content
@@ -365,6 +381,15 @@ class OrchestratorAgent:
                         break
 
                     file_generation_error = generated.errorMessage if generated else "Unknown generation error"
+
+                    if artifact_recorder:
+                        artifact_recorder.record_codegen(
+                            file_path=file_spec.path,
+                            trace=self.codegen_agent.last_request_trace,
+                            generated_content=generated.content if generated else "",
+                            status=generated.status if generated else "error",
+                            error=file_generation_error,
+                        )
 
                     logger.warning(
                         "File generation attempt %s/3 failed for %s: %s",
@@ -414,6 +439,14 @@ class OrchestratorAgent:
                             logger.warning("User retry failed for %s: %s", file_spec.path, exc)
 
                         if regenerated and regenerated.status == "generated" and regenerated.content:
+                            if artifact_recorder:
+                                artifact_recorder.record_codegen(
+                                    file_path=regenerated.path,
+                                    trace=self.codegen_agent.last_request_trace,
+                                    generated_content=regenerated.content,
+                                    status=regenerated.status,
+                                )
+
                             self._write_project_file(project_path, regenerated.path, regenerated.content)
 
                             existing_contents[regenerated.path] = regenerated.content
@@ -805,6 +838,14 @@ class OrchestratorAgent:
                             fix_error = str(exc)
 
                         if fixed_result and fixed_result.status == "fixed" and fixed_result.content:
+                            if artifact_recorder:
+                                artifact_recorder.record_codegen(
+                                    file_path=fixed_result.path,
+                                    trace=self.codegen_agent.last_request_trace,
+                                    generated_content=fixed_result.content,
+                                    status=fixed_result.status,
+                                )
+
                             self._write_project_file(project_path, fixed_result.path, fixed_result.content)
 
                             existing_contents[fixed_result.path] = fixed_result.content
@@ -834,6 +875,15 @@ class OrchestratorAgent:
                             fix_error = fixed_result.errorMessage or "Unknown fix error"
                         elif not fix_error:
                             fix_error = "Unknown fix error"
+
+                        if artifact_recorder:
+                            artifact_recorder.record_codegen(
+                                file_path=affected_file,
+                                trace=self.codegen_agent.last_request_trace,
+                                generated_content=fixed_result.content if fixed_result else "",
+                                status=fixed_result.status if fixed_result else "error",
+                                error=fix_error,
+                            )
 
                         logger.warning(
                             "CodeGen fix attempt %s/3 failed for %s: %s",

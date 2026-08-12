@@ -24,6 +24,7 @@ class PlannerAgent:
         self.use_openrouter = use_openrouter
         self.openrouter_api_key = openrouter_api_key
         self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.last_request_trace: Dict[str, Any] = {}
 
     def execute(self, user_prompt: str) -> PlannerOutput:
         logger.info("Starting project planning...")
@@ -40,8 +41,20 @@ class PlannerAgent:
                 logger.info(f"Querying AI (attempt {attempt + 1})...")
                 if self.use_openrouter:
                     raw_response = self._query_openrouter(prompt, PLANNER_SYSTEM_PROMPT)
+                    provider = "openrouter"
                 else:
                     raw_response = self._query_ollama(prompt, PLANNER_SYSTEM_PROMPT)
+                    provider = "ollama"
+
+                self.last_request_trace = {
+                    "agent": "planner",
+                    "provider": provider,
+                    "model": self.model,
+                    "attempt": attempt + 1,
+                    "system_prompt": PLANNER_SYSTEM_PROMPT,
+                    "built_prompt": prompt,
+                    "raw_output": raw_response,
+                }
 
                 plan = self._parse_and_validate(raw_response)
                 break

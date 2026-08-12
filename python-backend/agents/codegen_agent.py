@@ -20,6 +20,7 @@ class CodeGenAgent:
         self.use_openrouter = use_openrouter
         self.openrouter_api_key = openrouter_api_key
         self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.last_request_trace: Dict[str, Any] = {}
 
     def execute(self, file_spec: FileSpec, context: CodeGenContext, existing_content: str = None) -> GeneratedFile:
         logger.info(f"Generating: {file_spec.path}")
@@ -43,8 +44,21 @@ class CodeGenAgent:
 
             if self.use_openrouter:
                 raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
+                provider = "openrouter"
             else:
                 raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+                provider = "ollama"
+
+            self.last_request_trace = {
+                "agent": "codegen",
+                "mode": "generate",
+                "provider": provider,
+                "model": self.model,
+                "target_file": file_spec.path,
+                "system_prompt": CODEGEN_SYSTEM_PROMPT,
+                "built_prompt": prompt,
+                "raw_output": raw_response,
+            }
 
             code = self._extract_code(raw_response)
 
@@ -99,8 +113,21 @@ class CodeGenAgent:
 
             if self.use_openrouter:
                 raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
+                provider = "openrouter"
             else:
                 raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+                provider = "ollama"
+
+            self.last_request_trace = {
+                "agent": "codegen",
+                "mode": "fix",
+                "provider": provider,
+                "model": self.model,
+                "target_file": file_path,
+                "system_prompt": CODEGEN_SYSTEM_PROMPT,
+                "built_prompt": prompt,
+                "raw_output": raw_response,
+            }
            
             fixed_code = self._extract_code(raw_response)
 
@@ -220,6 +247,16 @@ class CodeGenAgent:
 
         lines.append("")
         content = "\n".join(lines)
+        self.last_request_trace = {
+            "agent": "codegen",
+            "mode": "deterministic",
+            "provider": "local-template",
+            "model": None,
+            "target_file": file_spec.path,
+            "system_prompt": "",
+            "built_prompt": "Deterministic .env template generated from project name and features.",
+            "raw_output": content,
+        }
         
         logger.info(f"✓ Generated: {file_spec.path} (env file — deterministic)")
         return GeneratedFile(path=file_spec.path, content=content, status='generated')
@@ -253,6 +290,16 @@ class CodeGenAgent:
             pkg["dependencies"]["express-validator"] = "^7.0.1"
 
         content = json.dumps(pkg, indent=2) + "\n"
+        self.last_request_trace = {
+            "agent": "codegen",
+            "mode": "deterministic",
+            "provider": "local-template",
+            "model": None,
+            "target_file": file_spec.path,
+            "system_prompt": "",
+            "built_prompt": "Deterministic package.json template generated from project name and features.",
+            "raw_output": content,
+        }
         
         logger.info(f"✓ Generated: {file_spec.path} (package.json — deterministic)")
         return GeneratedFile(path=file_spec.path, content=content, status='generated')

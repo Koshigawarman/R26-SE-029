@@ -397,7 +397,22 @@ def get_related_files(
     all_files: List[FileSpec],
     existing_contents: Dict[str, str]
 ) -> List[tuple]:
-    related = []
+    allowed_paths = {f.path for f in all_files}
+    selected_paths = []
+
+    def add_if_available(path: str) -> None:
+        if (
+            path != target_path
+            and path in allowed_paths
+            and path in existing_contents
+            and path not in selected_paths
+        ):
+            selected_paths.append(path)
+
+    def add_matching_prefix(directory: str, prefix: str) -> None:
+        for path in sorted(existing_contents):
+            if path != target_path and path.startswith(directory) and _path_stem(path).lower().startswith(prefix):
+                add_if_available(path)
 
     is_model = target_path.startswith("models/")
     is_controller = target_path.startswith("controllers/")
@@ -406,39 +421,40 @@ def get_related_files(
     is_middleware = target_path.startswith("middleware/")
     is_config = target_path.startswith("config/")
 
-    for path, content in existing_contents.items():
-        if path == target_path:
-            continue
+    if target_path != "package.json":
+        add_if_available("package.json")
 
-        is_relevant = False
+    if is_controller:
+        entity_prefix = _path_stem(target_path).replace("Controller", "").lower()
+        add_matching_prefix("models/", entity_prefix)
 
-        if is_controller and path.startswith("models/"):
-            is_relevant = True
+    elif is_route:
+        entity_prefix = _path_stem(target_path).replace("Routes", "").lower()
+        add_matching_prefix("controllers/", entity_prefix)
 
-        if is_route and path.startswith("controllers/"):
-            is_relevant = True
+        # Route files may need auth/validation middleware, but not the global
+        # error handler. Keep this narrow to avoid sending unrelated middleware.
+        for path in sorted(existing_contents):
+            if path.startswith("middleware/") and not path.endswith("errorHandler.js"):
+                add_if_available(path)
 
-        if is_route and path.startswith("middleware/"):
-            is_relevant = True
+    elif is_app:
+        add_if_available("config/db.js")
 
-        if is_app and (
-            path.startswith("routes/")
-            or path.startswith("config/")
-            or path.startswith("middleware/")
-            or path == "package.json"
-        ):
-            is_relevant = True
+        for path in sorted(existing_contents):
+            if path.startswith("routes/") or path == "middleware/errorHandler.js":
+                add_if_available(path)
 
-        if is_middleware and path == "package.json":
-            is_relevant = True
+    elif is_model or is_middleware or is_config:
+        # package.json is enough for external dependency consistency.
+        pass
 
-        if is_config and path == "package.json":
-            is_relevant = True
+    return [(path, existing_contents[path]) for path in selected_paths]
 
-        if is_relevant:
-            related.append((path, content))
 
-    return related
+def _path_stem(path: str) -> str:
+    filename = path.rsplit("/", 1)[-1]
+    return filename.rsplit(".", 1)[0]
 
 
 def build_code_fix_prompt(
