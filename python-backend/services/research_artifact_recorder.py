@@ -92,6 +92,7 @@ class ResearchArtifactRecorder:
             "status": status,
             "error": error,
             "model_request": enriched_trace,
+            "output_validation": enriched_trace.get("output_validation", {}),
             "generated_content": generated_content,
             "recorded_at": time.time(),
         }
@@ -106,6 +107,7 @@ class ResearchArtifactRecorder:
                 "Built Prompt": enriched_trace.get("built_prompt", ""),
                 "Raw Model Output": enriched_trace.get("raw_output", ""),
                 "Generated Code File": generated_content,
+                "Output Validation": enriched_trace.get("output_validation", {}),
                 "Status": {"status": status, "error": error},
             },
         )

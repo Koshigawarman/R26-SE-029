@@ -68,10 +68,21 @@ DEFAULT_MODELS = {
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "120"))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
 
-# OpenRouter Settings
-USE_OPENROUTER = os.getenv("USE_OPENROUTER", "false").lower() == "true"
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+# OpenAI-compatible chat-completions settings.
+# Modal vLLM and many hosted LLMs can use this same shape.
+USE_OPENAI_COMPATIBLE = os.getenv("USE_OPENAI_COMPATIBLE", "false").lower() == "true"
+OPENAI_COMPATIBLE_URL = os.getenv(
+    "OPENAI_COMPATIBLE_URL",
+    "",
+)
+OPENAI_COMPATIBLE_API_KEY = os.getenv(
+    "OPENAI_COMPATIBLE_API_KEY",
+    "",
+)
+OPENAI_COMPATIBLE_PROVIDER = os.getenv(
+    "OPENAI_COMPATIBLE_PROVIDER",
+    "openai-compatible",
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Routes
@@ -117,16 +128,14 @@ async def generate(req: GenerateRequest):
     
     logger.info(f"Generating with model '{req.model}' (prompt: {len(req.prompt)} chars)")
 
-    if USE_OPENROUTER:
-        if not OPENROUTER_API_KEY:
-            raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY is not set")
-        
+    if USE_OPENAI_COMPATIBLE:
         headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029", # Optional
             "X-Title": "AI Backend Builder", # Optional
         }
+        if OPENAI_COMPATIBLE_API_KEY:
+            headers["Authorization"] = f"Bearer {OPENAI_COMPATIBLE_API_KEY}"
         
         payload = {
             "model": req.model,
@@ -139,19 +148,19 @@ async def generate(req: GenerateRequest):
         }
         
         logger.info("\n" + "="*50)
-        logger.info(f"OPENROUTER API REQUEST | Model: {req.model}")
+        logger.info(f"OPENAI-COMPATIBLE API REQUEST | Provider: {OPENAI_COMPATIBLE_PROVIDER} | Model: {req.model}")
         logger.info(f"--- SYSTEM PROMPT ---\n{req.system}")
         logger.info(f"--- USER PROMPT ---\n{req.prompt[:1000]}{'...' if len(req.prompt) > 1000 else ''}")
         logger.info("="*50)
         
         try:
-            resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
+            resp = requests.post(OPENAI_COMPATIBLE_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
             response_text = data['choices'][0]['message']['content']
             
             logger.info("\n" + "="*50)
-            logger.info(f"OPENROUTER API RESPONSE | Length: {len(response_text)}")
+            logger.info(f"OPENAI-COMPATIBLE API RESPONSE | Length: {len(response_text)}")
             logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
             logger.info("="*50)
             
@@ -161,8 +170,8 @@ async def generate(req: GenerateRequest):
                 "done": True,
             }
         except Exception as e:
-            logger.error(f"OpenRouter request failed: {str(e)}")
-            raise HTTPException(status_code=502, detail=f"OpenRouter error: {str(e)}")
+            logger.error(f"OpenAI-compatible request failed: {str(e)}")
+            raise HTTPException(status_code=502, detail=f"OpenAI-compatible error: {str(e)}")
 
     ollama_payload = {
         "model": req.model,
@@ -245,8 +254,10 @@ async def build_project(req: BuildRequest, request: Request):
             "critic": req.critic_model,
         },
         max_retries=req.max_retries,
-        use_openrouter=USE_OPENROUTER,
-        openrouter_api_key=OPENROUTER_API_KEY
+        use_openai_compatible=USE_OPENAI_COMPATIBLE,
+        openai_compatible_url=OPENAI_COMPATIBLE_URL,
+        openai_compatible_api_key=OPENAI_COMPATIBLE_API_KEY,
+        openai_compatible_provider=OPENAI_COMPATIBLE_PROVIDER,
     )
     
     session = BuildSession()

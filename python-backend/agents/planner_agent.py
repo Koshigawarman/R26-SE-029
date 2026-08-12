@@ -18,12 +18,21 @@ MANDATORY_FILES = [
 class PlannerAgent:
     MAX_JSON_RETRIES = 2
 
-    def __init__(self, ollama_url: str, model: str, use_openrouter: bool = False, openrouter_api_key: str = ""):
+    def __init__(
+        self,
+        ollama_url: str,
+        model: str,
+        use_openai_compatible: bool = False,
+        openai_compatible_url: str = "",
+        openai_compatible_api_key: str = "",
+        openai_compatible_provider: str = "openai-compatible",
+    ):
         self.ollama_url = ollama_url
         self.model = model
-        self.use_openrouter = use_openrouter
-        self.openrouter_api_key = openrouter_api_key
-        self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.use_openai_compatible = use_openai_compatible
+        self.openai_compatible_api_key = openai_compatible_api_key
+        self.openai_compatible_url = openai_compatible_url
+        self.openai_compatible_provider = openai_compatible_provider
         self.last_request_trace: Dict[str, Any] = {}
 
     def execute(self, user_prompt: str) -> PlannerOutput:
@@ -39,9 +48,9 @@ class PlannerAgent:
                     prompt = self._build_retry_prompt(user_prompt, str(last_error))
 
                 logger.info(f"Querying AI (attempt {attempt + 1})...")
-                if self.use_openrouter:
-                    raw_response = self._query_openrouter(prompt, PLANNER_SYSTEM_PROMPT)
-                    provider = "openrouter"
+                if self.use_openai_compatible:
+                    raw_response = self._query_openai_compatible(prompt, PLANNER_SYSTEM_PROMPT)
+                    provider = self.openai_compatible_provider
                 else:
                     raw_response = self._query_ollama(prompt, PLANNER_SYSTEM_PROMPT)
                     provider = "ollama"
@@ -94,13 +103,18 @@ class PlannerAgent:
             raise ValueError("Ollama returned no response")
         return data["response"]
 
-    def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
+    def _query_openai_compatible(self, prompt: str, system_prompt: str) -> str:
+        if not self.openai_compatible_url:
+            raise ValueError("OPENAI_COMPATIBLE_URL is not set")
+
         headers = {
-            "Authorization": f"Bearer {self.openrouter_api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
             "X-Title": "AI Backend Builder",
         }
+        if self.openai_compatible_api_key:
+            headers["Authorization"] = f"Bearer {self.openai_compatible_api_key}"
+
         payload = {
             "model": self.model,
             "messages": [
@@ -110,7 +124,7 @@ class PlannerAgent:
             "temperature": 0.3,
             "max_tokens": 4096,
         }
-        resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
+        resp = requests.post(self.openai_compatible_url, headers=headers, json=payload, timeout=120)
         resp.raise_for_status()
         data = resp.json()
         return data['choices'][0]['message']['content']

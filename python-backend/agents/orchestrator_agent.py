@@ -104,8 +104,10 @@ class OrchestratorAgent:
         ollama_url: str,
         models: dict,
         max_retries: int = 3,
-        use_openrouter: bool = False,
-        openrouter_api_key: str = "",
+        use_openai_compatible: bool = False,
+        openai_compatible_url: str = "",
+        openai_compatible_api_key: str = "",
+        openai_compatible_provider: str = "openai-compatible",
     ):
         self.ollama_url = ollama_url
         self.project_validator = ProjectConsistencyValidator()
@@ -113,28 +115,38 @@ class OrchestratorAgent:
         self.planner_agent = PlannerAgent(
             ollama_url,
             models.get("planner"),
-            use_openrouter=use_openrouter,
-            openrouter_api_key=openrouter_api_key,
+            use_openai_compatible=use_openai_compatible,
+            openai_compatible_url=openai_compatible_url,
+            openai_compatible_api_key=openai_compatible_api_key,
+            openai_compatible_provider=openai_compatible_provider,
         )
 
         self.codegen_agent = CodeGenAgent(
             ollama_url,
             models.get("codegen"),
-            use_openrouter=use_openrouter,
-            openrouter_api_key=openrouter_api_key,
+            use_openai_compatible=use_openai_compatible,
+            openai_compatible_url=openai_compatible_url,
+            openai_compatible_api_key=openai_compatible_api_key,
+            openai_compatible_provider=openai_compatible_provider,
         )
 
         self.debug_agent = DebugAgent(
             ollama_url=ollama_url,
             model=models.get("debug") or "qwen2.5-coder:1.5b",
             debug_timeout=int(os.getenv("DEBUG_TIMEOUT", "10000")),
-            use_openrouter=use_openrouter,
-            openrouter_api_key=openrouter_api_key,
+            use_openai_compatible=use_openai_compatible,
+            openai_compatible_url=openai_compatible_url,
+            openai_compatible_api_key=openai_compatible_api_key,
+            openai_compatible_provider=openai_compatible_provider,
         )
 
         self.critic_agent = CriticAgent(
             ollama_url,
             models.get("critic"),
+            use_openai_compatible=use_openai_compatible,
+            openai_compatible_url=openai_compatible_url,
+            openai_compatible_api_key=openai_compatible_api_key,
+            openai_compatible_provider=openai_compatible_provider,
         )
 
         self.max_retries = max_retries

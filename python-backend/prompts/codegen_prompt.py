@@ -401,11 +401,60 @@ For Entity = Product:
 7. Do not import service files unless the Planner listed them.
 8. Do not import route files or app.js.
 
+## CONTROLLER-ONLY BOUNDARY RULES
+The target file is a controller file only. Do not generate or copy any other file type into this output.
+
+You MUST NOT include:
+1. mongoose.Schema definitions.
+2. mongoose.model(...) definitions.
+3. express imports.
+4. express.Router().
+5. router.get/router.post/router.put/router.delete calls.
+6. export default router.
+7. app.listen or Express app setup.
+8. package.json content.
+9. .env content.
+
+Models are already generated in models/*.js. Use them only through a default import:
+import Order from '../models/Order.js';
+
+Do not copy model schema code into the controller.
+
+Routes are generated separately in routes/*.js. Controllers must only export handler functions; they must not define routes.
+
+## AUTHENTICATION LEAKAGE RULE
+Do not import bcryptjs, bcrypt, or jsonwebtoken unless this target file is clearly an authentication or user credential controller.
+
+For non-auth entities such as Product, Order, Booking, Task, Category, Inventory, or Payment:
+1. Do not hash passwords.
+2. Do not read req.body.password.
+3. Do not create JWT tokens.
+4. Do not import authentication packages.
+
+## REQUIRED CONTROLLER SHAPE
+Use this shape:
+import EntityModel from '../models/EntityModel.js';
+
+export const getAllEntities = async (req, res, next) => {
+  try {
+    const entities = await EntityModel.find();
+    res.status(200).json(entities);
+  } catch (error) {
+    next(error);
+  }
+};
+
+Every exported handler that calls next(error) MUST accept next in its parameters:
+(req, res, next)
+
 ## FINAL SELF-CHECK BEFORE OUTPUT
 1. Did every exported controller function match the naming contract?
 2. Did I import only the matching model file?
 3. Did every async function pass errors to next(error)?
-4. Is the output only source code, with no markdown or explanation?"""
+4. Did I avoid mongoose.Schema and mongoose.model(...)?
+5. Did I avoid express.Router and router.* calls?
+6. Did I avoid bcrypt/JWT logic for non-auth files?
+7. Is the output only this controller file's source code, with no markdown or explanation?"""
 
 
 ROUTE_SYSTEM_PROMPT = BASE_CODEGEN_RULES + """
@@ -440,11 +489,49 @@ Common pattern:
 7. Do not import models directly.
 8. Do not define database logic in route files.
 
+## ROUTE-ONLY BOUNDARY RULES
+The target file is a route file only. It must be a thin router that maps HTTP paths to controller functions.
+
+You MUST NOT include:
+1. Mongoose model imports.
+2. new Model(...) calls.
+3. Model.find, findById, findByIdAndUpdate, findByIdAndDelete, save, remove, or delete database calls.
+4. req.body validation logic.
+5. validationResult(req).
+6. inline async route handlers that contain business logic.
+7. try/catch blocks.
+8. next(error) calls.
+9. password hashing or JWT creation.
+10. controller function implementations.
+
+Do not import express-validator unless the Planner explicitly listed validation middleware and package.json includes express-validator.
+If validation is required, validation should be implemented as a separate listed middleware file, not inline inside routes.
+
+Routes are generated separately from controllers. The route file must only import controller functions and attach them to paths.
+
+## REQUIRED ROUTE SHAPE
+Use this shape:
+import express from 'express';
+import { getAllProducts, getProductById, createProduct, updateProduct, deleteProduct } from '../controllers/productController.js';
+
+const productRouter = express.Router();
+
+productRouter.get('/', getAllProducts);
+productRouter.get('/:id', getProductById);
+productRouter.post('/', createProduct);
+productRouter.put('/:id', updateProduct);
+productRouter.delete('/:id', deleteProduct);
+
+export default productRouter;
+
 ## FINAL SELF-CHECK BEFORE OUTPUT
 1. Did every named import match the related controller exports?
 2. Did every local import include .js?
-3. Did I export default router?
-4. Is the output only source code, with no markdown or explanation?"""
+3. Did I avoid inline async route handlers?
+4. Did I avoid Model.find/save/update/delete logic?
+5. Did I avoid express-validator/check/validationResult unless separate planned middleware exists?
+6. Did I export the router as default?
+7. Is the output only this route file's source code, with no markdown or explanation?"""
 
 
 APP_SYSTEM_PROMPT = BASE_CODEGEN_RULES + """
