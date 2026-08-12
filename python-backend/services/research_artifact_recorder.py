@@ -4,6 +4,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from services.prompt_budget_manager import PromptBudgetManager
+
 
 class ResearchArtifactRecorder:
     """Stores per-project agent prompts, model requests, and outputs."""
@@ -121,28 +123,15 @@ class ResearchArtifactRecorder:
         system_prompt = str(trace.get("system_prompt") or "")
         built_prompt = str(trace.get("built_prompt") or "")
         raw_output = str(trace.get("raw_output") or "")
+        model = trace.get("model")
 
-        system_tokens = self._estimate_tokens(system_prompt)
-        built_prompt_tokens = self._estimate_tokens(built_prompt)
-        output_tokens = self._estimate_tokens(raw_output)
+        budget = PromptBudgetManager.analyze(
+            system_prompt=system_prompt,
+            built_prompt=built_prompt,
+            raw_output=raw_output,
+            model=str(model) if model else None,
+        )
 
         enriched = dict(trace)
-        enriched["token_counts"] = {
-            "method": "approximate_chars_and_words",
-            "note": "Use provider tokenizer metadata or a model tokenizer for exact counts.",
-            "system_prompt_tokens": system_tokens,
-            "built_prompt_tokens": built_prompt_tokens,
-            "input_total_tokens": system_tokens + built_prompt_tokens,
-            "output_tokens": output_tokens,
-            "request_plus_output_tokens": system_tokens + built_prompt_tokens + output_tokens,
-        }
+        enriched["token_counts"] = budget
         return enriched
-
-    @staticmethod
-    def _estimate_tokens(text: str) -> int:
-        if not text:
-            return 0
-
-        word_like_tokens = len(re.findall(r"\w+|[^\w\s]", text, re.UNICODE))
-        char_based_tokens = max(1, len(text) // 4)
-        return max(word_like_tokens, char_based_tokens)

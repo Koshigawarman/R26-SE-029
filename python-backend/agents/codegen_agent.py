@@ -7,9 +7,9 @@ from typing import Dict, Any
 
 from schema import FileSpec, CodeGenContext, GeneratedFile
 from prompts.codegen_prompt import (
-    CODEGEN_SYSTEM_PROMPT,
     build_codegen_prompt,
     build_code_fix_prompt,
+    get_codegen_system_prompt,
 )
 logger = logging.getLogger(__name__)
 
@@ -41,12 +41,13 @@ class CodeGenAgent:
                 existing_contents=context.existingFileContents,
                 existing_file_content=existing_content
             )
+            system_prompt = get_codegen_system_prompt(file_spec.path)
 
             if self.use_openrouter:
-                raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
+                raw_response = self._query_openrouter(prompt, system_prompt)
                 provider = "openrouter"
             else:
-                raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+                raw_response = self._query_ollama(prompt, system_prompt)
                 provider = "ollama"
 
             self.last_request_trace = {
@@ -55,7 +56,7 @@ class CodeGenAgent:
                 "provider": provider,
                 "model": self.model,
                 "target_file": file_spec.path,
-                "system_prompt": CODEGEN_SYSTEM_PROMPT,
+                "system_prompt": system_prompt,
                 "built_prompt": prompt,
                 "raw_output": raw_response,
             }
@@ -110,12 +111,13 @@ class CodeGenAgent:
                 critic_strategy=critic_strategy,
                 instructions_for_code_agent=instructions_for_code_agent,
             )
+            system_prompt = get_codegen_system_prompt(file_path, mode="fix")
 
             if self.use_openrouter:
-                raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
+                raw_response = self._query_openrouter(prompt, system_prompt)
                 provider = "openrouter"
             else:
-                raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+                raw_response = self._query_ollama(prompt, system_prompt)
                 provider = "ollama"
 
             self.last_request_trace = {
@@ -124,7 +126,7 @@ class CodeGenAgent:
                 "provider": provider,
                 "model": self.model,
                 "target_file": file_path,
-                "system_prompt": CODEGEN_SYSTEM_PROMPT,
+                "system_prompt": system_prompt,
                 "built_prompt": prompt,
                 "raw_output": raw_response,
             }
@@ -253,7 +255,7 @@ class CodeGenAgent:
             "provider": "local-template",
             "model": None,
             "target_file": file_spec.path,
-            "system_prompt": "",
+            "system_prompt": get_codegen_system_prompt(file_spec.path),
             "built_prompt": "Deterministic .env template generated from project name and features.",
             "raw_output": content,
         }
@@ -296,7 +298,7 @@ class CodeGenAgent:
             "provider": "local-template",
             "model": None,
             "target_file": file_spec.path,
-            "system_prompt": "",
+            "system_prompt": get_codegen_system_prompt(file_spec.path),
             "built_prompt": "Deterministic package.json template generated from project name and features.",
             "raw_output": content,
         }
