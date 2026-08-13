@@ -84,16 +84,19 @@ class DebugAgent:
         ollama_url: str = "http://localhost:11434",
         model: str = "qwen2.5-coder:1.5b",
         debug_timeout: int = 10000,
-        use_openrouter: bool = False,
-        openrouter_api_key: str = "",
+        use_openai_compatible: bool = False,
+        openai_compatible_url: str = "",
+        openai_compatible_api_key: str = "",
+        openai_compatible_provider: str = "openai-compatible",
     ):
         self.ollama_url = ollama_url.rstrip("/")
         self.model = model
         self.debug_timeout = debug_timeout
 
-        self.use_openrouter = use_openrouter
-        self.openrouter_api_key = openrouter_api_key
-        self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.use_openai_compatible = use_openai_compatible
+        self.openai_compatible_api_key = openai_compatible_api_key
+        self.openai_compatible_url = openai_compatible_url
+        self.openai_compatible_provider = openai_compatible_provider
 
         self.install_timeout = int(os.getenv("NPM_INSTALL_TIMEOUT", "120"))
         self.test_timeout = int(os.getenv("TEST_TIMEOUT", "120"))
@@ -431,8 +434,8 @@ class DebugAgent:
                     max_attempts,
                 )
 
-                if self.use_openrouter:
-                    raw = self._query_openrouter(prompt, TESTING_AGENT_SYSTEM_PROMPT)
+                if self.use_openai_compatible:
+                    raw = self._query_openai_compatible(prompt, TESTING_AGENT_SYSTEM_PROMPT)
                 else:
                     raw = self._query_ollama(prompt, TESTING_AGENT_SYSTEM_PROMPT)
 
@@ -484,16 +487,17 @@ class DebugAgent:
 
         return data["response"]
 
-    def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
-        if not self.openrouter_api_key:
-            raise ValueError("OPENROUTER_API_KEY is not set")
+    def _query_openai_compatible(self, prompt: str, system_prompt: str) -> str:
+        if not self.openai_compatible_url:
+            raise ValueError("OPENAI_COMPATIBLE_URL is not set")
 
         headers = {
-            "Authorization": f"Bearer {self.openrouter_api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
             "X-Title": "AI Backend Builder",
         }
+        if self.openai_compatible_api_key:
+            headers["Authorization"] = f"Bearer {self.openai_compatible_api_key}"
 
         payload = {
             "model": self.model,
@@ -506,7 +510,7 @@ class DebugAgent:
         }
 
         response = requests.post(
-            self.openrouter_url,
+            self.openai_compatible_url,
             headers=headers,
             json=payload,
             timeout=120,
