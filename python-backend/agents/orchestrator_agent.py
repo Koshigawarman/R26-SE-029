@@ -41,7 +41,6 @@ DEFAULT_OPERATION_RETRIES = int(os.getenv("ORCHESTRATOR_OPERATION_RETRIES", "3")
 DEFAULT_RETRY_DELAY_SECONDS = float(os.getenv("ORCHESTRATOR_RETRY_DELAY_SECONDS", "2"))
 
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Build Session
 # ─────────────────────────────────────────────────────────────────────────────
@@ -275,9 +274,94 @@ class OrchestratorAgent:
                     "entities": [entity.model_dump() for entity in plan.entities],
                     "features": [feature.model_dump() for feature in plan.features],
                     "files": [file_spec.model_dump() for file_spec in plan.files],
-                    "options": ["approve", "cancel"],
+                    "options": ["approve", "reject", "cancel"],
                 },
             )
+
+            # ─────────────────────────────────────────────────────────
+            # Handle Plan Rejection with User Feedback
+            # ─────────────────────────────────────────────────────────
+
+            plan_rejection_count = 0
+            max_plan_rejections = 2
+
+            while action == "reject" and plan_rejection_count < max_plan_rejections:
+                plan_rejection_count += 1
+
+                user_feedback = (
+                    session.approval_data.get("feedback", "")
+                    if session.approval_data
+                    else ""
+                )
+
+                logger.info(
+                    "📝 User rejected plan %s/%s. Feedback: %s",
+                    plan_rejection_count,
+                    max_plan_rejections,
+                    user_feedback,
+                )
+
+                status(
+                    "🔄 STATE → RE_PLANNING: Re-planning with user feedback...",
+                    10,
+                    "RE_PLANNING",
+                )
+
+                if user_feedback:
+                    updated_prompt = (
+                        f"{request.prompt}\n\n"
+                        f"User feedback on previous plan:\n{user_feedback}\n\n"
+                        "Regenerate the backend project plan by applying this feedback. "
+                        "Keep the output strictly valid JSON."
+                    )
+                else:
+                    updated_prompt = (
+                        f"{request.prompt}\n\n"
+                        "The user rejected the previous plan but did not provide detailed feedback. "
+                        "Regenerate a simpler and clearer backend project plan. "
+                        "Keep the output strictly valid JSON."
+                    )
+
+                plan = self._retry_operation(
+                    operation_name=f"Planner Agent re-plan attempt {plan_rejection_count}",
+                    operation=lambda: self.planner_agent.execute(updated_prompt),
+                    session=session,
+                    progress=10,
+                    state="RE_PLANNING_RETRY",
+                )
+
+                project_path = os.path.join(project_root, plan.projectName)
+
+                logger.info(
+                    "📋 Revised plan generated after feedback: %s",
+                    plan.projectName,
+                )
+
+                status(
+                    f"📋 STATE → REVISED_PLAN_READY: Revised plan ready with {len(plan.files)} files",
+                    11,
+                    "REVISED_PLAN_READY",
+                )
+
+                next_options = (
+                    ["approve", "reject", "cancel"]
+                    if plan_rejection_count < max_plan_rejections
+                    else ["approve", "cancel"]
+                )
+
+                action = session.wait_for_approval(
+                    "plan",
+                    {
+                        "message": f"📋 Revised Plan: {plan.projectName}",
+                        "projectName": plan.projectName,
+                        "entities": [entity.model_dump() for entity in plan.entities],
+                        "features": [feature.model_dump() for feature in plan.features],
+                        "files": [file_spec.model_dump() for file_spec in plan.files],
+                        "feedbackApplied": user_feedback,
+                        "revisionAttempt": plan_rejection_count,
+                        "options": next_options,
+                    },
+                )
 
             if action == "cancel":
                 status("❌ STATE → CANCELLED: Build cancelled during planning", 100, "CANCELLED")
@@ -289,6 +373,24 @@ class OrchestratorAgent:
                     files=files_generated,
                     attempts=debug_attempt_count,
                     errors=["Cancelled by user during plan approval"],
+                    start=start_time,
+                )
+                return
+
+            if action != "approve":
+                status(
+                    "❌ STATE → CANCELLED: Build cancelled because plan was not approved",
+                    100,
+                    "CANCELLED",
+                )
+                self._emit_complete(
+                    session=session,
+                    success=False,
+                    name=plan.projectName,
+                    root=project_path,
+                    files=files_generated,
+                    attempts=debug_attempt_count,
+                    errors=["Plan was not approved"],
                     start=start_time,
                 )
                 return
@@ -723,11 +825,11 @@ class OrchestratorAgent:
                 critic_strategy = self._retry_operation(
                     operation_name=f"Critic Agent strategy generation attempt {attempt}",
                     operation=lambda: self.critic_agent.execute(
-                    errors=debug_result.errors,
-                    stderr=debug_result.stderr,
-                    stdout=debug_result.stdout,
-                    memory_matches=memory_matches,
-                    file_list=file_list,
+                        errors=debug_result.errors,
+                        stderr=debug_result.stderr,
+                        stdout=debug_result.stdout,
+                        memory_matches=memory_matches,
+                        file_list=file_list,
                         attempt=attempt,
                     ),
                     session=session,
