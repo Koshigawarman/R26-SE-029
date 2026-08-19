@@ -7,6 +7,8 @@ from typing import Dict, Any
 
 from schema import FileSpec, CodeGenContext, GeneratedFile
 from services.codegen_output_validator import CodeGenOutputValidator
+from services.http_settings import get_ssl_verify_setting
+from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
 from prompts.codegen_prompt import (
     build_codegen_prompt,
     build_code_fix_prompt,
@@ -214,13 +216,7 @@ class CodeGenAgent:
         logger.info(f"--- USER PROMPT ---\n{prompt[:1000]}{'...' if len(prompt) > 1000 else ''}")
         logger.info("="*50)
         
-        headers = {
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
-            "X-Title": "AI Backend Builder",
-        }
-        if self.openai_compatible_api_key:
-            headers["Authorization"] = f"Bearer {self.openai_compatible_api_key}"
+        headers = build_provider_headers(self.openai_compatible_api_key)
 
         payload = {
             "model": self.model,
@@ -231,8 +227,14 @@ class CodeGenAgent:
             "temperature": 0.3,
             "max_tokens": 4096,
         }
-        resp = requests.post(self.openai_compatible_url, headers=headers, json=payload, timeout=120)
-        resp.raise_for_status()
+        resp = requests.post(
+            self.openai_compatible_url,
+            headers=headers,
+            json=payload,
+            timeout=120,
+            verify=get_ssl_verify_setting(),
+        )
+        raise_for_provider_error(resp, self.openai_compatible_provider, self.openai_compatible_url)
         data = resp.json()
         response_text = data['choices'][0]['message']['content']
         logger.info("\n" + "="*50)

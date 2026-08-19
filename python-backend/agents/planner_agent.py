@@ -5,6 +5,8 @@ from typing import Dict, Any
 import requests
 
 from schema import PlannerOutput, FileSpec
+from services.http_settings import get_ssl_verify_setting
+from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
 from prompts.planner_prompt import PLANNER_SYSTEM_PROMPT, build_planner_prompt
 
 logger = logging.getLogger(__name__)
@@ -107,13 +109,7 @@ class PlannerAgent:
         if not self.openai_compatible_url:
             raise ValueError("OPENAI_COMPATIBLE_URL is not set")
 
-        headers = {
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
-            "X-Title": "AI Backend Builder",
-        }
-        if self.openai_compatible_api_key:
-            headers["Authorization"] = f"Bearer {self.openai_compatible_api_key}"
+        headers = build_provider_headers(self.openai_compatible_api_key)
 
         payload = {
             "model": self.model,
@@ -124,8 +120,14 @@ class PlannerAgent:
             "temperature": 0.3,
             "max_tokens": 4096,
         }
-        resp = requests.post(self.openai_compatible_url, headers=headers, json=payload, timeout=120)
-        resp.raise_for_status()
+        resp = requests.post(
+            self.openai_compatible_url,
+            headers=headers,
+            json=payload,
+            timeout=120,
+            verify=get_ssl_verify_setting(),
+        )
+        raise_for_provider_error(resp, self.openai_compatible_provider, self.openai_compatible_url)
         data = resp.json()
         return data['choices'][0]['message']['content']
 

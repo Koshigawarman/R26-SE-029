@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Tuple
 import requests
 
 from schema import DebugResult, RuntimeErrorInfo
+from services.http_settings import get_ssl_verify_setting
+from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
 from prompts.debug_prompt import TESTING_AGENT_SYSTEM_PROMPT, build_model_testcase_prompt
 
 logger = logging.getLogger(__name__)
@@ -491,13 +493,7 @@ class DebugAgent:
         if not self.openai_compatible_url:
             raise ValueError("OPENAI_COMPATIBLE_URL is not set")
 
-        headers = {
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
-            "X-Title": "AI Backend Builder",
-        }
-        if self.openai_compatible_api_key:
-            headers["Authorization"] = f"Bearer {self.openai_compatible_api_key}"
+        headers = build_provider_headers(self.openai_compatible_api_key)
 
         payload = {
             "model": self.model,
@@ -514,8 +510,9 @@ class DebugAgent:
             headers=headers,
             json=payload,
             timeout=120,
+            verify=get_ssl_verify_setting(),
         )
-        response.raise_for_status()
+        raise_for_provider_error(response, self.openai_compatible_provider, self.openai_compatible_url)
 
         data = response.json()
         return data["choices"][0]["message"]["content"]
