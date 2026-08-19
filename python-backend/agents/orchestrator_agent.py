@@ -212,6 +212,10 @@ class OrchestratorAgent:
         previous_critic_strategy: Optional[CriticStrategy] = None
         previous_fixed_files: List[str] = []
 
+        # Locked folder for this build session.
+        # Set once on first approval; re-plans reuse it.
+        session_project_path: Optional[str] = None
+
         def status(message: str, progress: int, state: str) -> None:
             logger.info("STATE -> %s: %s", state, message)
             session.emit(
@@ -317,6 +321,7 @@ class OrchestratorAgent:
                 )
 
                 project_path = os.path.join(project_root, plan.projectName)
+                # No folder manipulation here — folder is only created after final approval
 
                 logger.info(
                     "📋 Revised plan generated after feedback: %s",
@@ -389,6 +394,27 @@ class OrchestratorAgent:
 
             # Phase 2: Create base structure
             status("📁 STATE → CREATING_STRUCTURE: Creating project structure...", 15, "CREATING_STRUCTURE")
+
+            # ── Session-locked folder strategy ─────────────────────────────────────
+            # Rule 1: Every NEW build gets a fresh unique folder (never overwrites a
+            #         completed project that already contains code files).
+            # Rule 2: Within the SAME build session, re-plans always reuse the folder
+            #         that was created when the first plan was approved.
+            if session_project_path is None:
+                # First approval in this session → allocate a fresh folder
+                session_project_path = self._create_fresh_project_path(
+                    project_root, plan.projectName
+                )
+                logger.info(
+                    "[orchestrator] Session folder locked: %s", session_project_path
+                )
+            else:
+                logger.info(
+                    "[orchestrator] Re-plan: reusing session folder: %s", session_project_path
+                )
+
+            project_path = session_project_path
+            # ───────────────────────────────────────────────────────────────────────
 
             os.makedirs(project_path, exist_ok=True)
 
@@ -1171,6 +1197,63 @@ class OrchestratorAgent:
                 errors=[str(exc)],
                 start=start_time,
             )
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Project Path Resolver
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _create_fresh_project_path(self, project_root: str, project_name: str) -> str:
+        """
+        Always return a folder path that is safe to write a NEW project into.
+
+        Rules:
+        - If project_root/project_name does NOT exist → use it directly.
+        - If it exists but is EMPTY (only blank subdirectories, no code files) → reuse it.
+        - If it exists AND contains real files → auto-increment suffix:
+            project-name-2, project-name-3, … until a free (or empty) slot is found.
+
+        This ensures:
+        ✓ Every new build never overwrites an existing completed project.
+        ✓ The user doesn't end up with a stale empty folder ghost sitting next to a real build.
+        """
+        import re as _re
+
+        def _has_real_files(path: str) -> bool:
+            """Return True if path contains at least one non-directory file."""
+            for root, dirs, files in os.walk(path):
+                # Skip node_modules
+                dirs[:] = [d for d in dirs if d != "node_modules"]
+                if files:
+                    return True
+            return False
+
+        base_path = os.path.join(project_root, project_name)
+
+        # Case 1: doesn't exist yet → fresh, use it
+        if not os.path.isdir(base_path):
+            logger.info("[orchestrator] Fresh project folder: %s", base_path)
+            return base_path
+
+        # Case 2: exists but empty → reuse (avoids ghost folders)
+        if not _has_real_files(base_path):
+            logger.info("[orchestrator] Reusing empty project folder: %s", base_path)
+            return base_path
+
+        # Case 3: exists with code → find next free numbered slot
+        counter = 2
+        while True:
+            candidate = os.path.join(project_root, f"{project_name}-{counter}")
+            if not os.path.isdir(candidate):
+                logger.info(
+                    "[orchestrator] Existing folder has code. Creating numbered slot: %s", candidate
+                )
+                return candidate
+            if not _has_real_files(candidate):
+                logger.info(
+                    "[orchestrator] Reusing empty numbered slot: %s", candidate
+                )
+                return candidate
+            counter += 1
 
     # ─────────────────────────────────────────────────────────────────────
     # Agentic Post-Fix Verification Helpers

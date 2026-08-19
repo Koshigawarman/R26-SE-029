@@ -56,15 +56,17 @@ app.add_middleware(
 # Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Ollama API base URL (default: localhost:11434)
+# # Ollama API base URL (default: localhost:11434)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 
-# Default models per agent role (can be overridden per request)
+# OLLAMA_URL="https://sivabavithran16--multi-agent-ollama-serve-ollama.modal.run"
+
+# # Default models per agent role (can be overridden per request)
 DEFAULT_MODELS = {
-    "planner": os.getenv("PLANNER_MODEL", "qwen2.5-coder:3b"),
-    "codegen": os.getenv("CODEGEN_MODEL", "qwen2.5-coder:3b"),
-    "debug": os.getenv("DEBUG_MODEL", "qwen2.5-coder:3b"),
-    "critic": os.getenv("CRITIC_MODEL", "qwen2.5-coder:3b"),
+    "planner": os.getenv("PLANNER_MODEL", "qwen2.5-coder:1.5b"),
+    "codegen": os.getenv("CODEGEN_MODEL", "qwen2.5-coder:1.5b"),
+    "debug": os.getenv("DEBUG_MODEL", "qwen2.5-coder:1.5b"),
+    "critic": os.getenv("CRITIC_MODEL", "qwen2.5-coder:1.5b"),
 }
 
 # Request timeout for Ollama API calls (seconds)
@@ -83,7 +85,7 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 async def health_check():
     """Health check endpoint. Also verifies Ollama connectivity."""
     try:
-        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=2)
         ollama_status = "connected" if resp.ok else "unreachable"
     except requests.exceptions.RequestException:
         ollama_status = "unreachable"
