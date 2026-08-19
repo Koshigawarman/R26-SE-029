@@ -33,7 +33,7 @@ ollama pull llama3.1:8b
 ollama pull qwen2.5-coder:7b
 
 # 5. Start the proxy server
-uvicorn main:app --host 0.0.0.0 --port 5000 --reload
+uvicorn main:app --host 0.0.0.0 --port 5001 --reload
 ```
 
 ### 2. Install & Run the Extension
@@ -57,15 +57,15 @@ npm run compile
 
 Open VS Code Settings and search for `aiBackendBuilder`:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `backendUrl` | `http://localhost:5000` | Local API proxy URL |
-| `openaiApiKey` | _(empty)_ | OpenAI API key (optional fallback) |
-| `openaiModel` | `gpt-4` | OpenAI model for fallback |
-| `models.planner` | `llama3.1:8b` | Local model for planning |
-| `models.codegen` | `qwen2.5-coder:7b` | Local model for code generation |
-| `models.debug` | `llama3.1:8b` | Local model for debugging |
-| `maxRetries` | `3` | Max debug-fix retry attempts |
+| Setting          | Default                 | Description                        |
+| ---------------- | ----------------------- | ---------------------------------- |
+| `backendUrl`     | `http://localhost:5000` | Local API proxy URL                |
+| `openaiApiKey`   | _(empty)_               | OpenAI API key (optional fallback) |
+| `openaiModel`    | `gpt-4`                 | OpenAI model for fallback          |
+| `models.planner` | `llama3.1:8b`           | Local model for planning           |
+| `models.codegen` | `qwen2.5-coder:7b`      | Local model for code generation    |
+| `models.debug`   | `llama3.1:8b`           | Local model for debugging          |
+| `maxRetries`     | `3`                     | Max debug-fix retry attempts       |
 
 ## 📁 Project Structure
 

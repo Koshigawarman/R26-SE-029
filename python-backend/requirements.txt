@@ -9,3 +9,4 @@ pydantic>=2.0.0
 langgraph
 chromadb
 sentence-transformers
+tiktoken>=0.7.0

@@ -5,22 +5,34 @@ import json
 import requests
 
 from schema import FileSpec, CodeGenContext, GeneratedFile
+from services.codegen_output_validator import CodeGenOutputValidator
 from prompts.codegen_prompt import (
-    CODEGEN_SYSTEM_PROMPT,
     build_codegen_prompt,
     build_code_fix_prompt,
+    get_codegen_system_prompt,
 )
 from code_validator import validate_and_fix
 
 logger = logging.getLogger(__name__)
 
 class CodeGenAgent:
-    def __init__(self, ollama_url: str, model: str, use_openrouter: bool = False, openrouter_api_key: str = ""):
+    def __init__(
+        self,
+        ollama_url: str,
+        model: str,
+        use_openai_compatible: bool = False,
+        openai_compatible_url: str = "",
+        openai_compatible_api_key: str = "",
+        openai_compatible_provider: str = "openai-compatible",
+    ):
         self.ollama_url = ollama_url
         self.model = model
-        self.use_openrouter = use_openrouter
-        self.openrouter_api_key = openrouter_api_key
-        self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.use_openai_compatible = use_openai_compatible
+        self.openai_compatible_api_key = openai_compatible_api_key
+        self.openai_compatible_url = openai_compatible_url
+        self.openai_compatible_provider = openai_compatible_provider
+        self.last_request_trace: Dict[str, Any] = {}
+        self.output_validator = CodeGenOutputValidator()
 
     def execute(self, file_spec: FileSpec, context: CodeGenContext, existing_content: str = None) -> GeneratedFile:
         logger.info(f"Generating: {file_spec.path}")
@@ -41,11 +53,25 @@ class CodeGenAgent:
                 existing_contents=context.existingFileContents,
                 existing_file_content=existing_content
             )
+            system_prompt = get_codegen_system_prompt(file_spec.path)
 
-            if self.use_openrouter:
-                raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
+            if self.use_openai_compatible:
+                raw_response = self._query_openai_compatible(prompt, system_prompt)
+                provider = self.openai_compatible_provider
             else:
-                raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+                raw_response = self._query_ollama(prompt, system_prompt)
+                provider = "ollama"
+
+            self.last_request_trace = {
+                "agent": "codegen",
+                "mode": "generate",
+                "provider": provider,
+                "model": self.model,
+                "target_file": file_spec.path,
+                "system_prompt": system_prompt,
+                "built_prompt": prompt,
+                "raw_output": raw_response,
+            }
 
             code = self._extract_code(raw_response)
 
@@ -70,6 +96,9 @@ class CodeGenAgent:
 
             code = result.final_code
             # ─────────────────────────────────────────────────────────────────
+            self._validate_code(file_spec.path, code)
+            validation_result = self.output_validator.validate(file_spec.path, code)
+            self.last_request_trace["output_validation"] = validation_result
 
             logger.info(f"✓ Generated: {file_spec.path} ({len(code)} chars)")
 
@@ -120,13 +149,31 @@ class CodeGenAgent:
                     critic_strategy=critic_strategy,
                     instructions_for_code_agent=instructions_for_code_agent,
                 )
+                system_prompt = get_codegen_system_prompt(file_path, mode="fix")
 
-                if self.use_openrouter:
-                    raw_response = self._query_openrouter(prompt, CODEGEN_SYSTEM_PROMPT)
+                if self.use_openai_compatible:
+                    raw_response = self._query_openai_compatible(prompt, system_prompt)
+                    provider = self.openai_compatible_provider
                 else:
-                    raw_response = self._query_ollama(prompt, CODEGEN_SYSTEM_PROMPT)
+                    raw_response = self._query_ollama(prompt, system_prompt)
+                    provider = "ollama"
 
+                self.last_request_trace = {
+                    "agent": "codegen",
+                    "mode": "fix",
+                    "provider": provider,
+                    "model": self.model,
+                    "target_file": file_path,
+                    "system_prompt": system_prompt,
+                    "built_prompt": prompt,
+                    "raw_output": raw_response,
+                }
+               
                 fixed_code = self._extract_code(raw_response)
+                
+                self._validate_code(file_path, fixed_code)
+                validation_result = self.output_validator.validate(file_path, fixed_code)
+                self.last_request_trace["output_validation"] = validation_result
 
                 if not fixed_code or len(fixed_code.strip()) < 10:
                     raise ValueError("Generated fixed code is too short")
@@ -218,20 +265,22 @@ class CodeGenAgent:
         
         return response_text
 
-    def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
+    def _query_openai_compatible(self, prompt: str, system_prompt: str) -> str:
         
         logger.info("\n" + "="*50)
-        logger.info(f"OPENROUTER REQUEST [CodeGenAgent] | Model: {self.model}")
+        logger.info(f"OPENAI-COMPATIBLE REQUEST [CodeGenAgent] | Provider: {self.openai_compatible_provider} | Model: {self.model}")
         logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
         logger.info(f"--- USER PROMPT ---\n{prompt[:1000]}{'...' if len(prompt) > 1000 else ''}")
         logger.info("="*50)
         
         headers = {
-            "Authorization": f"Bearer {self.openrouter_api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
             "X-Title": "AI Backend Builder",
         }
+        if self.openai_compatible_api_key:
+            headers["Authorization"] = f"Bearer {self.openai_compatible_api_key}"
+
         payload = {
             "model": self.model,
             "messages": [
@@ -241,12 +290,12 @@ class CodeGenAgent:
             "temperature": 0.3,
             "max_tokens": 4096,
         }
-        resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
+        resp = requests.post(self.openai_compatible_url, headers=headers, json=payload, timeout=120)
         resp.raise_for_status()
         data = resp.json()
         response_text = data['choices'][0]['message']['content']
         logger.info("\n" + "="*50)
-        logger.info(f"OPENROUTER RESPONSE [CodeGenAgent] | Length: {len(response_text)}")
+        logger.info(f"OPENAI-COMPATIBLE RESPONSE [CodeGenAgent] | Length: {len(response_text)}")
         logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
         logger.info("="*50)
         
@@ -276,6 +325,17 @@ class CodeGenAgent:
 
         lines.append("")
         content = "\n".join(lines)
+        self.last_request_trace = {
+            "agent": "codegen",
+            "mode": "deterministic",
+            "provider": "local-template",
+            "model": None,
+            "target_file": file_spec.path,
+            "system_prompt": get_codegen_system_prompt(file_spec.path),
+            "built_prompt": "Deterministic .env template generated from project name and features.",
+            "raw_output": content,
+            "output_validation": self.output_validator.validate(file_spec.path, content),
+        }
         
         logger.info(f"✓ Generated: {file_spec.path} (env file — deterministic)")
         return GeneratedFile(path=file_spec.path, content=content, status='generated')
@@ -309,6 +369,17 @@ class CodeGenAgent:
             pkg["dependencies"]["express-validator"] = "^7.0.1"
 
         content = json.dumps(pkg, indent=2) + "\n"
+        self.last_request_trace = {
+            "agent": "codegen",
+            "mode": "deterministic",
+            "provider": "local-template",
+            "model": None,
+            "target_file": file_spec.path,
+            "system_prompt": get_codegen_system_prompt(file_spec.path),
+            "built_prompt": "Deterministic package.json template generated from project name and features.",
+            "raw_output": content,
+            "output_validation": self.output_validator.validate(file_spec.path, content),
+        }
         
         logger.info(f"✓ Generated: {file_spec.path} (package.json — deterministic)")
         return GeneratedFile(path=file_spec.path, content=content, status='generated')

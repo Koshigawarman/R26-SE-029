@@ -29,9 +29,21 @@ class CriticAgent:
     It must NOT generate fixed source code.
     """
 
-    def __init__(self, ollama_url: str, model: str):
+    def __init__(
+        self,
+        ollama_url: str,
+        model: str,
+        use_openai_compatible: bool = False,
+        openai_compatible_url: str = "",
+        openai_compatible_api_key: str = "",
+        openai_compatible_provider: str = "openai-compatible",
+    ):
         self.ollama_url = ollama_url.rstrip("/")
         self.model = model
+        self.use_openai_compatible = use_openai_compatible
+        self.openai_compatible_url = openai_compatible_url
+        self.openai_compatible_api_key = openai_compatible_api_key
+        self.openai_compatible_provider = openai_compatible_provider
 
     def execute(
         self,
@@ -69,7 +81,10 @@ class CriticAgent:
                     max_attempts,
                 )
 
-                raw_response = self._query_ollama(prompt, CRITIC_SYSTEM_PROMPT)
+                if self.use_openai_compatible:
+                    raw_response = self._query_openai_compatible(prompt, CRITIC_SYSTEM_PROMPT)
+                else:
+                    raw_response = self._query_ollama(prompt, CRITIC_SYSTEM_PROMPT)
                 data = self._extract_json(raw_response)
                 strategy = self._to_strategy(data)
                 break
@@ -359,6 +374,39 @@ class CriticAgent:
             raise ValueError("Ollama returned no response field")
 
         return data["response"]
+
+    def _query_openai_compatible(self, prompt: str, system_prompt: str) -> str:
+        if not self.openai_compatible_url:
+            raise ValueError("OPENAI_COMPATIBLE_URL is not set")
+
+        headers = {
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
+            "X-Title": "AI Backend Builder",
+        }
+        if self.openai_compatible_api_key:
+            headers["Authorization"] = f"Bearer {self.openai_compatible_api_key}"
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1024,
+        }
+
+        response = requests.post(
+            self.openai_compatible_url,
+            headers=headers,
+            json=payload,
+            timeout=int(os.getenv("MODEL_TIMEOUT", "240")),
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
 
     def _extract_json(self, raw_response: str) -> Dict[str, Any]:
         if not raw_response:
