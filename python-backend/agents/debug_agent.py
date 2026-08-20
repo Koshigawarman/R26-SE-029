@@ -98,7 +98,7 @@ class DebugAgent:
         self.openai_compatible_url = openai_compatible_url
         self.openai_compatible_provider = openai_compatible_provider
 
-        self.install_timeout = int(os.getenv("NPM_INSTALL_TIMEOUT", "120"))
+        self.install_timeout = int(os.getenv("NPM_INSTALL_TIMEOUT", "300"))
         self.test_timeout = int(os.getenv("TEST_TIMEOUT", "120"))
         self.docker_image = os.getenv("DOCKER_IMAGE", "node:20-alpine")
         self.use_docker = os.getenv("USE_DOCKER_SANDBOX", "true").lower() == "true"

@@ -1,118 +1,66 @@
-import subprocess
-import time
-import os
-import socket
 import modal
+import os
 
-app = modal.App("multi-agent-ollama")
+app = modal.App("multi-agent-gpu-backend")
 
 # Connect to the volume containing your uploaded .gguf files
-model_volume = modal.Volume.from_name("agent-models-vol", create_if_missing=True)
+vol = modal.Volume.from_name("agent-models-vol", create_if_missing=True)
 
-# Build container image with Ollama pre-installed
-ollama_image = (
-    modal.Image.debian_slim()
-    .apt_install("curl", "zstd", "pciutils")
-    .run_commands("curl -fsSL https://ollama.com/install.sh | sh")
-)
-
-def _wait_for_port(host: str, port: int, timeout: int = 60) -> bool:
-    """Poll until a TCP connection to host:port succeeds or timeout expires."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=1):
-                return True
-        except OSError:
-            time.sleep(0.5)
-    return False
-
-
-# Allocate a 24GB VRAM A10G GPU to run all 4 models without memory swapping
-@app.function(
-    image=ollama_image,
-    gpu="A10G",
-    volumes={"/models": model_volume},
-    timeout=1800,  # 30 min runtime limit per session
-    # keep_warm=1   # UNCOMMENT THIS ON DEMO DAY TO PREVENT COLD STARTS
-)
-@modal.web_server(port=11434, startup_timeout=300)
-def serve_ollama():
-    # Set Ollama models directory to the persistent volume
-    os.environ["OLLAMA_MODELS"] = "/models/ollama_data"
-
-    # Explicitly bind Ollama to all IPv4 interfaces on port 11434
-    # (Modal's startup health check connects to 127.0.0.1:11434)
-    os.environ["OLLAMA_HOST"] = "0.0.0.0:11434"
-    os.environ["OLLAMA_ORIGINS"] = "*"
-
-    models = {
-        "qwen-critic": "critic_agent.gguf"
-    }
-
-    # Fast path: Check if all models are already created using marker files
-    needs_setup = any(
-        not os.path.exists(f"/models/.created_{name}") for name in models
+# Use an official NVIDIA CUDA 12 image so libcudart.so.12 is available
+image = (
+    modal.Image.from_registry("nvidia/cuda:12.1.1-runtime-ubuntu22.04", add_python="3.11")
+    .apt_install("libgomp1")
+    .pip_install("fastapi", "uvicorn", "sse-starlette")
+    .pip_install(
+        "llama-cpp-python[server]==0.2.89",
+        extra_options="--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121"
     )
+)
 
-    if needs_setup:
-        # Use a side-car daemon on port 11435 to create the model
-        # so port 11434 stays free for Modal's startup check
-        env = os.environ.copy()
-        env["OLLAMA_HOST"] = "127.0.0.1:11435"
-
-        print("Starting temporary Ollama daemon for model setup...")
-        setup_process = subprocess.Popen(["ollama", "serve"], env=env)
-
-        if not _wait_for_port("127.0.0.1", 11435, timeout=30):
-            print("❌ Temporary daemon did not start in time. Aborting setup.")
-            setup_process.terminate()
-        else:
-            for model_name, file_name in models.items():
-                if os.path.exists(f"/models/.created_{model_name}"):
-                    continue
-
-                file_path = f"/models/{file_name}"
-                if os.path.exists(file_path):
-                    res = subprocess.run(
-                        ["ollama", "list"], env=env,
-                        capture_output=True, text=True
-                    )
-                    if model_name not in res.stdout:
-                        print(f"Registering model: {model_name}...")
-                        with open("Modelfile", "w") as f:
-                            f.write(f"FROM {file_path}")
-                        subprocess.run(
-                            ["ollama", "create", model_name, "-f", "Modelfile"],
-                            env=env
-                        )
-                    else:
-                        print(f"Model {model_name} already exists in persistent storage.")
-
-                    # Write marker so we skip this on future cold starts
-                    with open(f"/models/.created_{model_name}", "w") as f:
-                        f.write("ready")
-                else:
-                    print(
-                        f"❌ ERROR: /models/{file_name} not found in the volume! "
-                        "Upload it with: modal volume put agent-models-vol critic_agent.gguf /"
-                    )
-
-            setup_process.terminate()
-            setup_process.wait()
-
-    # Start the real public Ollama daemon
-    print("Starting public Ollama daemon on 0.0.0.0:11434...")
-    process = subprocess.Popen(["ollama", "serve"])
-
-    # Poll until Ollama is actually accepting TCP connections on 127.0.0.1:11434
-    # This is the same check Modal's startup detector uses.
-    print("Waiting for Ollama to accept connections on 127.0.0.1:11434...")
-    ready = _wait_for_port("127.0.0.1", 11434, timeout=60)
-    if ready:
-        print("✅ Ollama is UP and accepting connections! Modal proxy is now active.")
-    else:
-        print("⚠️  Ollama did not bind to 127.0.0.1:11434 within 60s — Modal may not route traffic correctly.")
-
-    # Block to keep the container alive
-    process.wait()
+@app.function(
+    image=image, 
+    gpu="A10G",           # Use a fast 24GB VRAM GPU
+    volumes={"/models": vol},
+    timeout=1800          # 30 min runtime limit per session
+)
+@modal.concurrent(max_inputs=10) # Allow multiple agents to hit the API at once
+@modal.asgi_app()
+def serve():
+    from llama_cpp.server.app import create_app
+    from llama_cpp.server.settings import ServerSettings, ModelSettings
+    
+    # We will standardize the filename to 'agent_model.gguf'
+    model_path = "/models/critic_model.gguf"
+    
+    if not os.path.exists(model_path):
+        error_msg = (
+            f"❌ ERROR: Model not found at {model_path}!\n\n"
+            "Please upload your GGUF file to Modal by running this command in your terminal:\n"
+            "modal volume put agent-models-vol <YOUR_LOCAL_FILE.gguf> /agent_model.gguf\n"
+        )
+        print(error_msg)
+        raise FileNotFoundError(error_msg)
+        
+    print(f"Loading model from {model_path} into GPU memory...")
+    
+    server_settings = ServerSettings(
+        host="0.0.0.0",
+        port=8000
+    )
+    
+    model_settings = [ModelSettings(
+        model=model_path,
+        model_alias="critic_model", # This is the model name you will use in .env
+        n_gpu_layers=-1,           # Offload all layers to GPU for max speed
+        n_ctx=8192,                # 8k context window (good for coding)
+        chat_format="chatml"       # Adjust this if your model uses a different prompt format (e.g. llama3)
+    )]
+    
+    # Create the FastAPI app that perfectly mocks the OpenAI API
+    app = create_app(
+        server_settings=server_settings,
+        model_settings=model_settings
+    )
+    
+    print("✅ Model loaded successfully! OpenAI-compatible API is ready.")
+    return app
