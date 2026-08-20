@@ -1,4 +1,11 @@
-from typing import List, Optional, Dict
+"""
+AI Backend Builder — Pydantic Schemas
+
+Defines all data models shared across agents, services, and the API layer.
+Keep this file as the single source of truth for all data contracts.
+"""
+
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -56,26 +63,6 @@ class CodeGenContext(BaseModel):
     existingFileContents: Dict[str, str]
 
 
-class CodeFixRequest(BaseModel):
-    """
-    Used when the Orchestrator sends the Critic Agent's fixing strategy
-    to the Code Agent.
-    """
-    file_path: str
-    original_content: str
-    error_log: str
-    critic_strategy: str
-    instructions_for_code_agent: str
-
-
-class CodeFixResult(BaseModel):
-    """
-    Output from Code Agent after applying the Critic Agent's strategy.
-    """
-    file: str
-    fixed_code: str
-    explanation: Optional[str] = None
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Debug / Testing Agent Schemas
@@ -96,6 +83,43 @@ class DebugResult(BaseModel):
     stdout: str = ""
     stderr: str = ""
     exitCode: Optional[int] = None
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Validation Schemas
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ValidationIssue(BaseModel):
+    """One issue found by the ProjectConsistencyValidator."""
+    type: str                   # missing_local_file | missing_named_export | missing_dependency | invalid_named_import
+    source_file: Optional[str] = None
+    target_file: Optional[str] = None
+    import_path: Optional[str] = None
+    missing_export: Optional[str] = None
+    package: Optional[str] = None
+    message: str
+
+
+class ValidationResult(BaseModel):
+    """Output of the pre-debug consistency validation gate."""
+    valid: bool
+    issues: List[ValidationIssue] = Field(default_factory=list)
+    missing_dependencies: List[str] = Field(default_factory=list)
+    auto_fixed_dependencies: List[str] = Field(default_factory=list)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Test Result Schemas
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestResults(BaseModel):
+    """Summary of Jest/Supertest execution results."""
+    total: int = 0
+    passed: int = 0
+    failed: int = 0
+    skipped: int = 0
+    duration_ms: float = 0.0
+    stage: str = ""            # e.g. docker_jest_supertest | local_jest_supertest
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Episodic Memory Schemas
@@ -148,16 +172,6 @@ class CriticStrategy(BaseModel):
     confidence: float = 0.0
 
 
-class CriticInput(BaseModel):
-    """
-    Input given to the Critic Agent by the Orchestrator.
-    """
-    error_log: str
-    errors: List[RuntimeErrorInfo] = Field(default_factory=list)
-    memory_matches: List[MemoryMatch] = Field(default_factory=list)
-    file_list: List[str] = Field(default_factory=list)
-    attempt: int = 1
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Orchestration / Retry Tracking Schemas
@@ -205,6 +219,8 @@ class BuildResponse(BaseModel):
     debugAttempts: int
     errors: List[str]
     duration: float
+    testResults: Optional[TestResults] = None
+    validationIssues: List[str] = Field(default_factory=list)
 
 
 class GenerateRequest(BaseModel):

@@ -236,7 +236,10 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
     this._logger.section("NEW BUILD REQUEST (Interactive)");
     this._logger.info(`User prompt: "${prompt}"`);
 
-    this._postMessage({ command: "buildStarted" });
+    this._postMessage({ 
+      command: "buildStarted",
+      workspaceRoot: workspaceUri
+    });
 
     try {
       const response = await fetch(`${config.backendUrl}/api/build`, {
@@ -293,6 +296,7 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
                     command: "buildProgress",
                     message: data.data.message,
                     progress: data.data.progress,
+                    state: data.data.state,
                   });
                   this._logger.info(`Status: ${data.data.message}`);
                   break;
@@ -306,6 +310,14 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
                   this._logger.info(
                     `⏸️ Approval needed: ${data.data.step} — ${data.data.message}`,
                   );
+                  break;
+
+                case "memory_retrieved":
+                  this._postMessage({
+                    command: "memoryRetrieved",
+                    ...data.data,
+                  });
+                  this._logger.info(`🧠 Memory retrieved: ${data.data.count} matches found`);
                   break;
 
                 case "file_generated":
@@ -363,13 +375,13 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
   private _loadConfig(): ExtensionConfig {
     const config = vscode.workspace.getConfiguration("aiBackendBuilder");
     return {
-      backendUrl: config.get<string>("backendUrl", "http://localhost:5001"),
+      backendUrl: config.get<string>("backendUrl", "http://localhost:5000"),
       openaiApiKey: config.get<string>("openaiApiKey", ""),
       openaiModel: config.get<string>("openaiModel", "gpt-4"),
       models: {
-        planner: config.get<string>("models.planner", "mistral:7b"),
-        codegen: config.get<string>("models.codegen", "codellama:13b"),
-        debug: config.get<string>("models.debug", "mistral:7b"),
+        planner: config.get<string>("models.planner", "qwen2.5-coder:1.5b"),
+        codegen: config.get<string>("models.codegen", "qwen2.5-coder:1.5b"),
+        debug: config.get<string>("models.debug", "qwen2.5-coder:1.5b"),
       },
       maxRetries: config.get<number>("maxRetries", 3),
       debugTimeout: config.get<number>("debugTimeout", 10_000),

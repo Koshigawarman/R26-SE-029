@@ -1,7 +1,7 @@
 import json
 import logging
+import os
 import re
-from typing import Dict, Any
 import requests
 
 from schema import PlannerOutput, FileSpec
@@ -80,6 +80,14 @@ class PlannerAgent:
             raise RuntimeError("Planner Agent produced no output")
 
         plan = self._ensure_mandatory_files(plan)
+
+        # ── Agentic Plan Sanitisation ──────────────────────────────────────────────
+        plan = self._deduplicate_files(plan)
+        plan = self._enforce_path_conventions(plan)
+        plan = self._enforce_mvc_pairing(plan)
+        plan = self._prune_phantom_files(plan)
+        # ────────────────────────────────────────────────────────────
+
         logger.info(f"Planning complete: '{plan.projectName}' — {len(plan.files)} files")
         return plan
 
@@ -97,7 +105,7 @@ class PlannerAgent:
         resp = requests.post(
             f"{self.ollama_url}/api/generate",
             json=payload,
-            timeout=240
+            timeout=int(os.getenv("MODEL_TIMEOUT", "240"))
         )
         resp.raise_for_status()
         data = resp.json()
@@ -124,7 +132,7 @@ class PlannerAgent:
             self.openai_compatible_url,
             headers=headers,
             json=payload,
-            timeout=120,
+            timeout=int(os.getenv("MODEL_TIMEOUT", "240")),
             verify=get_ssl_verify_setting(),
         )
         raise_for_provider_error(resp, self.openai_compatible_provider, self.openai_compatible_url)
@@ -144,33 +152,33 @@ class PlannerAgent:
                 raw_response = raw_response[start:end+1]
 
         data = json.loads(raw_response)
-        
+
         # Pydantic validation
         parsed = PlannerOutput(**data)
-        
+
         # Sanitize project name
         parsed.projectName = re.sub(r'[^a-z0-9]+', '-', parsed.projectName.lower()).strip('-')
 
         # Clean paths
         for file in parsed.files:
             file.path = re.sub(r'^\.?/', '', file.path)
-            
+
         return parsed
 
     def _ensure_mandatory_files(self, plan: PlannerOutput) -> PlannerOutput:
         existing_paths = {f.path for f in plan.files}
-        
+
         for mandatory_path in MANDATORY_FILES:
             if mandatory_path not in existing_paths:
                 description = self._get_default_description(mandatory_path, plan.projectName)
                 plan.files.append(FileSpec(path=mandatory_path, description=description))
-                
+
         if '.env' not in existing_paths:
             plan.files.append(FileSpec(
-                path='.env', 
+                path='.env',
                 description=f"Environment variables: PORT, MONGODB_URI for {plan.projectName}, NODE_ENV, JWT_SECRET"
             ))
-            
+
         if 'middleware/errorHandler.js' not in existing_paths:
             plan.files.append(FileSpec(
                 path='middleware/errorHandler.js',
@@ -196,3 +204,122 @@ Please try again. Analyze this requirement and output ONLY valid JSON matching t
 {user_prompt}
 
 Remember: Output ONLY the JSON object. No markdown fences, no explanations, no extra text."""
+    # ─────────────────────────────────────────────────────────────────
+    # Agentic Plan Sanitisation
+    # ─────────────────────────────────────────────────────────────────
+
+    def _deduplicate_files(self, plan: PlannerOutput) -> PlannerOutput:
+        """Remove duplicate file paths, keeping the first occurrence."""
+        seen = set()
+        unique_files = []
+        for f in plan.files:
+            if f.path not in seen:
+                seen.add(f.path)
+                unique_files.append(f)
+            else:
+                logger.warning("[planner] Duplicate file removed from plan: %s", f.path)
+        plan.files = unique_files
+        return plan
+
+    def _enforce_path_conventions(self, plan: PlannerOutput) -> PlannerOutput:
+        """
+        Enforce consistent file path conventions:
+        - Strip leading ./ from all paths
+        - Convert backslashes to forward slashes
+        - Warn about files that should be in subdirectories but aren't
+        """
+        fixed = []
+        for f in plan.files:
+            original = f.path
+            # Normalise slashes and strip leading ./
+            f.path = f.path.replace("\\", "/").lstrip("./").lstrip("/")
+            # Lowercase the filename (not directory) part for JS files
+            parts = f.path.rsplit("/", 1)
+            if len(parts) == 2 and f.path.endswith(".js"):
+                # Keep directory casing, only check base is reasonable
+                pass
+            if f.path != original:
+                logger.info("[planner] Path normalised: '%s' → '%s'", original, f.path)
+            fixed.append(f)
+        plan.files = fixed
+        return plan
+
+    def _enforce_mvc_pairing(self, plan: PlannerOutput) -> PlannerOutput:
+        """
+        For every route file routes/X.js, ensure controllers/XController.js exists.
+        For every controller file controllers/X.js, ensure models/X.js exists (with fuzzy match).
+        Auto-inserts missing paired files into the plan.
+        """
+        import difflib
+        existing_paths = {f.path for f in plan.files}
+
+        routes   = [f for f in plan.files if f.path.startswith("routes/") and f.path.endswith(".js")]
+        ctrls    = {f.path for f in plan.files if f.path.startswith("controllers/")}
+        models   = {f.path for f in plan.files if f.path.startswith("models/")}
+
+        for route_file in routes:
+            # Derive expected controller name: routes/menuRoutes.js → controllers/menuController.js
+            base = os.path.basename(route_file.path)  # menuRoutes.js
+            # Strip common suffixes to get entity stem
+            stem = re.sub(r'(routes|Routes)\.js$', '', base).strip()
+            expected_ctrl = f"controllers/{stem}Controller.js"
+
+            if expected_ctrl not in existing_paths:
+                # Try fuzzy match among existing controllers
+                close = difflib.get_close_matches(expected_ctrl, ctrls, n=1, cutoff=0.6)
+                if not close:
+                    logger.info(
+                        "[planner] MVC pairing: auto-adding missing controller '%s' for route '%s'",
+                        expected_ctrl, route_file.path
+                    )
+                    plan.files.append(FileSpec(
+                        path=expected_ctrl,
+                        description=f"Express controller for {stem} entity. Exports named CRUD async functions."
+                    ))
+                    existing_paths.add(expected_ctrl)
+
+        return plan
+
+    def _prune_phantom_files(self, plan: PlannerOutput) -> PlannerOutput:
+        """
+        Remove files whose names reference entities (models/X, controllers/X, routes/X)
+        that are NOT in the plan's entity list. This prevents hallucinated entity files.
+        """
+        entity_names_lower = {e.name.lower() for e in (plan.entities or [])}
+        if not entity_names_lower:
+            return plan  # No entity list to cross-check against
+
+        pruned = []
+        for f in plan.files:
+            path_lower = f.path.lower()
+            # Only check model/controller/route files
+            is_entity_file = (
+                f.path.startswith("models/")
+                or f.path.startswith("controllers/")
+                or f.path.startswith("routes/")
+            )
+            if not is_entity_file:
+                pruned.append(f)
+                continue
+
+            # Extract the entity stem from the filename
+            base = os.path.basename(path_lower).replace(".js", "")
+            # Strip common suffixes
+            stem = re.sub(r"(controller|controllers|route|routes|model|models)$", "", base).strip()
+
+            if not stem:
+                pruned.append(f)
+                continue
+
+            # Check if stem roughly matches any known entity
+            matched = any(stem in ename or ename in stem for ename in entity_names_lower)
+            if matched:
+                pruned.append(f)
+            else:
+                logger.warning(
+                    "[planner] Pruning phantom file '%s' (entity '%s' not in plan entities: %s)",
+                    f.path, stem, list(entity_names_lower)
+                )
+
+        plan.files = pruned
+        return plan

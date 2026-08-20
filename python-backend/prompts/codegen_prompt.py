@@ -29,6 +29,8 @@ CODEGEN_SYSTEM_PROMPT = """You are an expert Node.js/Express.js backend develope
 8. Do NOT import local files that are not listed in the project file list.
 9. Do NOT import external npm packages unless package.json includes them.
 10. Keep the implementation simple and reliable for PP1.
+11. ENTITY CONSISTENCY: Every import path and variable name MUST reference the exact entity from the current project's file list. If the project has models/Car.js, you MUST import Car, not Task or Product or any other entity.
+12. Before writing any import, verify the filename matches a file in ALL PROJECT FILES exactly.
 
 ## PROJECT CONTRACT RULES
 The project file list provided in the prompt is the single source of truth.
@@ -69,6 +71,15 @@ Do NOT import these packages unless the package.json content or file description
 - bcryptjs
 - jsonwebtoken
 - express-validator
+
+## CRITICAL: express-validator IS A COMMONJS MODULE
+Do NOT do:
+  import { validate, body } from 'express-validator';  // WRONG — named ESM imports will crash
+If express-validator appears in package.json, use:
+  import pkg from 'express-validator';
+  const { body, validationResult } = pkg;
+
+But for simple CRUD APIs (PP1), do NOT use express-validator at all.
 
 If the target file is package.json:
 - Include all runtime packages that the generated code will import.
@@ -243,6 +254,9 @@ export default connectDB;
 
 Required app.js pattern:
 const app = express();
+
+// Call connectDB before starting server
+connectDB().catch(console.dir);
 
 if (process.env.NODE_ENV !== 'test') {
   const PORT = process.env.PORT || 3000;
@@ -891,12 +905,12 @@ def get_related_files(
             if path != target_path and path.startswith(directory) and _path_stem(path).lower().startswith(prefix):
                 add_if_available(path)
 
-    is_model = target_path.startswith("models/")
     is_controller = target_path.startswith("controllers/")
     is_route = target_path.startswith("routes/")
     is_app = target_path == "app.js"
     is_middleware = target_path.startswith("middleware/")
     is_config = target_path.startswith("config/")
+    is_model = target_path.startswith("models/")
 
     if target_path != "package.json":
         add_if_available("package.json")
@@ -964,14 +978,15 @@ def build_code_fix_prompt(
     parts.append("4. Generate the corrected content for the target file only.")
     parts.append("")
     
-    parts.append("## IMPORTANT RULES")
-    parts.append("1. Output ONLY the complete corrected source code for the target file.")
-    parts.append("2. Do NOT include markdown code fences.")
-    parts.append("3. Do NOT include explanations before or after the code.")
-    parts.append("4. Modify only what is necessary to fix the error.")
-    parts.append("5. Do NOT add new features.")
-    parts.append("6. Preserve existing working logic.")
-    parts.append("7. Use ES6 modules: import/export only. Do NOT use require/module.exports.")
+    parts.append("## IMPORTANT RULES (CRITICAL FOR SMALL MODELS)")
+    parts.append("1. YOU MUST OUTPUT THE ENTIRE FULL SOURCE CODE FOR THE FILE FROM START TO FINISH.")
+    parts.append("2. DO NOT output a diff, a patch, or only the modified lines.")
+    parts.append("3. If you only output the fixed line, you will DELETE the rest of the file and destroy the system.")
+    parts.append("4. Copy all unchanged lines from CURRENT FILE CONTENT exactly as they are.")
+    parts.append("5. Do NOT include markdown code fences (```javascript or ```).")
+    parts.append("6. Do NOT include explanations before or after the code.")
+    parts.append("7. Preserve existing working logic.")
+    parts.append("8. Use ES6 modules: import/export only. Do NOT use require/module.exports.")
     parts.append("")
 
     parts.append("## IMPORTANT IMPORT REPAIR RULES")
@@ -1014,5 +1029,6 @@ def build_code_fix_prompt(
     parts.append("")
 
     parts.append("Return raw JavaScript code only. No markdown. No explanation.")
+    parts.append("FINAL REMINDER: You MUST output the entire full source code of the file. Do NOT output just the changed lines. Do NOT use placeholders.")
 
     return "\n".join(parts)

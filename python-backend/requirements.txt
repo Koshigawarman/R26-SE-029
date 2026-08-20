@@ -6,4 +6,7 @@ python-dotenv==1.0.0
 langchain>=0.1.0
 langchain-community>=0.0.10
 pydantic>=2.0.0
+langgraph
+chromadb
+sentence-transformers
 tiktoken>=0.7.0

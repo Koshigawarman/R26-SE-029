@@ -1,9 +1,12 @@
 import json
 import logging
-import re
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+
+import chromadb
+from chromadb.utils import embedding_functions
 
 from schema import MemoryCase, MemoryMatch, RuntimeErrorInfo, CriticStrategy
 
@@ -12,46 +15,52 @@ logger = logging.getLogger(__name__)
 
 class EpisodicMemory:
     """
-    JSON-based Episodic Memory for PP1.
+    ChromaDB-based Episodic Memory.
 
     Responsibility:
-    - Store successful error-to-fix strategy cases.
-    - Retrieve similar past cases for the current runtime error.
+    - Store successful error-to-fix strategy cases in a local Vector Store.
+    - Retrieve similar past cases for the current runtime error via semantic search.
     - Provide memory context to the Critic Agent.
-
-    Final version:
-    - Replace keyword matching with ChromaDB / FAISS vector similarity search.
     """
 
-    def __init__(self, memory_path: str = "memory/episodic_memory.json"):
-        self.memory_path = Path(memory_path)
-        self.memory_path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, memory_dir: str = "memory/chroma_db"):
+        self.memory_dir = Path(memory_dir)
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize ChromaDB persistent client
+        self.client = chromadb.PersistentClient(path=str(self.memory_dir))
+        
+        # We use the default sentence transformer embedding model
+        # which creates a dense vector representation of the errors.
+        self.embedding_fn = embedding_functions.DefaultEmbeddingFunction()
 
-        if not self.memory_path.exists():
-            self.memory_path.write_text("[]", encoding="utf-8")
+        # Create or get the collection
+        self.collection = self.client.get_or_create_collection(
+            name="error_fixes",
+            embedding_function=self.embedding_fn,
+            metadata={"hnsw:space": "cosine"} # Use cosine similarity
+        )
+
+        logger.info(f"Episodic memory initialized at {self.memory_dir}. Collection count: {self.collection.count()}")
 
     def load_cases(self) -> List[MemoryCase]:
+        """
+        Retrieves all cases from ChromaDB. Primarily used for seeding/debugging.
+        """
         try:
-            raw = self.memory_path.read_text(encoding="utf-8").strip()
-            if not raw:
+            results = self.collection.get(include=["metadatas"])
+            if not results or not results["metadatas"]:
                 return []
-
-            data = json.loads(raw)
-            return [MemoryCase(**item) for item in data]
+            
+            cases = []
+            for meta in results["metadatas"]:
+                if "case_json" in meta:
+                    cases.append(MemoryCase(**json.loads(meta["case_json"])))
+            return cases
 
         except Exception as e:
-            logger.error(f"Failed to load episodic memory: {e}")
+            logger.error(f"Failed to load episodic memory cases: {e}")
             return []
-
-    def save_cases(self, cases: List[MemoryCase]) -> None:
-        try:
-            data = [case.model_dump() for case in cases]
-            self.memory_path.write_text(
-                json.dumps(data, indent=2),
-                encoding="utf-8"
-            )
-        except Exception as e:
-            logger.error(f"Failed to save episodic memory: {e}")
 
     def retrieve_similar(
         self,
@@ -60,51 +69,54 @@ class EpisodicMemory:
         top_k: int = 3
     ) -> List[MemoryMatch]:
         """
-        Retrieves similar memory cases using simple keyword matching.
-
-        This is enough for PP1 demonstration.
+        Retrieves similar memory cases using semantic vector search in ChromaDB.
         """
-
-        cases = self.load_cases()
-
-        if not cases:
+        if self.collection.count() == 0:
             return []
 
         query_text = self._build_query_text(errors, stderr)
-        query_tokens = self._tokenize(query_text)
+        if not query_text.strip():
+            return []
 
-        matches: List[MemoryMatch] = []
+        try:
+            results = self.collection.query(
+                query_texts=[query_text],
+                n_results=min(top_k, self.collection.count()),
+                include=["metadatas", "distances", "documents"]
+            )
 
-        for case in cases:
-            case_text = " ".join([
-                case.error_pattern,
-                case.root_cause,
-                case.fix_strategy,
-                " ".join(case.affected_files)
-            ])
+            if not results["metadatas"] or not results["metadatas"][0]:
+                return []
 
-            case_tokens = self._tokenize(case_text)
-            score = self._similarity_score(query_tokens, case_tokens, query_text, case)
-
-            if score > 0:
-                matches.append(
-                    MemoryMatch(
-                        case=case,
-                        score=round(score, 3),
-                        matched_pattern=case.error_pattern
+            matches: List[MemoryMatch] = []
+            
+            # ChromaDB distances for cosine are 1 - cosine_similarity.
+            # So a distance of 0 is a perfect match (score=1.0).
+            for i, meta in enumerate(results["metadatas"][0]):
+                distance = results["distances"][0][i]
+                score = max(0.0, 1.0 - distance) # Convert distance to similarity score
+                
+                if "case_json" in meta:
+                    case = MemoryCase(**json.loads(meta["case_json"]))
+                    matches.append(
+                        MemoryMatch(
+                            case=case,
+                            score=round(score, 3),
+                            matched_pattern=case.error_pattern
+                        )
                     )
-                )
 
-        matches.sort(key=lambda item: item.score, reverse=True)
+            if matches:
+                logger.info(f"Episodic memory retrieved {len(matches)} similar case(s) via semantic search.")
+            else:
+                logger.info("No similar episodic memory case found.")
 
-        selected = matches[:top_k]
+            return matches
 
-        if selected:
-            logger.info(f"Episodic memory retrieved {len(selected)} similar case(s)")
-        else:
-            logger.info("No similar episodic memory case found")
+        except Exception as e:
+            logger.error(f"Error during semantic retrieval: {e}")
+            return []
 
-        return selected
 
     def store_success_case(
         self,
@@ -113,15 +125,9 @@ class EpisodicMemory:
         fixed_files: Optional[List[str]] = None
     ) -> None:
         """
-        Stores an error-to-success case after the next debug attempt succeeds.
-
-        Important:
-        Only call this after the system verifies that the fix actually worked.
+        Stores an error-to-success case after the system verifies that the fix worked.
         """
-
         fixed_files = fixed_files or []
-        cases = self.load_cases()
-
         error_pattern = self._extract_error_pattern(errors)
 
         new_case = MemoryCase(
@@ -134,29 +140,40 @@ class EpisodicMemory:
             created_at=datetime.utcnow().isoformat()
         )
 
-        # Avoid exact duplicate cases
-        for case in cases:
-            if (
-                case.error_pattern.lower() == new_case.error_pattern.lower()
-                and case.fix_strategy.lower() == new_case.fix_strategy.lower()
-            ):
-                case.usage_count += 1
-                self.save_cases(cases)
-                logger.info("Existing episodic memory case usage count updated")
+        # Before adding, let's query if a very similar fix strategy already exists
+        # to prevent duplicate embeddings from overwhelming the space.
+        existing = self.collection.query(
+            query_texts=[new_case.fix_strategy],
+            n_results=1,
+            include=["metadatas", "distances"]
+        )
+
+        if existing["metadatas"] and existing["metadatas"][0]:
+            best_distance = existing["distances"][0][0]
+            if best_distance < 0.05: # Extremely similar (cosine distance < 0.05)
+                logger.info("Similar memory case already exists. Skipping insertion to prevent duplication.")
                 return
 
-        cases.append(new_case)
-        self.save_cases(cases)
+        # Prepare document for semantic indexing
+        document_text = f"Error: {error_pattern}\nRoot Cause: {new_case.root_cause}\nFix Strategy: {new_case.fix_strategy}"
+        
+        case_id = str(uuid.uuid4())
+        
+        try:
+            self.collection.add(
+                documents=[document_text],
+                metadatas=[{"case_json": new_case.model_dump_json()}],
+                ids=[case_id]
+            )
+            logger.info(f"Stored new episodic memory case in ChromaDB: {error_pattern}")
+        except Exception as e:
+            logger.error(f"Failed to store case in ChromaDB: {e}")
 
-        logger.info(f"Stored new episodic memory case: {error_pattern}")
 
     def seed_from_dataset(self, dataset_path: str = "datasets/error_fix_cases.json") -> int:
         """
-        Loads initial error-fix cases from datasets/error_fix_cases.json.
-
-        Use this for PP1 to show an initial curated memory dataset.
+        Loads initial error-fix cases from JSON into ChromaDB.
         """
-
         path = Path(dataset_path)
 
         if not path.exists():
@@ -167,8 +184,11 @@ class EpisodicMemory:
             raw = path.read_text(encoding="utf-8")
             data = json.loads(raw)
 
-            cases = self.load_cases()
             added_count = 0
+            
+            documents = []
+            metadatas = []
+            ids = []
 
             for item in data:
                 new_case = MemoryCase(
@@ -181,17 +201,29 @@ class EpisodicMemory:
                     created_at=datetime.utcnow().isoformat()
                 )
 
-                duplicate = any(
-                    case.error_pattern.lower() == new_case.error_pattern.lower()
-                    for case in cases
+                doc_text = f"Error: {new_case.error_pattern}\nRoot Cause: {new_case.root_cause}\nFix Strategy: {new_case.fix_strategy}"
+                
+                # Check for duplicates
+                existing = self.collection.query(
+                    query_texts=[doc_text],
+                    n_results=1,
+                    include=["distances"]
                 )
-
-                if not duplicate:
-                    cases.append(new_case)
+                
+                if not (existing["distances"] and existing["distances"][0] and existing["distances"][0][0] < 0.05):
+                    documents.append(doc_text)
+                    metadatas.append({"case_json": new_case.model_dump_json()})
+                    ids.append(str(uuid.uuid4()))
                     added_count += 1
 
-            self.save_cases(cases)
-            logger.info(f"Seeded {added_count} memory case(s) from dataset")
+            if documents:
+                self.collection.add(
+                    documents=documents,
+                    metadatas=metadatas,
+                    ids=ids
+                )
+                logger.info(f"Seeded {added_count} memory case(s) into ChromaDB from dataset")
+            
             return added_count
 
         except Exception as e:
@@ -212,63 +244,6 @@ class EpisodicMemory:
             parts.append(stderr[:1000])
 
         return " ".join(parts)
-
-    def _tokenize(self, text: str) -> set:
-        text = text.lower()
-        tokens = re.findall(r"[a-zA-Z0-9_./-]+", text)
-
-        stop_words = {
-            "the", "a", "an", "and", "or", "to", "of", "in", "on",
-            "is", "are", "was", "were", "this", "that", "with",
-            "for", "from", "by", "at", "as"
-        }
-
-        return {token for token in tokens if token not in stop_words and len(token) > 2}
-
-    def _similarity_score(
-        self,
-        query_tokens: set,
-        case_tokens: set,
-        query_text: str,
-        case: MemoryCase
-    ) -> float:
-        if not query_tokens or not case_tokens:
-            return 0.0
-
-        overlap = query_tokens.intersection(case_tokens)
-        base_score = len(overlap) / max(len(query_tokens), 1)
-
-        # Strong boost if error pattern appears directly in query
-        pattern = case.error_pattern.lower()
-        if pattern and pattern in query_text.lower():
-            base_score += 0.8
-
-        # Smaller boost for common Node.js/runtime terms
-        important_terms = [
-            "cannot find module",
-            "module_not_found",
-            "syntaxerror",
-            "referenceerror",
-            "typeerror",
-            "eaddrinuse",
-            "express",
-            "router",
-            "middleware",
-            "app.listen"
-        ]
-
-        query_lower = query_text.lower()
-        case_lower = " ".join([
-            case.error_pattern,
-            case.root_cause,
-            case.fix_strategy
-        ]).lower()
-
-        for term in important_terms:
-            if term in query_lower and term in case_lower:
-                base_score += 0.3
-
-        return min(base_score, 1.0)
 
     def _extract_error_pattern(self, errors: List[RuntimeErrorInfo]) -> str:
         if not errors:

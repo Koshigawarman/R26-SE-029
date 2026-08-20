@@ -89,31 +89,3 @@ describe('Generated API validation tests', () => {
 """)
 
     return "\n".join(parts)
-
-
-def build_testing_diagnostic_summary_prompt(stdout: str, stderr: str, exit_code: int) -> str:
-    return f"""
-Convert this Jest/Supertest execution result into a structured diagnostic summary.
-
-Do NOT suggest fixes.
-Do NOT write corrected code.
-Only summarize the testing failure.
-
-STDOUT:
-{stdout[:3000]}
-
-STDERR:
-{stderr[:3000]}
-
-Exit code:
-{exit_code}
-
-Return JSON only:
-{{
-  "stage": "docker_jest_supertest",
-  "main_error": "",
-  "error_type": "",
-  "affected_file": "",
-  "summary": ""
-}}
-"""

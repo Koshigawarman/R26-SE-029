@@ -26,6 +26,7 @@ from schema import (
     CriticStrategy,
     RuntimeErrorInfo,
     OrchestrationAttempt,
+    TestResults,
 )
 from agents.planner_agent import PlannerAgent
 from agents.codegen_agent import CodeGenAgent
@@ -40,6 +41,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_OPERATION_RETRIES = int(os.getenv("ORCHESTRATOR_OPERATION_RETRIES", "3"))
 DEFAULT_RETRY_DELAY_SECONDS = float(os.getenv("ORCHESTRATOR_RETRY_DELAY_SECONDS", "2"))
 
+
+class AbortBuildException(Exception):
+    """Raised when a build is manually aborted by the user during an interactive fallback."""
+    pass
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Build Session
@@ -131,7 +136,7 @@ class OrchestratorAgent:
 
         self.debug_agent = DebugAgent(
             ollama_url=ollama_url,
-            model=models.get("debug") or "qwen2.5-coder:1.5b",
+            model=models.get("debug") or os.getenv("DEBUG_MODEL", "qwen2.5-coder:1.5b"),
             debug_timeout=int(os.getenv("DEBUG_TIMEOUT", "10000")),
             use_openai_compatible=use_openai_compatible,
             openai_compatible_url=openai_compatible_url,
@@ -151,7 +156,7 @@ class OrchestratorAgent:
         self.max_retries = max_retries
 
         self.episodic_memory = EpisodicMemory(
-            memory_path=os.getenv("EPISODIC_MEMORY_PATH", "memory/episodic_memory.json")
+            memory_dir=os.getenv("EPISODIC_MEMORY_DIR", "memory/chroma_db")
         )
 
         # For PP1: seed initial curated cases if available.
@@ -214,11 +219,16 @@ class OrchestratorAgent:
         latest_errors: List[str] = []
         debug_attempt_count = 0
         files_generated = 0
+        final_test_results: Optional[TestResults] = None
 
         previous_failed_errors: Optional[List[RuntimeErrorInfo]] = None
         previous_critic_strategy: Optional[CriticStrategy] = None
         previous_fixed_files: List[str] = []
         artifact_recorder: Optional[ResearchArtifactRecorder] = None
+
+        # Locked folder for this build session.
+        # Set once on first approval; re-plans reuse it.
+        session_project_path: Optional[str] = None
 
         def status(message: str, progress: int, state: str) -> None:
             logger.info("STATE -> %s: %s", state, message)
@@ -331,6 +341,7 @@ class OrchestratorAgent:
                 )
 
                 project_path = os.path.join(project_root, plan.projectName)
+                # No folder manipulation here — folder is only created after final approval
 
                 logger.info(
                     "📋 Revised plan generated after feedback: %s",
@@ -404,6 +415,27 @@ class OrchestratorAgent:
             # Phase 2: Create base structure
             status("📁 STATE → CREATING_STRUCTURE: Creating project structure...", 15, "CREATING_STRUCTURE")
 
+            # ── Session-locked folder strategy ─────────────────────────────────────
+            # Rule 1: Every NEW build gets a fresh unique folder (never overwrites a
+            #         completed project that already contains code files).
+            # Rule 2: Within the SAME build session, re-plans always reuse the folder
+            #         that was created when the first plan was approved.
+            if session_project_path is None:
+                # First approval in this session → allocate a fresh folder
+                session_project_path = self._create_fresh_project_path(
+                    project_root, plan.projectName
+                )
+                logger.info(
+                    "[orchestrator] Session folder locked: %s", session_project_path
+                )
+            else:
+                logger.info(
+                    "[orchestrator] Re-plan: reusing session folder: %s", session_project_path
+                )
+
+            project_path = session_project_path
+            # ───────────────────────────────────────────────────────────────────────
+
             os.makedirs(project_path, exist_ok=True)
 
             for file_spec in plan.files:
@@ -459,6 +491,7 @@ class OrchestratorAgent:
                             session=session,
                             progress=progress_pct,
                             state="GENERATING_MODEL_RETRY",
+                            allow_user_fallback=False,
                         )
                     except Exception as exc:
                         generated = None
@@ -547,6 +580,7 @@ class OrchestratorAgent:
                                 session=session,
                                 progress=progress_pct,
                                 state="GENERATING_USER_RETRY",
+                                allow_user_fallback=False,
                             )
                         except Exception as exc:
                             regenerated = None
@@ -605,6 +639,73 @@ class OrchestratorAgent:
                             "FILE_SKIPPED",
                         )
 
+            # Phase 3.2: Missing Files Cross-Check
+            status("🔍 STATE → CROSS_CHECK: Verifying all planned files were created...", 65, "CROSS_CHECK")
+            
+            for file_spec in plan.files:
+                if file_spec.path not in existing_contents:
+                    logger.warning("Missing file detected during cross-check: %s. Forcing creation...", file_spec.path)
+                    
+                    status(f"⚡ Forcing creation of missing file: {file_spec.path}", 66, "FORCING_CREATION")
+                    
+                    file_forced_success = False
+                    for force_attempt in range(1, 3):
+                        status(
+                            f"⚡ Forcing creation of missing file: {file_spec.path} (Attempt {force_attempt}/2)",
+                            66 + force_attempt,
+                            "FORCING_CREATION_RETRY"
+                        )
+                        try:
+                            regenerated = self._retry_operation(
+                                operation_name=f"CodeGen Agent force create {file_spec.path}",
+                                operation=lambda: self.codegen_agent.execute(file_spec, context),
+                                session=session,
+                                progress=66 + force_attempt,
+                                state="FORCING_CREATION_RETRY",
+                                allow_user_fallback=False,
+                            )
+                            
+                            if regenerated and regenerated.status == "generated" and regenerated.content:
+                                self._write_project_file(project_path, regenerated.path, regenerated.content)
+                                existing_contents[regenerated.path] = regenerated.content
+                                context.existingFileContents = existing_contents
+                                files_generated += 1
+                                logger.info("Successfully forced creation of %s", regenerated.path)
+                                
+                                session.emit(
+                                    "file_generated",
+                                    {
+                                        "path": regenerated.path,
+                                        "status": "success",
+                                        "chars": len(regenerated.content),
+                                        "index": files_generated,
+                                        "total": total_files,
+                                    },
+                                )
+                                status(f"✅ Successfully forced creation of: {regenerated.path}", 68, "FILE_GENERATED")
+                                file_forced_success = True
+                                break
+                            else:
+                                logger.error("Failed to force create %s on attempt %s", file_spec.path, force_attempt)
+                        except Exception as exc:
+                            logger.error("Error force creating %s on attempt %s: %s", file_spec.path, force_attempt, exc)
+                        
+                        if force_attempt < 2:
+                            time.sleep(2)
+                    
+                    if not file_forced_success:
+                        status(f"❌ CRITICAL: Failed to force create missing file: {file_spec.path} after 2 attempts", 68, "FILE_GENERATION_FAILED")
+                        session.emit(
+                            "file_generated",
+                            {
+                                "path": file_spec.path,
+                                "status": "failed",
+                                "chars": 0,
+                                "index": files_generated,
+                                "total": total_files,
+                            },
+                        )
+
             # Phase 3.5: Project Consistency Validation
             status(
                 "🧾 STATE → CONSISTENCY_CHECK: Checking imports and package dependencies...",
@@ -647,14 +748,71 @@ class OrchestratorAgent:
                             existing_contents["package.json"] = file.read()
 
             if validation_result["issues"]:
-                issue_preview = validation_result["issues"][:3]
-
-                for issue in issue_preview:
-                    status(
-                        f"⚠️ Consistency issue: {issue['message']}",
-                        69,
-                        "CONSISTENCY_WARNING",
+                status("🔧 STATE → CONSISTENCY_FIX: Auto-fixing consistency issues...", 69, "CONSISTENCY_FIX")
+                from schema import CriticStrategy
+                
+                for issue in validation_result["issues"]:
+                    affected_file = issue.get("source_file")
+                    if not affected_file or affected_file not in existing_contents:
+                        continue
+                    
+                    fixing_strategy = ""
+                    instructions = ""
+                    if issue["type"] == "missing_local_file":
+                        import_path = issue["import_path"]
+                        fixing_strategy = f"Remove or update the missing local import '{import_path}'."
+                        instructions = f"Search for the import '{import_path}' and either remove it or point it to a valid file from the project files list."
+                    elif issue["type"] == "missing_named_export":
+                        missing_export = issue["missing_export"]
+                        target_file = issue["target_file"]
+                        fixing_strategy = f"Remove the invalid import of '{missing_export}' which is not exported by {target_file}."
+                        instructions = f"Remove the named import '{missing_export}' from the import statement for {target_file}."
+                    elif issue["type"] == "invalid_named_import":
+                        import_name = issue["import_name"]
+                        pkg = issue["package"]
+                        fixing_strategy = f"Remove the invalid named import '{import_name}' from {pkg}."
+                        instructions = f"Remove '{import_name}' from the {pkg} import."
+                    else:
+                        continue
+                        
+                    critic_strategy = CriticStrategy(
+                        root_cause=issue["message"],
+                        affected_files=[affected_file],
+                        fixing_strategy=fixing_strategy,
+                        instructions_for_code_agent=instructions,
+                        confidence=1.0,
                     )
+                    
+                    status(f"🔧 Fixing consistency issue in {affected_file}...", 69, "CONSISTENCY_FIX")
+                    
+                    try:
+                        error_log = f"Consistency Error: {issue['message']}"
+                        original_content = existing_contents[affected_file]
+                        
+                        fixed_result = self._retry_operation(
+                            operation_name=f"CodeGen Agent fix consistency {affected_file}",
+                            operation=lambda: self.codegen_agent.fix_file_with_strategy(
+                                file_path=affected_file,
+                                original_content=original_content,
+                                error_log=error_log,
+                                critic_strategy=critic_strategy.fixing_strategy,
+                                instructions_for_code_agent=critic_strategy.instructions_for_code_agent,
+                                file_list=list(existing_contents.keys()),
+                            ),
+                            session=session,
+                            progress=69,
+                            state="CONSISTENCY_FIX_RETRY",
+                            allow_user_fallback=False,
+                        )
+                        
+                        if fixed_result and fixed_result.status == "fixed" and fixed_result.content:
+                            self._write_project_file(project_path, fixed_result.path, fixed_result.content)
+                            existing_contents[fixed_result.path] = fixed_result.content
+                            context.existingFileContents = existing_contents
+                            status(f"✅ Fixed consistency issue in {fixed_result.path}", 69, "CONSISTENCY_FIXED")
+                    except Exception as exc:
+                        logger.warning(f"Failed to auto-fix consistency issue in {affected_file}: {exc}")
+                        status(f"⚠️ Consistency issue: {issue['message']}", 69, "CONSISTENCY_WARNING")
 
             # Approval Gate — Before Debug
             action = session.wait_for_approval(
@@ -683,14 +841,20 @@ class OrchestratorAgent:
 
             # Phase 4: Debug Loop
             debug_success = False
+            attempt = 0
 
-            for attempt in range(1, self.max_retries + 1):
+            while attempt < self.max_retries:
+                attempt += 1
                 if not session.active:
                     logger.warning("Session became inactive during debug loop")
                     return
 
                 debug_attempt_count = attempt
                 progress_pct = 70 + int((attempt / self.max_retries) * 25)
+                progress_pct = min(progress_pct, 99)
+
+                # Signal to debug_agent whether this is a first run or a retry
+                os.environ["CURRENT_DEBUG_ATTEMPT"] = str(attempt)
 
                 status(
                     f"🔍 STATE → TESTING: Debug attempt {attempt}/{self.max_retries}",
@@ -704,10 +868,29 @@ class OrchestratorAgent:
                     session=session,
                     progress=progress_pct,
                     state="TESTING_RETRY",
+                    allow_user_fallback=False,
                 )
 
                 if debug_result.success:
                     debug_success = True
+
+                    # Capture test results for the final buildComplete event
+                    try:
+                        report_path = os.path.join(project_path, "testing-report.json")
+                        if os.path.exists(report_path):
+                            import json as _json
+                            with open(report_path, "r", encoding="utf-8") as _f:
+                                rpt = _json.load(_f)
+                            final_test_results = TestResults(
+                                total=rpt.get("tests_total", 0),
+                                passed=rpt.get("tests_passed", 0),
+                                failed=rpt.get("tests_failed", 0),
+                                skipped=rpt.get("tests_skipped", 0),
+                                duration_ms=rpt.get("duration_ms", 0.0),
+                                stage=rpt.get("stage", ""),
+                            )
+                    except Exception as _exc:
+                        logger.warning("Could not read testing-report.json: %s", _exc)
 
                     status("✅ STATE → VERIFIED: Generated backend started successfully", 95, "VERIFIED")
 
@@ -723,6 +906,7 @@ class OrchestratorAgent:
                             session=session,
                             progress=97,
                             state="MEMORY_UPDATE_RETRY",
+                            allow_user_fallback=False,
                         )
 
                         status(
@@ -781,10 +965,26 @@ class OrchestratorAgent:
                         session=session,
                         progress=100,
                         state="DEBUG_REPORT_RETRY",
+                        allow_user_fallback=False,
                     )
 
                     status(f"📄 Debug report generated: {report_path}", 100, "DEBUG_REPORT_GENERATED")
-                    break
+                    
+                    action = session.wait_for_approval(
+                        "debug_exhausted",
+                        {
+                            "message": f"❌ Testing failed after {self.max_retries} attempts. Extend retry budget by 2?",
+                            "errors": latest_errors,
+                            "options": ["retry", "cancel"],
+                        },
+                    )
+                    
+                    if action == "retry":
+                        self.max_retries += 2
+                        status("🔄 STATE → RETRY_EXTENDED: Retry budget extended by 2.", 99, "RETRY_EXTENDED")
+                        # Do not break, proceed to memory retrieval and critic analysis to fix this error
+                    else:
+                        break
 
                 # Memory Retrieval
                 status(
@@ -804,6 +1004,7 @@ class OrchestratorAgent:
                     session=session,
                     progress=progress_pct + 2,
                     state="MEMORY_RETRIEVAL_RETRY",
+                    allow_user_fallback=False,
                 )
 
                 # Critic Strategy Generation
@@ -820,6 +1021,7 @@ class OrchestratorAgent:
                     session=session,
                     progress=progress_pct + 3,
                     state="FILE_LIST_RETRY",
+                    allow_user_fallback=False,
                 )
 
                 critic_strategy = self._retry_operation(
@@ -831,10 +1033,12 @@ class OrchestratorAgent:
                         memory_matches=memory_matches,
                         file_list=file_list,
                         attempt=attempt,
+                        file_contents=existing_contents,
                     ),
                     session=session,
                     progress=progress_pct + 4,
                     state="CRITIC_ANALYSIS_RETRY",
+                    allow_user_fallback=False,
                 )
 
                 status(
@@ -900,6 +1104,7 @@ class OrchestratorAgent:
                     session=session,
                     progress=progress_pct + 7,
                     state="AFFECTED_FILES_RETRY",
+                    allow_user_fallback=False,
                 )
 
                 fixed_files: List[str] = []
@@ -909,6 +1114,7 @@ class OrchestratorAgent:
                         operation_name=f"Read affected file {affected_file}",
                         operation=lambda: self._read_project_file(project_path, affected_file),
                         max_attempts=2,
+                        allow_user_fallback=False,
                     )
 
                     if not original_content:
@@ -942,6 +1148,7 @@ class OrchestratorAgent:
                                     error_log=error_log,
                                     critic_strategy=critic_strategy.fixing_strategy,
                                     instructions_for_code_agent=critic_strategy.instructions_for_code_agent,
+                                    file_list=list(existing_contents.keys()),
                                 ),
                                 session=session,
                                 progress=progress_pct + 8,
@@ -982,6 +1189,33 @@ class OrchestratorAgent:
                                 progress_pct + 10,
                                 "CODE_FIXING",
                             )
+
+                            # ── Agentic post-fix verification ─────────────────────────────
+                            resolved = self._verify_fix_applied(
+                                latest_errors, fixed_result.content
+                            )
+                            if not resolved:
+                                logger.warning(
+                                    "[orchestrator] Fix for %s did NOT remove the original error token. "
+                                    "Next test cycle will reveal whether it resolved the issue.",
+                                    fixed_result.path
+                                )
+                                status(
+                                    f"⚠️ Fix applied but original error pattern still detected in {fixed_result.path}",
+                                    progress_pct + 10,
+                                    "FIX_UNVERIFIED",
+                                )
+
+                            dangling = self._cross_check_project_imports(existing_contents)
+                            if dangling:
+                                status(
+                                    f"⚠️ {len(dangling)} unresolved import(s) detected across project files",
+                                    progress_pct + 11,
+                                    "IMPORT_WARNINGS",
+                                )
+                                for warn in dangling[:5]:  # cap at 5 to avoid log spam
+                                    session.emit("importWarning", {"message": warn})
+                            # ──────────────────────────────────────────────────────────────
 
                             break
 
@@ -1048,6 +1282,23 @@ class OrchestratorAgent:
                 attempts=debug_attempt_count,
                 errors=latest_errors if not debug_success else [],
                 start=start_time,
+                test_results=final_test_results,
+            )
+
+        except AbortBuildException as abort_exc:
+            logger.info("Build aborted by user: %s", abort_exc)
+            
+            status(f"🛑 Build Cancelled: {str(abort_exc)}", 100, "CANCELLED")
+
+            self._emit_complete(
+                session=session,
+                success=False,
+                name="cancelled",
+                root=project_path,
+                files=files_generated,
+                attempts=debug_attempt_count,
+                errors=[str(abort_exc)],
+                start=start_time,
             )
 
         except Exception as exc:
@@ -1067,6 +1318,152 @@ class OrchestratorAgent:
             )
 
     # ─────────────────────────────────────────────────────────────────────
+    # Project Path Resolver
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _create_fresh_project_path(self, project_root: str, project_name: str) -> str:
+        """
+        Always return a folder path that is safe to write a NEW project into.
+
+        Rules:
+        - If project_root/project_name does NOT exist → use it directly.
+        - If it exists but is EMPTY (only blank subdirectories, no code files) → reuse it.
+        - If it exists AND contains real files → auto-increment suffix:
+            project-name-2, project-name-3, … until a free (or empty) slot is found.
+
+        This ensures:
+        ✓ Every new build never overwrites an existing completed project.
+        ✓ The user doesn't end up with a stale empty folder ghost sitting next to a real build.
+        """
+        import re as _re
+
+        def _has_real_files(path: str) -> bool:
+            """Return True if path contains at least one non-directory file."""
+            for root, dirs, files in os.walk(path):
+                # Skip node_modules
+                dirs[:] = [d for d in dirs if d != "node_modules"]
+                if files:
+                    return True
+            return False
+
+        base_path = os.path.join(project_root, project_name)
+
+        # Case 1: doesn't exist yet → fresh, use it
+        if not os.path.isdir(base_path):
+            logger.info("[orchestrator] Fresh project folder: %s", base_path)
+            return base_path
+
+        # Case 2: exists but empty → reuse (avoids ghost folders)
+        if not _has_real_files(base_path):
+            logger.info("[orchestrator] Reusing empty project folder: %s", base_path)
+            return base_path
+
+        # Case 3: exists with code → find next free numbered slot
+        counter = 2
+        while True:
+            candidate = os.path.join(project_root, f"{project_name}-{counter}")
+            if not os.path.isdir(candidate):
+                logger.info(
+                    "[orchestrator] Existing folder has code. Creating numbered slot: %s", candidate
+                )
+                return candidate
+            if not _has_real_files(candidate):
+                logger.info(
+                    "[orchestrator] Reusing empty numbered slot: %s", candidate
+                )
+                return candidate
+            counter += 1
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Agentic Post-Fix Verification Helpers
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _verify_fix_applied(
+        self,
+        original_errors: list,
+        fixed_code: str,
+    ) -> bool:
+        """
+        Programmatically verify that the fix actually removed the error-causing
+        pattern from the code. Does NOT call any LLM.
+
+        Returns True if the fix is likely effective, False if suspicious.
+        """
+        if not original_errors or not fixed_code:
+            return True  # Cannot verify; optimistically proceed
+
+        for err in original_errors:
+            msg = getattr(err, "message", "") or ""
+
+            # For MODULE_NOT_FOUND: check the bad import path is gone
+            import re as _re
+            mod_match = _re.search(r"Cannot find module ['\"]([^'\"]+)['\"]", msg, _re.IGNORECASE)
+            if mod_match:
+                bad_module = mod_match.group(1)
+                # Extract just the filename part for a loose match
+                bad_name = os.path.basename(bad_module).replace(".js", "")
+                if bad_name and bad_name.lower() in fixed_code.lower():
+                    logger.warning(
+                        "[orchestrator] Bad module '%s' still appears in fixed code", bad_name
+                    )
+                    return False
+
+            # For SyntaxError: check the bad line reference is gone (heuristic)
+            # We can't run JS, but a significantly changed file is a good sign
+
+        return True
+
+    def _cross_check_project_imports(
+        self, existing_contents: dict
+    ) -> list:
+        """
+        Scan every JS file in the project. For each `import ... from '...'`,
+        resolve the path relative to the file and verify the target exists in
+        existing_contents. Return a list of human-readable warning strings for
+        any missing targets.
+
+        This is pure Python — no LLM involved.
+        """
+        import re as _re
+
+        _import_re = _re.compile(r"""import\s+[^'"]+from\s+['"](\.[^'"]+)['"]""")
+        warnings = []
+
+        for file_path, code in existing_contents.items():
+            if not file_path.endswith(".js"):
+                continue
+
+            file_dir = os.path.dirname(file_path)
+
+            for m in _import_re.finditer(code):
+                raw_import = m.group(1)
+
+                # Resolve to project-root-relative path
+                resolved = os.path.normpath(
+                    os.path.join(file_dir, raw_import)
+                ).replace("\\", "/").lstrip("./")
+
+                # Ensure .js extension for lookup
+                if not resolved.endswith(".js") and not resolved.endswith(".json"):
+                    resolved_js = resolved + ".js"
+                else:
+                    resolved_js = resolved
+
+                if resolved_js not in existing_contents and resolved not in existing_contents:
+                    warnings.append(
+                        f"{file_path}: imports '{raw_import}' → resolves to '{resolved_js}' "
+                        f"which does not exist in the project"
+                    )
+
+        if warnings:
+            logger.warning(
+                "[orchestrator] Cross-check found %d unresolved import(s): %s",
+                len(warnings), warnings[:3]
+            )
+
+        return warnings
+
+    # ─────────────────────────────────────────────────────────────────────
     # Retry helper
     # ─────────────────────────────────────────────────────────────────────
 
@@ -1079,6 +1476,7 @@ class OrchestratorAgent:
         session: Optional[BuildSession] = None,
         progress: Optional[int] = None,
         state: str = "OPERATION_RETRY",
+        allow_user_fallback: bool = True,
     ) -> Any:
         """
         Retry wrapper for unstable orchestration operations.
@@ -1091,57 +1489,75 @@ class OrchestratorAgent:
 
         last_error: Optional[Exception] = None
 
-        for attempt in range(1, max_attempts + 1):
-            try:
-                if attempt > 1:
+        while True:
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    if attempt > 1:
+                        logger.warning(
+                            "Retrying %s (%s/%s)",
+                            operation_name,
+                            attempt,
+                            max_attempts,
+                        )
+
+                        if session and progress is not None:
+                            session.emit(
+                                "status",
+                                {
+                                    "message": (
+                                        f"🔁 Retrying {operation_name} "
+                                        f"({attempt}/{max_attempts})"
+                                    ),
+                                    "progress": progress,
+                                    "state": state,
+                                }
+                            )
+
+                        time.sleep(delay_seconds * (2 ** (attempt - 2)))
+
+                    result = operation()
+
+                    if attempt > 1:
+                        logger.info("%s succeeded on retry %s", operation_name, attempt)
+
+                    return result
+
+                except Exception as exc:
+                    last_error = exc
                     logger.warning(
-                        "Retrying %s (%s/%s)",
+                        "%s failed on attempt %s/%s: %s",
                         operation_name,
                         attempt,
                         max_attempts,
+                        exc,
                     )
 
-                    if session and progress is not None:
-                        session.emit(
-                            "status",
-                            {
-                                "message": (
-                                    f"🔁 Retrying {operation_name} "
-                                    f"({attempt}/{max_attempts})"
-                                ),
-                                "progress": progress,
-                                "state": state,
-                            },
-                        )
+            logger.error(
+                "%s failed after %s automatic attempt(s)",
+                operation_name,
+                max_attempts,
+            )
 
-                    time.sleep(delay_seconds * (2 ** (attempt - 2)))
-
-                result = operation()
-
-                if attempt > 1:
-                    logger.info("%s succeeded on retry %s", operation_name, attempt)
-
-                return result
-
-            except Exception as exc:
-                last_error = exc
-                logger.warning(
-                    "%s failed on attempt %s/%s: %s",
-                    operation_name,
-                    attempt,
-                    max_attempts,
-                    exc,
+            if session and allow_user_fallback:
+                action = session.wait_for_approval(
+                    "agent_error",
+                    {
+                        "agent_name": operation_name,
+                        "error": str(last_error),
+                    }
                 )
-
-                if attempt == max_attempts:
-                    logger.error(
-                        "%s failed after %s attempt(s)",
-                        operation_name,
-                        max_attempts,
-                    )
-                    raise
-
-        raise RuntimeError(f"{operation_name} failed: {last_error}")
+                
+                if action == "retry":
+                    logger.info("User requested manual retry for %s", operation_name)
+                    continue
+                elif action == "cancel":
+                    logger.warning("User cancelled orchestration during %s failure", operation_name)
+                    raise AbortBuildException(f"Aborted by user during {operation_name} failure.")
+                else:
+                    raise RuntimeError(f"{operation_name} failed after user chose {action}: {last_error}")
+            
+            # If no session or fallback not allowed
+            raise RuntimeError(f"{operation_name} failed: {last_error}")
 
     # ─────────────────────────────────────────────────────────────────────
     # Helper methods
@@ -1157,6 +1573,7 @@ class OrchestratorAgent:
         attempts: int,
         errors: List[str],
         start: float,
+        test_results: Optional[TestResults] = None,
     ) -> None:
         duration = time.time() - start
 
@@ -1168,6 +1585,7 @@ class OrchestratorAgent:
             debugAttempts=attempts,
             errors=errors,
             duration=duration,
+            testResults=test_results,
         )
 
         session.emit("complete", response.model_dump())
@@ -1340,6 +1758,9 @@ class OrchestratorAgent:
                 if filename == basename:
                     full_path = os.path.join(root, filename)
                     return os.path.relpath(full_path, project_path).replace("\\", "/")
+
+        if cleaned.endswith(('.js', '.json', '.env', '.ts', '.py')):
+            return cleaned
 
         return None
 
