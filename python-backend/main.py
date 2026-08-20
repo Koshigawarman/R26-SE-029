@@ -23,6 +23,7 @@ import os
 import time
 import logging
 import requests
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -32,8 +33,10 @@ from agents.orchestrator_agent import BuildSession
 
 from schema import BuildRequest, GenerateRequest, ApprovalRequest
 from agents.orchestrator_agent import OrchestratorAgent
+from services.http_settings import get_ssl_verify_setting
+from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -148,13 +151,7 @@ async def generate(req: GenerateRequest):
     logger.info(f"Generating with model '{req.model}' (prompt: {len(req.prompt)} chars)")
 
     if USE_OPENAI_COMPATIBLE:
-        headers = {
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029", # Optional
-            "X-Title": "AI Backend Builder", # Optional
-        }
-        if OPENAI_COMPATIBLE_API_KEY:
-            headers["Authorization"] = f"Bearer {OPENAI_COMPATIBLE_API_KEY}"
+        headers = build_provider_headers(OPENAI_COMPATIBLE_API_KEY)
         
         payload = {
             "model": req.model,
@@ -173,8 +170,14 @@ async def generate(req: GenerateRequest):
         logger.info("="*50)
         
         try:
-            resp = requests.post(OPENAI_COMPATIBLE_URL, headers=headers, json=payload, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
+            resp = requests.post(
+                OPENAI_COMPATIBLE_URL,
+                headers=headers,
+                json=payload,
+                timeout=REQUEST_TIMEOUT,
+                verify=get_ssl_verify_setting(),
+            )
+            raise_for_provider_error(resp, OPENAI_COMPATIBLE_PROVIDER, OPENAI_COMPATIBLE_URL)
             data = resp.json()
             response_text = data['choices'][0]['message']['content']
             
