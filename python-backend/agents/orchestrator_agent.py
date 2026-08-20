@@ -242,7 +242,8 @@ class OrchestratorAgent:
             error_message=None,
             final_outcome=None,
             pre_debug_action=None,
-            fix_action=None
+            fix_action=None,
+            exhausted_action=None
         )
         
         graph = build_orchestrator_graph()
