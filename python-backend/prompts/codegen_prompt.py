@@ -447,7 +447,7 @@ For non-auth entities such as Product, Order, Booking, Task, Category, Inventory
 
 ## REQUIRED CONTROLLER SHAPE
 Use this shape:
-import EntityModel from '../models/EntityModel.js';
+import Entity from '../models/Entity.js';
 
 export const getAllEntities = async (req, res, next) => {
   try {
@@ -613,6 +613,76 @@ export default connectDB;
 3. Is the output only source code, with no markdown or explanation?"""
 
 
+AUTH_MIDDLEWARE_SYSTEM_PROMPT = BASE_CODEGEN_RULES + """
+
+## FILE-SPECIFIC GUIDELINES: Middleware: middleware/auth.js
+1. Import jsonwebtoken only if package.json includes jsonwebtoken.
+2. Import the User model only if the Planner listed a User model and the middleware needs to attach a database user.
+3. Export authentication middleware as named exports.
+4. Preferred named export: protect.
+5. If role authorization is required, also export authorizeRoles.
+6. Read the token from the Authorization header using the Bearer scheme.
+7. If the token is missing, return HTTP 401.
+8. Verify the token with process.env.JWT_SECRET.
+9. Attach decoded user information to req.user.
+10. Call next() on successful authentication.
+11. Keep responses consistent with the project's error response style.
+12. Do not define routes.
+13. Do not define schemas.
+14. Do not hash passwords here.
+15. Do not create JWT tokens here.
+16. Do not implement login, register, or password reset here.
+17. Do not import express or create express.Router().
+
+## AUTH MIDDLEWARE BOUNDARY RULES
+The target file is authentication middleware only. It protects routes; it does not perform user account actions.
+
+You MUST NOT include:
+1. router.get/router.post/router.put/router.delete calls.
+2. express.Router().
+3. mongoose.Schema definitions.
+4. mongoose.model(...) definitions.
+5. bcrypt or bcryptjs imports.
+6. password hashing.
+7. jwt.sign token creation.
+8. controller functions such as loginUser or registerUser.
+
+## REQUIRED AUTH SHAPE
+Use this shape unless the Planner describes a different export name:
+import jwt from 'jsonwebtoken';
+
+export const protect = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      message: 'Not authorized, token missing',
+    });
+  }
+
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: 'Not authorized, token invalid',
+    });
+  }
+};
+
+## FINAL SELF-CHECK BEFORE OUTPUT
+1. Did I export protect as a named export?
+2. Did I read Authorization: Bearer <token>?
+3. Did I verify with process.env.JWT_SECRET?
+4. Did I assign req.user and call next() on success?
+5. Did I avoid routes, schemas, bcrypt, and jwt.sign?
+6. Is the output only this middleware file's source code, with no markdown or explanation?"""
+
+
 MIDDLEWARE_SYSTEM_PROMPT = BASE_CODEGEN_RULES + """
 
 ## FILE-SPECIFIC GUIDELINES: Middleware: middleware/errorHandler.js
@@ -621,14 +691,14 @@ MIDDLEWARE_SYSTEM_PROMPT = BASE_CODEGEN_RULES + """
 3. Do NOT import json from express.
 4. Do NOT import mongoose.
 5. Do NOT import any external package.
-6. Export a named function called errorHandler.
+6. Export the error handler as a DEFAULT EXPORT.
 7. Function signature must be: (err, req, res, next).
 8. Return a JSON error response.
 9. Use err.statusCode or 500.
 10. This file should normally have ZERO imports.
 
 Correct structure:
-export const errorHandler = (err, req, res, next) => {
+const errorHandler = (err, req, res, next) => {
   const statusCode = err.statusCode || 500;
 
   res.status(statusCode).json({
@@ -636,6 +706,8 @@ export const errorHandler = (err, req, res, next) => {
     message: err.message || 'Server Error',
   });
 };
+
+export default errorHandler;
 
 ## FINAL SELF-CHECK BEFORE OUTPUT
 1. Did I avoid all imports?
@@ -733,7 +805,8 @@ FIX_SYSTEM_PROMPT = BASE_CODEGEN_RULES + """
 14. Prefer simple Express code with fewer external dependencies.
 15. All local imports must include .js extension.
 16. middleware/errorHandler.js must not import express, cors, json, mongoose, or any external package.
-17. middleware/errorHandler.js should only export named function errorHandler."""
+17. middleware/errorHandler.js should export default errorHandler.
+18. middleware/auth.js should protect routes only; it must not define routes, schemas, password hashing, or jwt.sign token creation."""
 
 
 def get_codegen_system_prompt(path: str, mode: str = "generate") -> str:
@@ -745,6 +818,8 @@ def get_codegen_system_prompt(path: str, mode: str = "generate") -> str:
         return ENV_SYSTEM_PROMPT
     if path == "app.js":
         return APP_SYSTEM_PROMPT
+    if path == "middleware/auth.js":
+        return AUTH_MIDDLEWARE_SYSTEM_PROMPT
     if path.startswith("models/"):
         return MODEL_SYSTEM_PROMPT
     if path.startswith("controllers/"):
