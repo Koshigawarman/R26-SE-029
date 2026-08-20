@@ -1202,6 +1202,11 @@
               $("pr").style.opacity = "1";
               $("apv").classList.remove("v");
               $("pm").textContent = "Cancelled";
+              Object.values(ag).forEach((a) => {
+                a.c.className = "ac";
+                a.s.textContent = "Stopped";
+                a.k.innerHTML = "";
+              });
               log("Cancelled by user", "er");
               break;
             case "buildError":

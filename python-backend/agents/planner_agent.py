@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import requests
+from typing import Optional, Callable, Dict, Any, List
 
 from schema import PlannerOutput, FileSpec
 from prompts.planner_prompt import PLANNER_SYSTEM_PROMPT, build_planner_prompt
@@ -35,7 +36,7 @@ class PlannerAgent:
         self.openai_compatible_provider = openai_compatible_provider
         self.last_request_trace: Dict[str, Any] = {}
 
-    def execute(self, user_prompt: str) -> PlannerOutput:
+    def execute(self, user_prompt: str, cancel_token: Optional[Callable[[], bool]] = None) -> PlannerOutput:
         logger.info("Starting project planning...")
         plan = None
         last_error = None
@@ -49,10 +50,10 @@ class PlannerAgent:
 
                 logger.info(f"Querying AI (attempt {attempt + 1})...")
                 if self.use_openai_compatible:
-                    raw_response = self._query_openai_compatible(prompt, PLANNER_SYSTEM_PROMPT)
+                    raw_response = self._query_openai_compatible(prompt, PLANNER_SYSTEM_PROMPT, cancel_token)
                     provider = self.openai_compatible_provider
                 else:
-                    raw_response = self._query_ollama(prompt, PLANNER_SYSTEM_PROMPT)
+                    raw_response = self._query_ollama(prompt, PLANNER_SYSTEM_PROMPT, cancel_token)
                     provider = "ollama"
 
                 self.last_request_trace = {
@@ -89,12 +90,12 @@ class PlannerAgent:
         logger.info(f"Planning complete: '{plan.projectName}' — {len(plan.files)} files")
         return plan
 
-    def _query_ollama(self, prompt: str, system_prompt: str) -> str:
+    def _query_ollama(self, prompt: str, system_prompt: str, cancel_token: Optional[Callable[[], bool]] = None) -> str:
         payload = {
             "model": self.model,
             "prompt": prompt,
             "system": system_prompt,
-            "stream": False,
+            "stream": True,
             "options": {
                 "temperature": 0.3,
                 "num_predict": 4096,
@@ -103,15 +104,22 @@ class PlannerAgent:
         resp = requests.post(
             f"{self.ollama_url}/api/generate",
             json=payload,
-            timeout=int(os.getenv("MODEL_TIMEOUT", "240"))
+            timeout=int(os.getenv("MODEL_TIMEOUT", "240")),
+            stream=True
         )
         resp.raise_for_status()
-        data = resp.json()
-        if "response" not in data:
-            raise ValueError("Ollama returned no response")
-        return data["response"]
+        content = ""
+        for line in resp.iter_lines():
+            if cancel_token and cancel_token():
+                resp.close()
+                raise Exception("Generation cancelled by user")
+            if line:
+                data = json.loads(line)
+                if "response" in data:
+                    content += data["response"]
+        return content
 
-    def _query_openai_compatible(self, prompt: str, system_prompt: str) -> str:
+    def _query_openai_compatible(self, prompt: str, system_prompt: str, cancel_token: Optional[Callable[[], bool]] = None) -> str:
         if not self.openai_compatible_url:
             raise ValueError("OPENAI_COMPATIBLE_URL is not set")
 
@@ -131,11 +139,25 @@ class PlannerAgent:
             ],
             "temperature": 0.3,
             "max_tokens": 4096,
+            "stream": True
         }
-        resp = requests.post(self.openai_compatible_url, headers=headers, json=payload, timeout=int(os.getenv("MODEL_TIMEOUT", "240")))
+        resp = requests.post(self.openai_compatible_url, headers=headers, json=payload, timeout=int(os.getenv("MODEL_TIMEOUT", "240")), stream=True)
         resp.raise_for_status()
-        data = resp.json()
-        return data['choices'][0]['message']['content']
+        content = ""
+        for line in resp.iter_lines():
+            if cancel_token and cancel_token():
+                resp.close()
+                raise Exception("Generation cancelled by user")
+            if line:
+                line_str = line.decode('utf-8').strip()
+                if line_str.startswith("data: ") and line_str != "data: [DONE]":
+                    try:
+                        data = json.loads(line_str[6:])
+                        if data.get("choices") and data["choices"][0].get("delta", {}).get("content"):
+                            content += data["choices"][0]["delta"]["content"]
+                    except json.JSONDecodeError:
+                        pass
+        return content
 
     def _parse_and_validate(self, raw_response: str) -> PlannerOutput:
         # Extract JSON if the model wrapped it in markdown

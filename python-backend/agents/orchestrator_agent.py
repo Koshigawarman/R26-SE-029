@@ -253,7 +253,7 @@ class OrchestratorAgent:
 
             plan = self._retry_operation(
                 operation_name="Planner Agent model call",
-                operation=lambda: self.planner_agent.execute(request.prompt),
+                operation=lambda: self.planner_agent.execute(request.prompt, cancel_token=lambda: not session.active),
                 session=session,
                 progress=5,
                 state="PLANNING_RETRY",
@@ -334,7 +334,7 @@ class OrchestratorAgent:
 
                 plan = self._retry_operation(
                     operation_name=f"Planner Agent re-plan attempt {plan_rejection_count}",
-                    operation=lambda: self.planner_agent.execute(updated_prompt),
+                    operation=lambda: self.planner_agent.execute(updated_prompt, cancel_token=lambda: not session.active),
                     session=session,
                     progress=10,
                     state="RE_PLANNING_RETRY",
@@ -487,7 +487,7 @@ class OrchestratorAgent:
                     try:
                         generated = self._retry_operation(
                             operation_name=f"CodeGen Agent generate {file_spec.path}",
-                            operation=lambda: self.codegen_agent.execute(file_spec, context),
+                            operation=lambda: self.codegen_agent.execute(file_spec, context, cancel_token=lambda: not session.active),
                             session=session,
                             progress=progress_pct,
                             state="GENERATING_MODEL_RETRY",
@@ -1149,6 +1149,7 @@ class OrchestratorAgent:
                                     critic_strategy=critic_strategy.fixing_strategy,
                                     instructions_for_code_agent=critic_strategy.instructions_for_code_agent,
                                     file_list=list(existing_contents.keys()),
+                                    cancel_token=lambda: not session.active,
                                 ),
                                 session=session,
                                 progress=progress_pct + 8,
@@ -1491,6 +1492,9 @@ class OrchestratorAgent:
 
         while True:
             for attempt in range(1, max_attempts + 1):
+                if session and not session.active:
+                    raise AbortBuildException("Session cancelled by user")
+                    
                 try:
                     if attempt > 1:
                         logger.warning(
@@ -1516,6 +1520,9 @@ class OrchestratorAgent:
                         time.sleep(delay_seconds * (2 ** (attempt - 2)))
 
                     result = operation()
+
+                    if session and not session.active:
+                        raise AbortBuildException("Session cancelled by user")
 
                     if attempt > 1:
                         logger.info("%s succeeded on retry %s", operation_name, attempt)

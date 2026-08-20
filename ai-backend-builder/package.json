@@ -3,7 +3,13 @@
   "displayName": "AI Backend Builder",
   "description": "Autonomous multi-agent system that plans, generates, and debugs production-ready Node.js/Express backend applications using AI",
   "version": "0.1.0",
-  "publisher": "jaydee",
+  "publisher": "R26-SE-029",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Koshigawarman/R26-SE-029.git"
+  },
+  "icon": "media/icon.png",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },

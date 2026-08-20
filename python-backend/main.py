@@ -306,10 +306,11 @@ async def build_project(req: BuildRequest, request: Request):
                 if event.get("type") == "complete":
                     break
             except Exception:
-                # queue.Empty — just keep polling
                 if await request.is_disconnected():
                     logger.info("Client disconnected from build stream.")
                     session.active = False
+                    session.approval_action = "cancel"
+                    session.approval_event.set()
                     break
                 await asyncio.sleep(0.1)
 
