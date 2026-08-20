@@ -7,6 +7,8 @@ from typing import Optional, Callable, Dict, Any, List
 
 from schema import FileSpec, CodeGenContext, GeneratedFile
 from services.codegen_output_validator import CodeGenOutputValidator
+from services.http_settings import get_ssl_verify_setting
+from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
 from prompts.codegen_prompt import (
     build_codegen_prompt,
     build_code_fix_prompt,
@@ -117,7 +119,7 @@ class CodeGenAgent:
                 status='error',
                 errorMessage=str(e)
             )
-            
+
     def fix_file_with_strategy(
         self,
         file_path: str,
@@ -170,9 +172,9 @@ class CodeGenAgent:
                     "built_prompt": prompt,
                     "raw_output": raw_response,
                 }
-               
+
                 fixed_code = self._extract_code(raw_response)
-                
+
                 self._validate_code(file_path, fixed_code)
                 validation_result = self.output_validator.validate(file_path, fixed_code)
                 self.last_request_trace["output_validation"] = validation_result
@@ -238,7 +240,7 @@ class CodeGenAgent:
         logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
         logger.info(f"--- USER PROMPT ---\n{prompt[:1000]}{'...' if len(prompt) > 1000 else ''}")
         logger.info("="*50)
-        
+
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -270,7 +272,7 @@ class CodeGenAgent:
         logger.info(f"OLLAMA RESPONSE [CodeGenAgent] | Length: {len(response_text)}")
         logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
         logger.info("="*50)
-        
+
         return response_text
 
     def _query_openai_compatible(self, prompt: str, system_prompt: str, cancel_token: Optional[Callable[[], bool]] = None) -> str:
@@ -280,14 +282,8 @@ class CodeGenAgent:
         logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
         logger.info(f"--- USER PROMPT ---\n{prompt[:1000]}{'...' if len(prompt) > 1000 else ''}")
         logger.info("="*50)
-        
-        headers = {
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
-            "X-Title": "AI Backend Builder",
-        }
-        if self.openai_compatible_api_key:
-            headers["Authorization"] = f"Bearer {self.openai_compatible_api_key}"
+
+        headers = build_provider_headers(self.openai_compatible_api_key)
 
         payload = {
             "model": self.model,
@@ -299,8 +295,15 @@ class CodeGenAgent:
             "max_tokens": 4096,
             "stream": True
         }
-        resp = requests.post(self.openai_compatible_url, headers=headers, json=payload, timeout=int(os.getenv("MODEL_TIMEOUT", "240")), stream=True)
-        resp.raise_for_status()
+        resp = requests.post(
+            self.openai_compatible_url,
+            headers=headers,
+            json=payload,
+            timeout=int(os.getenv("MODEL_TIMEOUT", "240")),
+            verify=get_ssl_verify_setting(),
+            stream=True
+        )
+        raise_for_provider_error(resp, self.openai_compatible_provider, self.openai_compatible_url)
         response_text = ""
         for line in resp.iter_lines():
             if cancel_token and cancel_token():
@@ -320,7 +323,7 @@ class CodeGenAgent:
         logger.info(f"OPENAI-COMPATIBLE RESPONSE [CodeGenAgent] | Length: {len(response_text)}")
         logger.info(f"--- CONTENT ---\n{response_text[:1000]}{'...' if len(response_text) > 1000 else ''}")
         logger.info("="*50)
-        
+
         return response_text
 
     def _extract_code(self, raw_response: str) -> str:
@@ -358,7 +361,7 @@ class CodeGenAgent:
             "raw_output": content,
             "output_validation": self.output_validator.validate(file_spec.path, content),
         }
-        
+
         logger.info(f"✓ Generated: {file_spec.path} (env file — deterministic)")
         return GeneratedFile(path=file_spec.path, content=content, status='generated')
 
@@ -402,22 +405,22 @@ class CodeGenAgent:
             "raw_output": content,
             "output_validation": self.output_validator.validate(file_spec.path, content),
         }
-        
+
         logger.info(f"✓ Generated: {file_spec.path} (package.json — deterministic)")
         return GeneratedFile(path=file_spec.path, content=content, status='generated')
 
     def _validate_code(self, path: str, code: str):
         warnings = []
         errors = []
-        
+
         if 'require(' in code and 'import ' in code:
             errors.append("Mixed require() and import statements detected. Use ES modules only (import/export).")
         elif 'require(' in code:
             errors.append("Using require() instead of ES module imports. Use ES modules only (import/export).")
-            
+
         if 'module.exports' in code:
             errors.append("Using module.exports instead of ES module exports. Use ES modules only (export default / export const).")
-            
+
         if '// TODO' in code or '/* TODO' in code:
             warnings.append("Contains TODO placeholders")
 
@@ -429,6 +432,6 @@ class CodeGenAgent:
 
         for w in warnings:
             logger.warning(f"{path}: {w}")
-            
+
         if errors:
             raise ValueError("\n".join(errors))

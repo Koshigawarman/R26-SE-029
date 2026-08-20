@@ -6,6 +6,8 @@ import requests
 from typing import Optional, Callable, Dict, Any, List
 
 from schema import PlannerOutput, FileSpec
+from services.http_settings import get_ssl_verify_setting
+from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
 from prompts.planner_prompt import PLANNER_SYSTEM_PROMPT, build_planner_prompt
 
 logger = logging.getLogger(__name__)
@@ -123,13 +125,7 @@ class PlannerAgent:
         if not self.openai_compatible_url:
             raise ValueError("OPENAI_COMPATIBLE_URL is not set")
 
-        headers = {
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
-            "X-Title": "AI Backend Builder",
-        }
-        if self.openai_compatible_api_key:
-            headers["Authorization"] = f"Bearer {self.openai_compatible_api_key}"
+        headers = build_provider_headers(self.openai_compatible_api_key)
 
         payload = {
             "model": self.model,
@@ -141,8 +137,15 @@ class PlannerAgent:
             "max_tokens": 4096,
             "stream": True
         }
-        resp = requests.post(self.openai_compatible_url, headers=headers, json=payload, timeout=int(os.getenv("MODEL_TIMEOUT", "240")), stream=True)
-        resp.raise_for_status()
+        resp = requests.post(
+            self.openai_compatible_url,
+            headers=headers,
+            json=payload,
+            timeout=int(os.getenv("MODEL_TIMEOUT", "240")),
+            verify=get_ssl_verify_setting(),
+            stream=True
+        )
+        raise_for_provider_error(resp, self.openai_compatible_provider, self.openai_compatible_url)
         content = ""
         for line in resp.iter_lines():
             if cancel_token and cancel_token():
@@ -172,33 +175,33 @@ class PlannerAgent:
                 raw_response = raw_response[start:end+1]
 
         data = json.loads(raw_response)
-        
+
         # Pydantic validation
         parsed = PlannerOutput(**data)
-        
+
         # Sanitize project name
         parsed.projectName = re.sub(r'[^a-z0-9]+', '-', parsed.projectName.lower()).strip('-')
 
         # Clean paths
         for file in parsed.files:
             file.path = re.sub(r'^\.?/', '', file.path)
-            
+
         return parsed
 
     def _ensure_mandatory_files(self, plan: PlannerOutput) -> PlannerOutput:
         existing_paths = {f.path for f in plan.files}
-        
+
         for mandatory_path in MANDATORY_FILES:
             if mandatory_path not in existing_paths:
                 description = self._get_default_description(mandatory_path, plan.projectName)
                 plan.files.append(FileSpec(path=mandatory_path, description=description))
-                
+
         if '.env' not in existing_paths:
             plan.files.append(FileSpec(
-                path='.env', 
+                path='.env',
                 description=f"Environment variables: PORT, MONGODB_URI for {plan.projectName}, NODE_ENV, JWT_SECRET"
             ))
-            
+
         if 'middleware/errorHandler.js' not in existing_paths:
             plan.files.append(FileSpec(
                 path='middleware/errorHandler.js',

@@ -18,6 +18,8 @@ class CodeGenOutputValidator:
             self._validate_route(path, code, issues)
         elif path == "app.js":
             self._validate_app(path, code, issues)
+        elif path == "middleware/auth.js":
+            self._validate_auth_middleware(path, code, issues)
         elif path == "middleware/errorHandler.js":
             self._validate_error_handler(path, code, issues)
         elif path == "config/db.js":
@@ -121,8 +123,39 @@ class CodeGenOutputValidator:
         if re.search(r"^import\s+", code, re.MULTILINE):
             self._add(issues, "warning", "error_handler_has_imports", "errorHandler should normally have zero imports.")
 
-        if "export const errorHandler" not in code and "export function errorHandler" not in code:
-            self._add(issues, "warning", "error_handler_missing_named_export", "errorHandler may be missing named export.")
+        if "export default errorHandler" not in code:
+            self._add(issues, "warning", "error_handler_missing_default_export", "errorHandler may be missing default export.")
+
+    def _validate_auth_middleware(self, path: str, code: str, issues: List[Dict[str, Any]]) -> None:
+        if "jsonwebtoken" not in code and "jwt.verify" not in code:
+            self._add(issues, "warning", "auth_missing_jwt_verification", "Auth middleware may be missing JWT verification.")
+
+        if "jwt.sign" in code:
+            self._add(issues, "error", "auth_creates_token", "Auth middleware creates JWT tokens; token creation belongs in auth controller.")
+
+        if "bcrypt" in code or "bcryptjs" in code:
+            self._add(issues, "error", "auth_hashes_password", "Auth middleware hashes passwords; password logic belongs in auth controller/service.")
+
+        if "express.Router" in code or re.search(r"\brouter\.(get|post|put|patch|delete)\s*\(", code):
+            self._add(issues, "error", "auth_contains_routes", "Auth middleware contains route definitions.")
+
+        if "mongoose.Schema" in code or "mongoose.model(" in code or "new Schema" in code:
+            self._add(issues, "error", "auth_contains_schema", "Auth middleware contains model schema/model definition.")
+
+        if "Authorization" not in code and "authorization" not in code:
+            self._add(issues, "warning", "auth_missing_authorization_header", "Auth middleware may not read the Authorization header.")
+
+        if "Bearer" not in code:
+            self._add(issues, "warning", "auth_missing_bearer_scheme", "Auth middleware may not enforce Bearer token format.")
+
+        if "process.env.JWT_SECRET" not in code:
+            self._add(issues, "warning", "auth_missing_jwt_secret", "Auth middleware may not use process.env.JWT_SECRET.")
+
+        if "req.user" not in code:
+            self._add(issues, "warning", "auth_missing_req_user", "Auth middleware may not attach decoded user info to req.user.")
+
+        if "next()" not in code:
+            self._add(issues, "warning", "auth_missing_next_call", "Auth middleware may not call next() on successful authentication.")
 
     def _validate_db_config(self, path: str, code: str, issues: List[Dict[str, Any]]) -> None:
         if "mongoose" not in code:
