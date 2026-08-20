@@ -136,7 +136,7 @@ class OrchestratorAgent:
 
         self.debug_agent = DebugAgent(
             ollama_url=ollama_url,
-            model=models.get("debug") or "qwen2.5-coder:1.5b",
+            model=models.get("debug") or os.getenv("DEBUG_MODEL", "qwen2.5-coder:1.5b"),
             debug_timeout=int(os.getenv("DEBUG_TIMEOUT", "10000")),
             use_openai_compatible=use_openai_compatible,
             openai_compatible_url=openai_compatible_url,
@@ -748,14 +748,71 @@ class OrchestratorAgent:
                             existing_contents["package.json"] = file.read()
 
             if validation_result["issues"]:
-                issue_preview = validation_result["issues"][:3]
-
-                for issue in issue_preview:
-                    status(
-                        f"⚠️ Consistency issue: {issue['message']}",
-                        69,
-                        "CONSISTENCY_WARNING",
+                status("🔧 STATE → CONSISTENCY_FIX: Auto-fixing consistency issues...", 69, "CONSISTENCY_FIX")
+                from schema import CriticStrategy
+                
+                for issue in validation_result["issues"]:
+                    affected_file = issue.get("source_file")
+                    if not affected_file or affected_file not in existing_contents:
+                        continue
+                    
+                    fixing_strategy = ""
+                    instructions = ""
+                    if issue["type"] == "missing_local_file":
+                        import_path = issue["import_path"]
+                        fixing_strategy = f"Remove or update the missing local import '{import_path}'."
+                        instructions = f"Search for the import '{import_path}' and either remove it or point it to a valid file from the project files list."
+                    elif issue["type"] == "missing_named_export":
+                        missing_export = issue["missing_export"]
+                        target_file = issue["target_file"]
+                        fixing_strategy = f"Remove the invalid import of '{missing_export}' which is not exported by {target_file}."
+                        instructions = f"Remove the named import '{missing_export}' from the import statement for {target_file}."
+                    elif issue["type"] == "invalid_named_import":
+                        import_name = issue["import_name"]
+                        pkg = issue["package"]
+                        fixing_strategy = f"Remove the invalid named import '{import_name}' from {pkg}."
+                        instructions = f"Remove '{import_name}' from the {pkg} import."
+                    else:
+                        continue
+                        
+                    critic_strategy = CriticStrategy(
+                        root_cause=issue["message"],
+                        affected_files=[affected_file],
+                        fixing_strategy=fixing_strategy,
+                        instructions_for_code_agent=instructions,
+                        confidence=1.0,
                     )
+                    
+                    status(f"🔧 Fixing consistency issue in {affected_file}...", 69, "CONSISTENCY_FIX")
+                    
+                    try:
+                        error_log = f"Consistency Error: {issue['message']}"
+                        original_content = existing_contents[affected_file]
+                        
+                        fixed_result = self._retry_operation(
+                            operation_name=f"CodeGen Agent fix consistency {affected_file}",
+                            operation=lambda: self.codegen_agent.fix_file_with_strategy(
+                                file_path=affected_file,
+                                original_content=original_content,
+                                error_log=error_log,
+                                critic_strategy=critic_strategy.fixing_strategy,
+                                instructions_for_code_agent=critic_strategy.instructions_for_code_agent,
+                                file_list=list(existing_contents.keys()),
+                            ),
+                            session=session,
+                            progress=69,
+                            state="CONSISTENCY_FIX_RETRY",
+                            allow_user_fallback=False,
+                        )
+                        
+                        if fixed_result and fixed_result.status == "fixed" and fixed_result.content:
+                            self._write_project_file(project_path, fixed_result.path, fixed_result.content)
+                            existing_contents[fixed_result.path] = fixed_result.content
+                            context.existingFileContents = existing_contents
+                            status(f"✅ Fixed consistency issue in {fixed_result.path}", 69, "CONSISTENCY_FIXED")
+                    except Exception as exc:
+                        logger.warning(f"Failed to auto-fix consistency issue in {affected_file}: {exc}")
+                        status(f"⚠️ Consistency issue: {issue['message']}", 69, "CONSISTENCY_WARNING")
 
             # Approval Gate — Before Debug
             action = session.wait_for_approval(

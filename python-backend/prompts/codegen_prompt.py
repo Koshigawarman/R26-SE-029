@@ -910,6 +910,7 @@ def get_related_files(
     is_app = target_path == "app.js"
     is_middleware = target_path.startswith("middleware/")
     is_config = target_path.startswith("config/")
+    is_model = target_path.startswith("models/")
 
     if target_path != "package.json":
         add_if_available("package.json")

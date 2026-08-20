@@ -81,9 +81,9 @@ class DebugAgent:
 
     def __init__(
         self,
-        ollama_url: str = "http://localhost:11434",
-        model: str = "qwen2.5-coder:1.5b",
-        debug_timeout: int = 10000,
+        ollama_url: str = os.getenv("OLLAMA_URL", "http://localhost:11434"),
+        model: str = os.getenv("DEBUG_MODEL", "qwen2.5-coder:1.5b"),
+        debug_timeout: int = int(os.getenv("DEBUG_TIMEOUT", "10000")),
         use_openai_compatible: bool = False,
         openai_compatible_url: str = "",
         openai_compatible_api_key: str = "",
@@ -544,7 +544,7 @@ class DebugAgent:
             self.openai_compatible_url,
             headers=headers,
             json=payload,
-            timeout=120,
+            timeout=int(os.getenv("MODEL_TIMEOUT", "240")),
         )
         response.raise_for_status()
 

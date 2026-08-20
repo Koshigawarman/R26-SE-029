@@ -339,9 +339,9 @@ class CriticAgent:
             return strategy
 
         appendix = (
-            "\n\n[SYSTEM GROUND TRUTH] Actual files in the project:\n"
-            + "\n".join(f"  - {f}" for f in sorted(file_list))
-            + "\nOnly import from paths in this list."
+            "\n\n**[SYSTEM GROUND TRUTH]** Actual files in the project:\n"
+            + "".join(f"- `{f}`\n" for f in sorted(file_list))
+            + "\n*Only import from paths in this list.*"
         )
         strategy.instructions_for_code_agent = (
             (strategy.instructions_for_code_agent or "") + appendix

@@ -103,7 +103,7 @@ class PlannerAgent:
         resp = requests.post(
             f"{self.ollama_url}/api/generate",
             json=payload,
-            timeout=240
+            timeout=int(os.getenv("MODEL_TIMEOUT", "240"))
         )
         resp.raise_for_status()
         data = resp.json()
@@ -132,7 +132,7 @@ class PlannerAgent:
             "temperature": 0.3,
             "max_tokens": 4096,
         }
-        resp = requests.post(self.openai_compatible_url, headers=headers, json=payload, timeout=120)
+        resp = requests.post(self.openai_compatible_url, headers=headers, json=payload, timeout=int(os.getenv("MODEL_TIMEOUT", "240")))
         resp.raise_for_status()
         data = resp.json()
         return data['choices'][0]['message']['content']

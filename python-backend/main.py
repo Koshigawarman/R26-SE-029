@@ -16,7 +16,7 @@ Endpoints:
 Quick Start:
   1. Ensure Ollama is running:  ollama serve
   2. Install Python deps:       pip install -r requirements.txt
-  3. Start server:              uvicorn main:app --host 0.0.0.0 --port 5000 --reload
+  3. Start server:              python main.py
 """
 
 import os
@@ -359,3 +359,9 @@ async def list_sessions():
             for sid, s in _active_sessions.items()
         ]
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    host = os.getenv("API_HOST", "0.0.0.0")
+    port = int(os.getenv("API_PORT", "5000"))
+    uvicorn.run("main:app", host=host, port=port, reload=True)
