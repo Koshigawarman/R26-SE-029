@@ -263,25 +263,33 @@ async def build_project(req: BuildRequest, request: Request):
     thread.start()
 
     async def event_generator():
-        import asyncio, json as _json
+        import asyncio, json as _json, time as _time
 
         # First event: send the session ID so the client can POST approvals
         yield {"data": _json.dumps({"type": "session", "data": {"sessionId": session.id}})}
 
+        last_ping_time = _time.time()
+
         while session.active:
             try:
-                event = session.event_queue.get(timeout=0.3)
+                event = session.event_queue.get_nowait()
                 yield {"data": _json.dumps(event)}
+                last_ping_time = _time.time()
 
                 if event.get("type") == "complete":
                     break
             except Exception:
-                # queue.Empty — just keep polling
+                # queue.Empty — check if we should send a ping
+                now = _time.time()
+                if now - last_ping_time > 10:
+                    yield {"data": _json.dumps({"type": "ping"})}
+                    last_ping_time = now
+
                 if await request.is_disconnected():
                     logger.info("Client disconnected from build stream.")
                     session.active = False
                     break
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.5)
 
         # Cleanup
         _active_sessions.pop(session.id, None)

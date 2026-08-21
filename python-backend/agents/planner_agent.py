@@ -18,7 +18,13 @@ MANDATORY_FILES = [
 class PlannerAgent:
     MAX_JSON_RETRIES = 2
 
-    def __init__(self, ollama_url: str, model: str, use_openrouter: bool = False, openrouter_api_key: str = ""):
+    def __init__(
+        self, 
+        ollama_url: str = "http://localhost:11434", 
+        model: str = "qwen-planner",  # Default to your fine-tuned model
+        use_openrouter: bool = False, 
+        openrouter_api_key: str = ""
+    ):
         self.ollama_url = ollama_url
         self.model = model
         self.use_openrouter = use_openrouter
@@ -26,7 +32,7 @@ class PlannerAgent:
         self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
 
     def execute(self, user_prompt: str) -> PlannerOutput:
-        logger.info("Starting project planning...")
+        logger.info(f"Starting project planning with model: {self.model}...")
         plan = None
         last_error = None
 
@@ -64,9 +70,10 @@ class PlannerAgent:
             "model": self.model,
             "prompt": prompt,
             "system": system_prompt,
+            "format": "json",  # Force strict JSON output from Ollama
             "stream": False,
             "options": {
-                "temperature": 0.3,
+                "temperature": 0.2,  # Low temperature for deterministic, structured schema
                 "num_predict": 4096,
             }
         }
@@ -94,7 +101,7 @@ class PlannerAgent:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
-            "temperature": 0.3,
+            "temperature": 0.2,
             "max_tokens": 4096,
         }
         resp = requests.post(self.openrouter_url, headers=headers, json=payload, timeout=120)
@@ -103,12 +110,12 @@ class PlannerAgent:
         return data['choices'][0]['message']['content']
 
     def _parse_and_validate(self, raw_response: str) -> PlannerOutput:
-        # Extract JSON if the model wrapped it in markdown
+        # Extract JSON if wrapped in markdown blocks
         json_match = re.search(r'```json\s*(.*?)\s*```', raw_response, re.DOTALL)
         if json_match:
             raw_response = json_match.group(1)
         else:
-            # Fallback to finding the first { and last }
+            # Fallback to slice between the first { and last }
             start = raw_response.find('{')
             end = raw_response.rfind('}')
             if start != -1 and end != -1:
@@ -116,13 +123,13 @@ class PlannerAgent:
 
         data = json.loads(raw_response)
         
-        # Pydantic validation
+        # Pydantic validation against PlannerOutput schema
         parsed = PlannerOutput(**data)
         
         # Sanitize project name
         parsed.projectName = re.sub(r'[^a-z0-9]+', '-', parsed.projectName.lower()).strip('-')
 
-        # Clean paths
+        # Clean paths (remove leading ./ or /)
         for file in parsed.files:
             file.path = re.sub(r'^\.?/', '', file.path)
             
@@ -167,3 +174,21 @@ Please try again. Analyze this requirement and output ONLY valid JSON matching t
 {user_prompt}
 
 Remember: Output ONLY the JSON object. No markdown fences, no explanations, no extra text."""
+
+
+# =====================================================================
+# Direct Execution / Standalone Test Example
+# =====================================================================
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    
+    agent = PlannerAgent(
+        ollama_url="http://localhost:11434",
+        model="qwen-planner",
+        use_openrouter=False,
+    )
+    
+    sample_request = "Build an E-Commerce backend with User, Product, Category, and Order management."
+    result = agent.execute(sample_request)
+    print("\n--- Plan Generated Successfully ---")
+    print(json.dumps(result.model_dump() if hasattr(result, "model_dump") else result.dict(), indent=2))

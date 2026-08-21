@@ -1,1781 +1,3651 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline' https://cdn.jsdelivr.net; font-src {{cspSource}} https://cdn.jsdelivr.net; script-src 'nonce-{{nonce}}'; connect-src *;"
-    />
-    <title>AI Backend Builder</title>
-    <link
-      href="https://cdn.jsdelivr.net/npm/@vscode/codicons/dist/codicon.css"
-      rel="stylesheet"
-    />
-    <style>
-      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
-
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-
-      :root {
-        --bg: var(--vscode-sideBar-background, #121212);
-        --bg2: var(--vscode-editor-background, #18181b);
-        --bg3: rgba(255, 255, 255, 0.03);
-        --bg4: rgba(255, 255, 255, 0.06);
-        --border: var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
-        --border2: rgba(255, 255, 255, 0.05);
-
-        --accent: var(--vscode-button-background, #3b82f6);
-        --accent-fg: var(--vscode-button-foreground, #ffffff);
-        --accent-h: var(--vscode-button-hoverBackground, #2563eb);
-
-        --sec: rgba(255, 255, 255, 0.05);
-        --sec-fg: #d4d4d8;
-        --sec-h: rgba(255, 255, 255, 0.1);
-
-        --fg: var(--vscode-foreground, #f4f4f5);
-        --fg2: var(--vscode-descriptionForeground, #a1a1aa);
-        --fg3: var(--vscode-disabledForeground, #71717a);
-
-        --focus: var(--vscode-focusBorder, #3b82f6);
-
-        --ok: var(--vscode-testing-iconPassed, #10b981);
-        --warn: var(--vscode-editorWarning-foreground, #f59e0b);
-        --err: var(--vscode-editorError-foreground, #ef4444);
-        --cyan: #06b6d4;
-
-        --font:
-          "Inter",
-          var(--vscode-font-family, system-ui, -apple-system, sans-serif);
-        --mono: "JetBrains Mono", var(--vscode-editor-font-family, monospace);
-        --font-sz: 13px;
-      }
-
-      body {
-        font-family: var(--font);
-        font-size: var(--font-sz);
-        background: var(--bg);
-        color: var(--fg);
-        line-height: 1.5;
-        padding: 0;
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-      }
-
-      ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-      }
-      ::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: var(--bg4);
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: var(--fg3);
-      }
-
-      .c {
-        display: flex;
-        flex-direction: column;
-        gap: 0;
-        min-height: 100vh;
-      }
-
-      .hdr {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 12px 16px;
-        background: rgba(0, 0, 0, 0.2);
-        border-bottom: 1px solid var(--border);
-        user-select: none;
-        backdrop-filter: blur(10px);
-        position: sticky;
-        top: 0;
-        z-index: 10;
-      }
-
-      .logo {
-        width: 20px;
-        height: 20px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 14px;
-        background: linear-gradient(135deg, var(--accent), var(--cyan));
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        flex-shrink: 0;
-      }
-
-      .hdr h1 {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--fg);
-        letter-spacing: 0.5px;
-        flex: 1;
-      }
-
-      .hdr .vtag {
-        font-size: 10px;
-        font-weight: 500;
-        color: var(--accent);
-        background: rgba(59, 130, 246, 0.1);
-        padding: 2px 6px;
-        border-radius: 12px;
-        letter-spacing: 0;
-      }
-
-      .sec {
-        border-bottom: 1px solid var(--border2);
-      }
-
-      .sec-hdr {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 8px 16px;
-        cursor: pointer;
-        user-select: none;
-        background: rgba(0, 0, 0, 0.1);
-        transition: background 0.2s;
-      }
-
-      .sec-hdr:hover {
-        background: var(--bg4);
-      }
-
-      .sec-hdr .lbl {
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--fg);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        flex: 1;
-      }
-
-      .sec-body {
-        display: flex;
-        flex-direction: column;
-        transition: all 0.3s ease;
-      }
-      .sec-body.collapsed {
-        display: none !important;
-      }
-
-      .chevron {
-        font-size: 14px;
-        transition: transform 0.2s ease;
-        color: var(--fg2);
-      }
-      .chevron.collapsed {
-        transform: rotate(-90deg);
-      }
-
-      .sb {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 16px;
-        background: var(--bg2);
-        border-bottom: 1px solid var(--border);
-      }
-
-      .sd {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        flex-shrink: 0;
-        box-shadow: 0 0 8px currentColor;
-      }
-      .sd.on {
-        color: var(--ok);
-        background: var(--ok);
-      }
-      .sd.off {
-        color: var(--err);
-        background: var(--err);
-      }
-      .sd.chk {
-        color: var(--warn);
-        background: var(--warn);
-        animation: p 1s ease-in-out infinite;
-      }
-
-      @keyframes p {
-        0%,
-        100% {
-          opacity: 1;
-          transform: scale(1);
-        }
-        50% {
-          opacity: 0.4;
-          transform: scale(0.8);
-        }
-      }
-
-      .st {
-        font-size: 12px;
-        color: var(--fg2);
-        flex: 1;
-      }
-      .st b {
-        color: var(--fg);
-        font-weight: 600;
-      }
-
-      #inp {
-        padding: 16px;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        border-bottom: 1px solid var(--border);
-        background: linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
-      }
-
-      .lbl {
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--fg);
-        margin-bottom: 4px;
-      }
-
-      .ta {
-        width: 100%;
-        min-height: 80px;
-        padding: 10px 12px;
-        background: var(--bg);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        color: var(--fg);
-        font-size: 13px;
-        font-family: var(--font);
-        resize: vertical;
-        outline: none;
-        transition:
-          border-color 0.2s,
-          box-shadow 0.2s;
-      }
-      .ta::placeholder {
-        color: var(--fg3);
-      }
-      .ta:focus {
-        border-color: var(--focus);
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-      }
-
-      .btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        padding: 6px 12px;
-        border: none;
-        font-size: 13px;
-        font-family: var(--font);
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        border-radius: 6px;
-        height: 32px;
-      }
-      .btn:active {
-        transform: scale(0.98);
-      }
-      .btn:focus {
-        outline: 2px solid var(--focus);
-        outline-offset: 2px;
-      }
-
-      .bp {
-        background: linear-gradient(135deg, var(--accent), #2563eb);
-        color: var(--accent-fg);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
-      }
-      .bp:hover:not(:disabled) {
-        background: linear-gradient(135deg, #4f8bf9, #3b82f6);
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-        transform: translateY(-1px);
-      }
-      .bp:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-        transform: none;
-        box-shadow: none;
-      }
-
-      .bg {
-        background: var(--sec);
-        color: var(--sec-fg);
-        border: 1px solid var(--border);
-      }
-      .bg:hover {
-        background: var(--sec-h);
-        color: var(--fg);
-      }
-
-      .bd {
-        background: rgba(239, 68, 68, 0.1);
-        color: var(--err);
-        border: 1px solid rgba(239, 68, 68, 0.2);
-      }
-      .bd:hover {
-        background: rgba(239, 68, 68, 0.15);
-        box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);
-      }
-
-      .bs {
-        background: rgba(16, 185, 129, 0.1);
-        color: var(--ok);
-        border: 1px solid rgba(16, 185, 129, 0.2);
-      }
-      .bs:hover {
-        background: rgba(16, 185, 129, 0.15);
-        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
-      }
-
-      .br {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-      .br .btn {
-        flex: 1;
-        min-width: 0;
-      }
-
-      .btn-icon {
-        width: 28px;
-        height: 28px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border: none;
-        background: transparent;
-        color: var(--fg2);
-        cursor: pointer;
-        border-radius: 6px;
-        transition: all 0.2s;
-      }
-      .btn-icon:hover {
-        color: var(--fg);
-        background: var(--bg4);
-      }
-
-      #cr {
-        padding: 8px 16px;
-        border-bottom: 1px solid var(--border);
-        background: var(--bg2);
-      }
-      #cr .btn {
-        width: 100%;
-      }
-
-      .pipe {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding: 12px 16px;
-      }
-
-      .ac {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 10px 14px;
-        border-radius: 8px;
-        border: 1px solid var(--border);
-        background: var(--bg);
-        transition: all 0.3s ease;
-        cursor: default;
-      }
-      .ac:hover {
-        background: var(--bg3);
-        border-color: rgba(255, 255, 255, 0.15);
-      }
-
-      .ac.act {
-        background: rgba(59, 130, 246, 0.05);
-        border-color: var(--focus);
-        box-shadow:
-          0 0 0 1px var(--focus),
-          0 4px 12px rgba(59, 130, 246, 0.1);
-        transform: translateX(2px);
-      }
-      .ac.ok {
-        border-color: rgba(16, 185, 129, 0.3);
-        background: rgba(16, 185, 129, 0.02);
-      }
-      .ac.fail {
-        border-color: rgba(239, 68, 68, 0.4);
-        background: rgba(239, 68, 68, 0.05);
-      }
-
-      .ai {
-        width: 28px;
-        height: 28px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 16px;
-        border-radius: 6px;
-        background: var(--bg4);
-        flex-shrink: 0;
-      }
-      .ai.pl {
-        color: #60a5fa;
-        background: rgba(96, 165, 250, 0.1);
-      }
-      .ai.cg {
-        color: var(--cyan);
-        background: rgba(6, 182, 212, 0.1);
-      }
-      .ai.db {
-        color: var(--warn);
-        background: rgba(245, 158, 11, 0.1);
-      }
-
-      .ac.act .ai {
-        animation: pulse-icon 2s infinite;
-      }
-      @keyframes pulse-icon {
-        0% {
-          box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
-        }
-        70% {
-          box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
-        }
-        100% {
-          box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
-        }
-      }
-
-      .an {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--fg);
-        margin-bottom: 2px;
-      }
-      .as {
-        font-size: 11px;
-        color: var(--fg2);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .ak {
-        font-size: 12px;
-        color: var(--fg2);
-        flex-shrink: 0;
-        font-family: var(--mono);
-        width: 45px;
-        text-align: right;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        justify-content: flex-end;
-      }
-      .sp {
-        color: var(--focus);
-        animation: spin 1.5s linear infinite;
-      }
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      .ps {
-        display: none;
-        flex-direction: column;
-        gap: 8px;
-        padding: 12px 16px;
-        border-top: 1px solid var(--border);
-        background: var(--bg2);
-      }
-      .ps.v {
-        display: flex;
-      }
-
-      .pm {
-        font-size: 12px;
-        color: var(--fg);
-        min-height: 18px;
-        font-family: var(--mono);
-      }
-      .pt {
-        height: 4px;
-        background: var(--bg3);
-        border-radius: 2px;
-        overflow: hidden;
-      }
-      .pf {
-        height: 100%;
-        width: 0%;
-        background: linear-gradient(90deg, var(--accent), var(--cyan));
-        border-radius: 2px;
-        transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-      }
-      .pp {
-        display: flex;
-        justify-content: space-between;
-        font-size: 11px;
-        color: var(--fg3);
-        font-family: var(--mono);
-        font-weight: 500;
-      }
-
-      .approval {
-        display: none;
-        flex-direction: column;
-        gap: 12px;
-        padding: 16px;
-        background: var(--bg);
-        border: 1px solid var(--focus);
-        border-radius: 8px;
-        margin: 12px 16px;
-        box-shadow:
-          0 4px 20px rgba(0, 0, 0, 0.2),
-          0 0 0 1px rgba(59, 130, 246, 0.2);
-        animation: su 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-      }
-      .approval.v {
-        display: flex;
-      }
-
-      .approval h3 {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--fg);
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .approval h3 i {
-        font-size: 16px;
-        color: var(--focus);
-      }
-      .approval .desc {
-        font-size: 12px;
-        color: var(--fg2);
-        line-height: 1.5;
-      }
-
-      .detail-list {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        max-height: 250px;
-        overflow-y: auto;
-        background: var(--bg2);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        font-size: 12px;
-        font-family: var(--mono);
-        padding: 4px;
-      }
-      .detail-list .item {
-        padding: 6px 10px;
-        border-radius: 4px;
-        color: var(--fg);
-        display: flex;
-        align-items: flex-start;
-        gap: 8px;
-        line-height: 1.4;
-      }
-      .detail-list .item:hover {
-        background: var(--bg4);
-      }
-
-      @keyframes su {
-        from {
-          opacity: 0;
-          transform: translateY(-8px) scale(0.98);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0) scale(1);
-        }
-      }
-
-      .lf {
-        display: none;
-        flex-direction: column;
-        gap: 2px;
-        max-height: 250px;
-        overflow-y: auto;
-        background: var(--bg);
-        padding: 8px;
-        font-family: var(--mono);
-      }
-      .lf:not(.h) {
-        display: flex;
-      }
-
-      .le {
-        font-size: 11px;
-        color: var(--fg2);
-        padding: 4px 8px;
-        border-radius: 4px;
-        line-height: 1.5;
-        animation: fi 0.2s ease;
-        display: flex;
-        align-items: flex-start;
-        position: relative;
-      }
-      .le:hover {
-        background: var(--bg4);
-        color: var(--fg);
-      }
-      .le .tm {
-        color: var(--fg3);
-        margin-right: 8px;
-        font-size: 10px;
-        flex-shrink: 0;
-        padding-top: 1px;
-      }
-      .le .msg {
-        flex: 1;
-        word-break: break-all;
-      }
-      .le .msg a {
-        color: var(--focus);
-        text-decoration: none;
-        cursor: pointer;
-        transition: color 0.2s;
-      }
-      .le .msg a:hover {
-        color: #60a5fa;
-        text-decoration: underline;
-      }
-
-      .le .btn-copy {
-        display: none;
-        position: absolute;
-        right: 4px;
-        top: 2px;
-        height: 22px;
-        width: 22px;
-        font-size: 12px;
-        background: var(--bg);
-        border: 1px solid var(--border);
-      }
-      .le:hover .btn-copy {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .le.ok {
-        color: var(--ok);
-        background: rgba(16, 185, 129, 0.05);
-      }
-      .le.er {
-        color: var(--err);
-        background: rgba(239, 68, 68, 0.05);
-      }
-      .le.fx {
-        color: var(--cyan);
-        background: rgba(6, 182, 212, 0.05);
-      }
-
-      @keyframes fi {
-        from {
-          opacity: 0;
-          transform: translateX(-4px);
-        }
-        to {
-          opacity: 1;
-          transform: translateX(0);
-        }
-      }
-
-      .rc {
-        display: none;
-        flex-direction: column;
-        gap: 12px;
-        padding: 16px;
-        background: var(--bg2);
-        border-bottom: 1px solid var(--border);
-        animation: su 0.3s ease;
-      }
-      .rc.v {
-        display: flex;
-      }
-      .ri {
-        font-size: 18px;
-      }
-      .rt {
-        font-size: 14px;
-        font-weight: 600;
-      }
-
-      .rs {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 8px;
-      }
-      .stat {
-        padding: 10px 6px;
-        background: var(--bg);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        text-align: center;
-        transition: transform 0.2s;
-      }
-      .stat:hover {
-        transform: translateY(-2px);
-        border-color: rgba(255, 255, 255, 0.15);
-      }
-      .sv {
-        font-size: 16px;
-        font-weight: 700;
-        color: var(--fg);
-        font-family: var(--mono);
-      }
-      .sl {
-        font-size: 10px;
-        color: var(--fg3);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-top: 4px;
-        font-weight: 500;
-      }
-
-      .ft {
-        margin-top: auto;
-        padding: 12px 16px;
-        border-top: 1px solid var(--border);
-        display: flex;
-        gap: 8px;
-        background: var(--bg2);
-        position: sticky;
-        bottom: 0;
-        z-index: 10;
-      }
-      .ft .btn {
-        flex: 1;
-        font-size: 12px;
-        padding: 6px;
-        height: 32px;
-        font-weight: 500;
-      }
-
-      #dbg {
-        padding: 8px 16px;
-        font-size: 11px;
-        font-family: var(--mono);
-        color: var(--ok);
-        background: #000;
-        max-height: 120px;
-        overflow-y: auto;
-        border-top: 1px solid var(--border);
-      }
-      .h {
-        display: none !important;
-      }
-
-      .diff-add {
-        color: var(--ok) !important;
-        background: rgba(16, 185, 129, 0.1);
-        border-left: 2px solid var(--ok);
-      }
-      .diff-rem {
-        color: var(--err) !important;
-        background: rgba(239, 68, 68, 0.1);
-        text-decoration: line-through;
-        border-left: 2px solid var(--err);
-      }
-
-      .hist-card {
-        margin: 8px 16px;
-        padding: 0;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: var(--bg2);
-        overflow: hidden;
-        animation: su 0.3s ease;
-      }
-      .hist-hdr {
-        padding: 8px 12px;
-        background: var(--bg4);
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        cursor: pointer;
-        user-select: none;
-      }
-      .hist-hdr:hover {
-        background: rgba(255, 255, 255, 0.08);
-      }
-      .hist-hdr h4 {
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--fg);
-        flex: 1;
-        margin: 0;
-      }
-      .hist-hdr .badge {
-        font-size: 9px;
-        padding: 1px 5px;
-        border-radius: 10px;
-        background: var(--ok);
-        color: #fff;
-      }
-      .hist-body {
-        padding: 12px;
-        display: none;
-        border-top: 1px solid var(--border2);
-      }
-      .hist-body.v {
-        display: block;
-      }
 
-      .json-modal {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.7);
-        z-index: 9999;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
-      }
-      .json-modal.v {
-        display: flex;
-      }
-      .json-modal-content {
-        background: var(--bg2);
-        border: 1px solid var(--focus);
-        border-radius: 12px;
-        max-width: 800px;
-        width: 100%;
-        max-height: 80vh;
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-        animation: su 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-      }
-      .json-modal-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 16px;
-        border-bottom: 1px solid var(--border);
-        background: var(--bg);
-        border-radius: 12px 12px 0 0;
-      }
-      .json-modal-header h2 {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--fg);
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .json-modal-header .close-btn {
-        background: none;
-        border: none;
-        color: var(--fg2);
-        cursor: pointer;
-        font-size: 20px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 28px;
-        height: 28px;
-        border-radius: 4px;
-        transition: all 0.2s;
-      }
-      .json-modal-header .close-btn:hover {
-        background: var(--bg4);
-        color: var(--fg);
-      }
-      .json-modal-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 16px;
-        font-family: var(--mono);
-        font-size: 12px;
-        color: var(--fg);
-        line-height: 1.6;
-      }
-      .json-modal-body code {
-        display: block;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-      .json-key {
-        color: #60a5fa;
-      }
-      .json-string {
-        color: #10b981;
-      }
-      .json-number {
-        color: #f59e0b;
-      }
-      .json-boolean {
-        color: #06b6d4;
-      }
-      .json-null {
-        color: #a1a1aa;
-      }
-    </style>
-  </head>
-
-  <body>
-    <div class="c">
-      <div class="hdr">
-        <div class="logo"><i class="codicon codicon-zap"></i></div>
-        <h1>AI Backend Builder <span class="vtag">v3</span></h1>
-      </div>
-
-      <div class="sb">
-        <div class="sd chk" id="sd"></div>
-        <div class="st" id="st">Checking...</div>
-        <button
-          class="btn bg"
-          id="btn-chk"
-          style="height: 20px; padding: 0 6px"
-        >
-          <i class="codicon codicon-refresh"></i>
-        </button>
-      </div>
-
-      <div id="inp">
-        <div
-          style="
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline' https://cdn.jsdelivr.net; font-src {{cspSource}} https://cdn.jsdelivr.net; script-src 'nonce-{{nonce}}'; connect-src *;" />
+  <title>AI Backend Builder</title>
+  <link href="https://cdn.jsdelivr.net/npm/@vscode/codicons/dist/codicon.css" rel="stylesheet" />
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: var(--vscode-sideBar-background, #121212);
+      --bg2: var(--vscode-editor-background, #18181b);
+      --bg3: rgba(255, 255, 255, 0.03);
+      --bg4: rgba(255, 255, 255, 0.06);
+      --border: var(--vscode-widget-border, rgba(255, 255, 255, 0.08));
+      --border2: rgba(255, 255, 255, 0.05);
+
+      --accent: var(--vscode-button-background, #3b82f6);
+      --accent-fg: var(--vscode-button-foreground, #ffffff);
+      --accent-h: var(--vscode-button-hoverBackground, #2563eb);
+
+      --sec: rgba(255, 255, 255, 0.05);
+      --sec-fg: #d4d4d8;
+      --sec-h: rgba(255, 255, 255, 0.1);
+
+      --fg: var(--vscode-foreground, #f4f4f5);
+      --fg2: var(--vscode-descriptionForeground, #a1a1aa);
+      --fg3: var(--vscode-disabledForeground, #71717a);
+
+      --focus: var(--vscode-focusBorder, #3b82f6);
+
+      --ok: var(--vscode-testing-iconPassed, #10b981);
+      --warn: var(--vscode-editorWarning-foreground, #f59e0b);
+      --err: var(--vscode-editorError-foreground, #ef4444);
+      --cyan: #06b6d4;
+
+      --font:
+        "Inter",
+        var(--vscode-font-family, system-ui, -apple-system, sans-serif);
+      --mono: "JetBrains Mono", var(--vscode-editor-font-family, monospace);
+      --font-sz: 13px;
+    }
+
+    body {
+      font-family: var(--font);
+      font-size: var(--font-sz);
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.5;
+      padding: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--bg4);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--fg3);
+    }
+
+    .c {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      min-height: 100vh;
+    }
+
+    .hdr {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: rgba(0, 0, 0, 0.2);
+      border-bottom: 1px solid var(--border);
+      user-select: none;
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .logo {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      background: linear-gradient(135deg, var(--accent), var(--cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      flex-shrink: 0;
+    }
+
+    .hdr h1 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg);
+      letter-spacing: 0.5px;
+      flex: 1;
+    }
+
+    .hdr .vtag {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--accent);
+      background: rgba(59, 130, 246, 0.1);
+      padding: 2px 6px;
+      border-radius: 12px;
+      letter-spacing: 0;
+    }
+
+    .sec {
+      border-bottom: 1px solid var(--border2);
+    }
+
+    .sec-hdr {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      cursor: pointer;
+      user-select: none;
+      background: rgba(0, 0, 0, 0.1);
+      transition: background 0.2s;
+    }
+
+    .sec-hdr:hover {
+      background: var(--bg4);
+    }
+
+    .sec-hdr .lbl {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--fg);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      flex: 1;
+    }
+
+    .sec-body {
+      display: flex;
+      flex-direction: column;
+      transition: all 0.3s ease;
+    }
+
+    .sec-body.collapsed {
+      display: none !important;
+    }
+
+    .chevron {
+      font-size: 14px;
+      transition: transform 0.2s ease;
+      color: var(--fg2);
+    }
+
+    .chevron.collapsed {
+      transform: rotate(-90deg);
+    }
+
+    .sb {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sd {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    .sd.on {
+      color: var(--ok);
+      background: var(--ok);
+    }
+
+    .sd.off {
+      color: var(--err);
+      background: var(--err);
+    }
+
+    .sd.chk {
+      color: var(--warn);
+      background: var(--warn);
+      animation: p 1s ease-in-out infinite;
+    }
+
+    @keyframes p {
+
+      0%,
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      50% {
+        opacity: 0.4;
+        transform: scale(0.8);
+      }
+    }
+
+    .st {
+      font-size: 12px;
+      color: var(--fg2);
+      flex: 1;
+    }
+
+    .st b {
+      color: var(--fg);
+      font-weight: 600;
+    }
+
+    #inp {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+    }
+
+    .lbl {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--fg);
+      margin-bottom: 4px;
+    }
+
+    .ta {
+      width: 100%;
+      min-height: 80px;
+      padding: 10px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--fg);
+      font-size: 13px;
+      font-family: var(--font);
+      resize: vertical;
+      outline: none;
+      transition:
+        border-color 0.2s,
+        box-shadow 0.2s;
+    }
+
+    .ta::placeholder {
+      color: var(--fg3);
+    }
+
+    .ta:focus {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border: none;
+      font-size: 13px;
+      font-family: var(--font);
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border-radius: 6px;
+      height: 32px;
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn:focus {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
+
+    .bp {
+      background: linear-gradient(135deg, var(--accent), #2563eb);
+      color: var(--accent-fg);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+    }
+
+    .bp:hover:not(:disabled) {
+      background: linear-gradient(135deg, #4f8bf9, #3b82f6);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+      transform: translateY(-1px);
+    }
+
+    .bp:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .bg {
+      background: var(--sec);
+      color: var(--sec-fg);
+      border: 1px solid var(--border);
+    }
+
+    .bg:hover {
+      background: var(--sec-h);
+      color: var(--fg);
+    }
+
+    .bd {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--err);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    .bd:hover {
+      background: rgba(239, 68, 68, 0.15);
+      box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);
+    }
+
+    .bs {
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--ok);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+
+    .bs:hover {
+      background: rgba(16, 185, 129, 0.15);
+      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+    }
+
+    .br {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .br .btn {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .btn-icon {
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      background: transparent;
+      color: var(--fg2);
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+
+    .btn-icon:hover {
+      color: var(--fg);
+      background: var(--bg4);
+    }
+
+    #cr {
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg2);
+    }
+
+    #cr .btn {
+      width: 100%;
+    }
+
+    .pipe {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 12px 16px;
+    }
+
+    .ac {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      transition: all 0.3s ease;
+      cursor: default;
+    }
+
+    .ac:hover {
+      background: var(--bg3);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .ac.act {
+      background: rgba(59, 130, 246, 0.05);
+      border-color: var(--focus);
+      box-shadow:
+        0 0 0 1px var(--focus),
+        0 4px 12px rgba(59, 130, 246, 0.1);
+      transform: translateX(2px);
+    }
+
+    .ac.ok {
+      border-color: rgba(16, 185, 129, 0.3);
+      background: rgba(16, 185, 129, 0.02);
+    }
+
+    .ac.fail {
+      border-color: rgba(239, 68, 68, 0.4);
+      background: rgba(239, 68, 68, 0.05);
+    }
+
+    .ai {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      border-radius: 6px;
+      background: var(--bg4);
+      flex-shrink: 0;
+    }
+
+    .ai.pl {
+      color: #60a5fa;
+      background: rgba(96, 165, 250, 0.1);
+    }
+
+    .ai.cg {
+      color: var(--cyan);
+      background: rgba(6, 182, 212, 0.1);
+    }
+
+    .ai.db {
+      color: var(--warn);
+      background: rgba(245, 158, 11, 0.1);
+    }
+
+    .ac.act .ai {
+      animation: pulse-icon 2s infinite;
+    }
+
+    @keyframes pulse-icon {
+      0% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+      }
+
+      70% {
+        box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
+      }
+
+      100% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+      }
+    }
+
+    .an {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg);
+      margin-bottom: 2px;
+    }
+
+    .as {
+      font-size: 11px;
+      color: var(--fg2);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .ak {
+      font-size: 12px;
+      color: var(--fg2);
+      flex-shrink: 0;
+      font-family: var(--mono);
+      width: 45px;
+      text-align: right;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      justify-content: flex-end;
+    }
+
+    .sp {
+      color: var(--focus);
+      animation: spin 1.5s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .ps {
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--bg2);
+    }
+
+    .ps.v {
+      display: flex;
+    }
+
+    .pm {
+      font-size: 12px;
+      color: var(--fg);
+      min-height: 18px;
+      font-family: var(--mono);
+    }
+
+    .pt {
+      height: 4px;
+      background: var(--bg3);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .pf {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--cyan));
+      border-radius: 2px;
+      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .pp {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--fg3);
+      font-family: var(--mono);
+      font-weight: 500;
+    }
+
+    .approval {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px;
+      background: var(--bg);
+      border: 1px solid var(--focus);
+      border-radius: 8px;
+      margin: 12px 16px;
+      box-shadow:
+        0 4px 20px rgba(0, 0, 0, 0.2),
+        0 0 0 1px rgba(59, 130, 246, 0.2);
+      animation: su 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .approval.v {
+      display: flex;
+    }
+
+    .approval h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .approval h3 i {
+      font-size: 16px;
+      color: var(--focus);
+    }
+
+    .approval .desc {
+      font-size: 12px;
+      color: var(--fg2);
+      line-height: 1.5;
+    }
+
+    .detail-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 250px;
+      overflow-y: auto;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: var(--mono);
+      padding: 4px;
+    }
+
+    .detail-list .item {
+      padding: 6px 10px;
+      border-radius: 4px;
+      color: var(--fg);
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      line-height: 1.4;
+    }
+
+    .detail-list .item:hover {
+      background: var(--bg4);
+    }
+
+    @keyframes su {
+      from {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.98);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .lf {
+      display: none;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 250px;
+      overflow-y: auto;
+      background: var(--bg);
+      padding: 8px;
+      font-family: var(--mono);
+    }
+
+    .lf:not(.h) {
+      display: flex;
+    }
+
+    .le {
+      font-size: 11px;
+      color: var(--fg2);
+      padding: 4px 8px;
+      border-radius: 4px;
+      line-height: 1.5;
+      animation: fi 0.2s ease;
+      display: flex;
+      align-items: flex-start;
+      position: relative;
+    }
+
+    .le:hover {
+      background: var(--bg4);
+      color: var(--fg);
+    }
+
+    .le .tm {
+      color: var(--fg3);
+      margin-right: 8px;
+      font-size: 10px;
+      flex-shrink: 0;
+      padding-top: 1px;
+    }
+
+    .le .msg {
+      flex: 1;
+      word-break: break-all;
+    }
+
+    .le .msg a {
+      color: var(--focus);
+      text-decoration: none;
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+
+    .le .msg a:hover {
+      color: #60a5fa;
+      text-decoration: underline;
+    }
+
+    .le .btn-copy {
+      display: none;
+      position: absolute;
+      right: 4px;
+      top: 2px;
+      height: 22px;
+      width: 22px;
+      font-size: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+    }
+
+    .le:hover .btn-copy {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .le.ok {
+      color: var(--ok);
+      background: rgba(16, 185, 129, 0.05);
+    }
+
+    .le.er {
+      color: var(--err);
+      background: rgba(239, 68, 68, 0.05);
+    }
+
+    .le.fx {
+      color: var(--cyan);
+      background: rgba(6, 182, 212, 0.05);
+    }
+
+    @keyframes fi {
+      from {
+        opacity: 0;
+        transform: translateX(-4px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    .rc {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      animation: su 0.3s ease;
+    }
+
+    .rc.v {
+      display: flex;
+    }
+
+    .ri {
+      font-size: 18px;
+    }
+
+    .rt {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .rs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .stat {
+      padding: 10px 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-align: center;
+      transition: transform 0.2s;
+    }
+
+    .stat:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .sv {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--fg);
+      font-family: var(--mono);
+    }
+
+    .sl {
+      font-size: 10px;
+      color: var(--fg3);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+      font-weight: 500;
+    }
+
+    .ft {
+      margin-top: auto;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      background: var(--bg2);
+      position: sticky;
+      bottom: 0;
+      z-index: 10;
+    }
+
+    .ft .btn {
+      flex: 1;
+      font-size: 12px;
+      padding: 6px;
+      height: 32px;
+      font-weight: 500;
+    }
+
+    #dbg {
+      padding: 8px 16px;
+      font-size: 11px;
+      font-family: var(--mono);
+      color: var(--ok);
+      background: #000;
+      max-height: 120px;
+      overflow-y: auto;
+      border-top: 1px solid var(--border);
+    }
+
+    .h {
+      display: none !important;
+    }
+
+    .diff-add {
+      color: var(--ok) !important;
+      background: rgba(16, 185, 129, 0.1);
+      border-left: 2px solid var(--ok);
+    }
+
+    .diff-rem {
+      color: var(--err) !important;
+      background: rgba(239, 68, 68, 0.1);
+      text-decoration: line-through;
+      border-left: 2px solid var(--err);
+    }
+
+    .hist-card {
+      margin: 8px 16px;
+      padding: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg2);
+      overflow: hidden;
+      animation: su 0.3s ease;
+    }
+
+    .hist-hdr {
+      padding: 8px 12px;
+      background: var(--bg4);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .hist-hdr:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .hist-hdr h4 {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--fg);
+      flex: 1;
+      margin: 0;
+    }
+
+    .hist-hdr .badge {
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 10px;
+      background: var(--ok);
+      color: #fff;
+    }
+
+    .hist-body {
+      padding: 12px;
+      display: none;
+      border-top: 1px solid var(--border2);
+    }
+
+    .hist-body.v {
+      display: block;
+    }
+
+    .json-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .json-modal.v {
+      display: flex;
+    }
+
+    .json-modal-content {
+      background: var(--bg2);
+      border: 1px solid var(--focus);
+      border-radius: 12px;
+      max-width: 800px;
+      width: 100%;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      animation: su 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .json-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+      border-radius: 12px 12px 0 0;
+    }
+
+    .json-modal-header h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .json-modal-header .close-btn {
+      background: none;
+      border: none;
+      color: var(--fg2);
+      cursor: pointer;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+
+    .json-modal-header .close-btn:hover {
+      background: var(--bg4);
+      color: var(--fg);
+    }
+
+    .json-modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--fg);
+      line-height: 1.6;
+    }
+
+    .json-modal-body code {
+      display: block;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .json-key {
+      color: #60a5fa;
+    }
+
+    .json-string {
+      color: #10b981;
+    }
+
+    .json-number {
+      color: #f59e0b;
+    }
+
+    .json-boolean {
+      color: #06b6d4;
+    }
+
+    .json-null {
+      color: #a1a1aa;
+    }
+
+    /* Planning Progress tracker styling */
+    .planning-progress-container {
+      background: rgba(30, 41, 59, 0.4);
+      border: 1px solid rgba(148, 163, 184, 0.1);
+      border-radius: 8px;
+      padding: 12px;
+      margin: 8px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+      animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: opacity 0.5s ease, height 0.5s ease;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .planning-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .planning-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+    }
+
+    .planning-percent {
+      font-size: 12px;
+      font-weight: 700;
+      font-family: var(--mono);
+      color: var(--fg);
+    }
+
+    .planning-progress-bar-bg {
+      height: 6px;
+      background: var(--bg3);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .planning-progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent) 0%, var(--cyan) 100%);
+      border-radius: 3px;
+      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .planning-stages {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .planning-stage {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      transition: all 0.2s ease;
+      opacity: 0.4;
+    }
+
+    .planning-stage.active {
+      opacity: 1;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .planning-stage.completed {
+      opacity: 0.8;
+    }
+
+    .planning-stage.active .stage-dot {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      transform: scale(1.2);
+      animation: pulse-dot 1.5s infinite;
+    }
+
+    .planning-stage.completed .stage-dot {
+      background: var(--ok);
+      box-shadow: 0 0 6px var(--ok);
+    }
+
+    .stage-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--fg3);
+      transition: all 0.3s ease;
+    }
+
+    .stage-name {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--fg2);
+    }
+
+    .planning-stage.active .stage-name {
+      color: var(--fg);
+      font-weight: 600;
+    }
+
+    .planning-stage.completed .stage-name {
+      color: var(--sec-fg);
+    }
+
+    @keyframes pulse-dot {
+
+      0%,
+      100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+
+      50% {
+        transform: scale(1.3);
+        opacity: 0.6;
+      }
+    }
+
+    /* Diagram Modal styling */
+    .diagram-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(10, 10, 12, 0.85);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      backdrop-filter: blur(8px);
+    }
+
+    .diagram-modal.v {
+      display: flex;
+    }
+
+    .diagram-modal-content {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      max-width: 95%;
+      width: 1000px;
+      height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      animation: su 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow: hidden;
+    }
+
+    .diagram-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+
+    .diagram-modal-header h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--fg);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .diagram-modal-header h2 i {
+      color: var(--accent);
+    }
+
+    .diagram-modal-header .close-btn {
+      background: none;
+      border: none;
+      color: var(--fg2);
+      cursor: pointer;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+
+    .diagram-modal-header .close-btn:hover {
+      background: var(--bg4);
+      color: var(--fg);
+    }
+
+    .diagram-modal-body {
+      flex: 1;
+      overflow: auto;
+      padding: 30px;
+      background: radial-gradient(circle at center, rgba(18, 18, 18, 0.95) 0%, rgba(10, 10, 10, 1) 100%);
+      position: relative;
+    }
+
+    /* Diagram wrapper & Grid */
+    .diagram-wrapper {
+      position: relative;
+      min-width: 800px;
+      min-height: 500px;
+      width: 100%;
+      height: 100%;
+    }
+
+    .diagram-connections {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .diagram-connections path {
+      stroke: rgba(59, 130, 246, 0.35);
+      stroke-width: 2.5;
+      fill: none;
+      transition: stroke 0.3s, stroke-width 0.3s, stroke-dasharray 0.3s;
+      marker-end: url(#arrow);
+    }
+
+    .diagram-connections path.active {
+      stroke: var(--accent);
+      stroke-width: 3.5;
+      stroke-dasharray: 6 3;
+      animation: dash 1s linear infinite;
+    }
+
+    @keyframes dash {
+      to {
+        stroke-dashoffset: -9;
+      }
+    }
+
+    .diagram-connections path.dimmed {
+      stroke: rgba(255, 255, 255, 0.05);
+      stroke-width: 1.5;
+    }
+
+    .diagram-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 40px 60px;
+      justify-content: center;
+      align-items: flex-start;
+      position: relative;
+      z-index: 2;
+      padding: 20px;
+    }
+
+    /* Class card styling */
+    .class-card {
+      background: rgba(24, 24, 27, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      width: 230px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      backdrop-filter: blur(10px);
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s, opacity 0.3s;
+    }
+
+    .class-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--accent);
+      box-shadow: 0 15px 30px rgba(59, 130, 246, 0.15);
+    }
+
+    .class-card.dimmed {
+      opacity: 0.25;
+    }
+
+    .class-card.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+    }
+
+    .class-hdr {
+      background: rgba(59, 130, 246, 0.08);
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--fg);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 8px 8px 0 0;
+    }
+
+    .class-hdr i {
+      color: var(--accent);
+    }
+
+    .class-fields {
+      padding: 8px 0;
+      font-size: 11px;
+      font-family: var(--mono);
+    }
+
+    .class-field {
+      padding: 5px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      color: var(--fg2);
+      transition: background 0.15s;
+    }
+
+    .class-field:hover {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--fg);
+    }
+
+    .field-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .field-key-icon {
+      font-size: 10px;
+      color: var(--warn);
+      flex-shrink: 0;
+    }
+
+    .field-required {
+      color: var(--err);
+      font-weight: bold;
+      margin-left: 2px;
+    }
+
+    .field-name {
+      color: #e4e4e7;
+    }
+
+    .field-type {
+      color: #60a5fa;
+    }
+
+    .field-type.ref {
+      color: var(--cyan);
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    .class-desc {
+      padding: 8px 14px;
+      font-size: 10px;
+      color: var(--fg3);
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      font-style: italic;
+      line-height: 1.4;
+    }
+
+    /* Class Card Methods */
+    .class-methods {
+      padding: 10px 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-family: var(--font-mono), monospace;
+      font-size: 10px;
+    }
+    
+    .method-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    
+    .method-signature {
+      color: #f4f4f5;
+      word-break: break-all;
+    }
+    
+    .method-ret {
+      color: var(--cyan);
+      flex-shrink: 0;
+    }
+
+    /* Use Case Diagram Styles */
+    .usecase-layout {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 40px;
+      padding: 20px;
+      min-height: 450px;
+      position: relative;
+    }
+    
+    .actors-column {
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+      justify-content: center;
+      align-items: center;
+      z-index: 2;
+    }
+    
+    .actor-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      width: 120px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+    
+    .actor-card:hover, .actor-card.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.2);
+    }
+    
+    .system-boundary {
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      background: rgba(24, 24, 27, 0.4);
+      padding: 30px 20px;
+      position: relative;
+      min-height: 400px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      z-index: 2;
+    }
+    
+    .system-title {
+      position: absolute;
+      top: -12px;
+      left: 20px;
+      background: var(--bg);
+      padding: 2px 10px;
+      font-size: 11px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      color: var(--fg);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+    
+    .usecases-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      width: 100%;
+      max-width: 450px;
+      justify-content: center;
+      margin-top: 15px;
+    }
+    
+    .usecase-card {
+      background: var(--bg);
+      border: 1.5px solid rgba(59, 130, 246, 0.3);
+      border-radius: 24px; /* Oval shape */
+      padding: 14px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .usecase-card:hover, .usecase-card.active {
+      border-color: var(--accent);
+      background: rgba(59, 130, 246, 0.05);
+      box-shadow: 0 0 15px rgba(59, 130, 246, 0.25);
+    }
+    
+    .usecase-desc {
+      font-size: 9px;
+      color: var(--fg3);
+      margin-top: 4px;
+      font-style: italic;
+    }
+    
+    .relation-label {
+      font-size: 9px;
+      fill: var(--accent);
+      font-weight: 600;
+      font-family: sans-serif;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="c">
+    <div class="hdr">
+      <div class="logo"><i class="codicon codicon-zap"></i></div>
+      <h1>AI Backend Builder <span class="vtag">v3</span></h1>
+    </div>
+
+    <div class="sb">
+      <div class="sd chk" id="sd"></div>
+      <div class="st" id="st">Checking...</div>
+      <button class="btn bg" id="btn-chk" style="height: 20px; padding: 0 6px">
+        <i class="codicon codicon-refresh"></i>
+      </button>
+    </div>
+
+    <div id="inp">
+      <div style="
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 2px;
-          "
-        >
-          <div class="lbl" style="margin: 0">Describe your backend</div>
-          <div style="display: flex; gap: 2px">
-            <button class="btn-icon" id="btn-prev-p" title="Previous Prompt">
-              <i class="codicon codicon-chevron-left"></i>
-            </button>
-            <button class="btn-icon" id="btn-next-p" title="Next Prompt">
-              <i class="codicon codicon-chevron-right"></i>
-            </button>
-          </div>
-        </div>
-        <textarea
-          class="ta"
-          id="pr"
-          placeholder="e.g., E-commerce API with users, products, orders..."
-          rows="4"
-        ></textarea>
-        <div
-          style="
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          "
-        >
-          <div
-            style="font-size: 10px; color: var(--fg3); font-family: var(--mono)"
-          >
-            <span id="char-cnt">0</span> chars • ~<span id="tok-cnt">0</span>
-            tokens
-          </div>
-        </div>
-        <div class="br">
-          <button class="btn bp" id="bb">
-            <i class="codicon codicon-zap"></i> Build Backend
+          ">
+        <div class="lbl" style="margin: 0">Describe your backend</div>
+        <div style="display: flex; gap: 2px">
+          <button class="btn-icon" id="btn-prev-p" title="Previous Prompt">
+            <i class="codicon codicon-chevron-left"></i>
+          </button>
+          <button class="btn-icon" id="btn-next-p" title="Next Prompt">
+            <i class="codicon codicon-chevron-right"></i>
           </button>
         </div>
       </div>
-
-      <div
-        class="br h"
-        id="cr"
-        style="padding: 6px 12px; border-bottom: 1px solid var(--border2)"
-      >
-        <button class="btn bd" id="btn-cancel">
-          <i class="codicon codicon-close"></i> Cancel Build
-        </button>
-      </div>
-
-      <div class="sec">
-        <div class="sec-hdr" data-target="pipe-body">
-          <i class="codicon codicon-chevron-down chevron"></i>
-          <span class="lbl">Agent Pipeline</span>
-        </div>
-        <div class="sec-body" id="pipe-body">
-          <div class="pipe" id="pipe">
-            <div class="ac" id="aP">
-              <div class="ai pl"><i class="codicon codicon-lightbulb"></i></div>
-              <div style="flex: 1; min-width: 0">
-                <div class="an">Planner Agent</div>
-                <div class="as" id="sP">Waiting</div>
-              </div>
-              <div class="ak" id="kP"></div>
-            </div>
-            <div class="ac" id="aC">
-              <div class="ai cg"><i class="codicon codicon-code"></i></div>
-              <div style="flex: 1; min-width: 0">
-                <div class="an">Code Generator</div>
-                <div class="as" id="sC">Waiting</div>
-              </div>
-              <div class="ak" id="kC"></div>
-            </div>
-            <div class="ac" id="aD">
-              <div class="ai db"><i class="codicon codicon-bug"></i></div>
-              <div style="flex: 1; min-width: 0">
-                <div class="an">Debug Agent</div>
-                <div class="as" id="sD">Waiting</div>
-              </div>
-              <div class="ak" id="kD"></div>
-            </div>
-          </div>
-          <div class="ps" id="ps">
-            <div class="pm" id="pm"></div>
-            <div class="pt">
-              <div class="pf" id="pf"></div>
-            </div>
-            <div class="pp">
-              <span id="pc">0%</span><span id="ph">Idle</span>
-            </div>
-          </div>
-          <div class="approval" id="apv"></div>
+      <textarea class="ta" id="pr" placeholder="e.g., E-commerce API with users, products, orders..."
+        rows="4"></textarea>
+      <div style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          ">
+        <div style="font-size: 10px; color: var(--fg3); font-family: var(--mono)">
+          <span id="char-cnt">0</span> chars • ~<span id="tok-cnt">0</span>
+          tokens
         </div>
       </div>
-
-      <div id="hist"></div>
-      <div class="sec" id="sec-logs">
-        <div class="sec-hdr" data-target="logs-body">
-          <i class="codicon codicon-chevron-down chevron"></i>
-          <span class="lbl">Build Logs</span>
-        </div>
-        <div class="sec-body h" id="logs-body">
-          <div class="lf" id="lf" style="display: flex"></div>
-        </div>
-      </div>
-
-      <div class="rc" id="rc"></div>
-
-      <div id="dbg" style="display: none"></div>
-
-      <div class="json-modal" id="json-modal">
-        <div class="json-modal-content">
-          <div class="json-modal-header">
-            <h2><i class="codicon codicon-json"></i> Plan JSON Structure</h2>
-            <button class="close-btn" data-action="close-json" title="Close">
-              <i class="codicon codicon-close"></i>
-            </button>
-          </div>
-          <div class="json-modal-body">
-            <code id="json-content"></code>
-          </div>
-        </div>
-      </div>
-
-      <div class="ft">
-        <button class="btn bg" id="btn-set">
-          <i class="codicon codicon-settings-gear"></i> Settings
-        </button>
-        <button class="btn bg" id="btn-logs">
-          <i class="codicon codicon-output"></i> Full Logs
+      <div class="br">
+        <button class="btn bp" id="bb">
+          <i class="codicon codicon-zap"></i> Build Backend
         </button>
       </div>
     </div>
 
-    <script nonce="{{nonce}}">
-      function dbg(m) {
-        var d = document.getElementById("dbg");
-        if (d) {
-          d.innerHTML +=
-            "<div>" + new Date().toLocaleTimeString() + " " + m + "</div>";
-          d.scrollTop = d.scrollHeight;
+    <div class="br h" id="cr" style="padding: 6px 12px; border-bottom: 1px solid var(--border2)">
+      <button class="btn bd" id="btn-cancel">
+        <i class="codicon codicon-close"></i> Cancel Build
+      </button>
+    </div>
+
+    <div class="sec">
+      <div class="sec-hdr" data-target="pipe-body">
+        <i class="codicon codicon-chevron-down chevron"></i>
+        <span class="lbl">Agent Pipeline</span>
+      </div>
+      <div class="sec-body" id="pipe-body">
+        <div class="pipe" id="pipe">
+          <div class="ac" id="aP">
+            <div class="ai pl"><i class="codicon codicon-lightbulb"></i></div>
+            <div style="flex: 1; min-width: 0">
+              <div class="an">Planner Agent</div>
+              <div class="as" id="sP">Waiting</div>
+            </div>
+            <div class="ak" id="kP"></div>
+          </div>
+
+          <!-- Detailed Planning Progress tracker -->
+          <div id="planning-progress-container" class="planning-progress-container h">
+            <div class="planning-title-row">
+              <span class="planning-title">Planning Progress</span>
+              <span class="planning-percent" id="planning-percent">0%</span>
+            </div>
+            <div class="planning-progress-bar-bg">
+              <div class="planning-progress-bar-fill" id="planning-progress-bar-fill"></div>
+            </div>
+            <div class="planning-stages">
+              <div class="planning-stage" id="stage-req">
+                <span class="stage-dot"></span>
+                <span class="stage-name">Requirement Analysis</span>
+              </div>
+              <div class="planning-stage" id="stage-rag">
+                <span class="stage-dot"></span>
+                <span class="stage-name">RAG Retrieval</span>
+              </div>
+              <div class="planning-stage" id="stage-gen">
+                <span class="stage-dot"></span>
+                <span class="stage-name">Blueprint Generation</span>
+              </div>
+              <div class="planning-stage" id="stage-val">
+                <span class="stage-dot"></span>
+                <span class="stage-name">Blueprint Validation</span>
+              </div>
+            </div>
+          </div>
+          <div class="ac" id="aC">
+            <div class="ai cg"><i class="codicon codicon-code"></i></div>
+            <div style="flex: 1; min-width: 0">
+              <div class="an">Code Generator</div>
+              <div class="as" id="sC">Waiting</div>
+            </div>
+            <div class="ak" id="kC"></div>
+          </div>
+          <div class="ac" id="aD">
+            <div class="ai db"><i class="codicon codicon-bug"></i></div>
+            <div style="flex: 1; min-width: 0">
+              <div class="an">Debug Agent</div>
+              <div class="as" id="sD">Waiting</div>
+            </div>
+            <div class="ak" id="kD"></div>
+          </div>
+        </div>
+        <div class="ps" id="ps">
+          <div class="pm" id="pm"></div>
+          <div class="pt">
+            <div class="pf" id="pf"></div>
+          </div>
+          <div class="pp">
+            <span id="pc">0%</span><span id="ph">Idle</span>
+          </div>
+        </div>
+        <div class="approval" id="apv"></div>
+      </div>
+    </div>
+
+    <div id="hist"></div>
+    <div class="sec" id="sec-logs">
+      <div class="sec-hdr" data-target="logs-body">
+        <i class="codicon codicon-chevron-down chevron"></i>
+        <span class="lbl">Build Logs</span>
+      </div>
+      <div class="sec-body h" id="logs-body">
+        <div class="lf" id="lf" style="display: flex"></div>
+      </div>
+    </div>
+
+    <div class="rc" id="rc"></div>
+
+    <div id="dbg" style="display: none"></div>
+
+    <div class="json-modal" id="json-modal">
+      <div class="json-modal-content">
+        <div class="json-modal-header">
+          <h2><i class="codicon codicon-json"></i> Plan JSON Structure</h2>
+          <button class="close-btn" data-action="close-json" title="Close">
+            <i class="codicon codicon-close"></i>
+          </button>
+        </div>
+        <div class="json-modal-body">
+          <code id="json-content"></code>
+        </div>
+      </div>
+    </div>
+
+    <!-- Class Diagram Modal overlay -->
+    <div class="diagram-modal" id="diagram-modal">
+      <div class="diagram-modal-content">
+        <div class="diagram-modal-header">
+          <h2><i class="codicon codicon-symbol-class"></i> System Class Diagram</h2>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn bg" id="btn-export-diagram" style="height: 28px; padding: 0 8px; font-size: 11px;">
+              <i class="codicon codicon-save"></i> Export SVG
+            </button>
+            <button class="close-btn" id="close-diagram" title="Close">
+              <i class="codicon codicon-close"></i>
+            </button>
+          </div>
+        </div>
+        <div class="diagram-modal-body">
+          <div class="diagram-wrapper" id="diagram-wrapper">
+            <svg class="diagram-connections" id="diagram-connections"></svg>
+            <div class="diagram-grid" id="diagram-grid"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Use Case Diagram Modal overlay -->
+    <div class="diagram-modal" id="usecase-modal">
+      <div class="diagram-modal-content">
+        <div class="diagram-modal-header">
+          <h2><i class="codicon codicon-person"></i> System Use Case Diagram</h2>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn bg" id="btn-export-usecase" style="height: 28px; padding: 0 8px; font-size: 11px;">
+              <i class="codicon codicon-save"></i> Export SVG
+            </button>
+            <button class="close-btn" id="close-usecase" title="Close">
+              <i class="codicon codicon-close"></i>
+            </button>
+          </div>
+        </div>
+        <div class="diagram-modal-body">
+          <div class="diagram-wrapper" id="usecase-wrapper" style="position: relative;">
+            <svg class="diagram-connections" id="usecase-connections" style="position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:1;"></svg>
+            <div class="usecase-layout" id="usecase-container" style="position: relative; z-index: 2;">
+              <div class="actors-column" id="usecase-actors"></div>
+              <div class="system-boundary" id="usecase-system-boundary">
+                <div class="system-title">SYSTEM BOUNDARY</div>
+                <div class="usecases-container" id="usecase-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ft">
+      <button class="btn bg" id="btn-set">
+        <i class="codicon codicon-settings-gear"></i> Settings
+      </button>
+      <button class="btn bg" id="btn-logs">
+        <i class="codicon codicon-output"></i> Full Logs
+      </button>
+    </div>
+  </div>
+
+  <script nonce="{{nonce}}">
+    function dbg(m) {
+      var d = document.getElementById("dbg");
+      if (d) {
+        d.innerHTML +=
+          "<div>" + new Date().toLocaleTimeString() + " " + m + "</div>";
+        d.scrollTop = d.scrollHeight;
+      }
+    }
+    try {
+      const vscode = acquireVsCodeApi();
+      let curPrompt = "";
+      let promptHistory = [];
+      let historyIdx = -1;
+      let activeAgentTimer = null;
+      let activeAgentStart = 0;
+      let activeAgentKey = null;
+      let buildLastUpdate = 0;
+      let buildTimeoutTimer = null;
+      let currentPlanData = null;
+
+      // Planning progress stage timer & UI variables
+      let planningInterval = null;
+      let currentPlanningPercent = 0;
+      let currentPlanningStage = 0; // 0: Req, 1: RAG, 2: Gen, 3: Val, 4: Done
+
+      function startPlanningProgress() {
+        stopPlanningProgress();
+
+        const container = $("planning-progress-container");
+        if (container) container.classList.remove("h");
+
+        currentPlanningPercent = 0;
+        currentPlanningStage = 0;
+
+        updatePlanningUI();
+
+        const stages = [
+          { name: "req", start: 0, end: 25, duration: 3000 },
+          { name: "rag", start: 25, end: 50, duration: 4000 },
+          { name: "gen", start: 50, end: 85, duration: 10000 },
+          { name: "val", start: 85, end: 98, duration: 3000 }
+        ];
+
+        const tickMs = 100;
+        let elapsed = 0;
+
+        planningInterval = setInterval(() => {
+          elapsed += tickMs;
+
+          let currentStageObj = stages[0];
+          let stageStartElapsed = 0;
+
+          for (let i = 0; i < stages.length; i++) {
+            const stageDuration = stages[i].duration;
+            if (elapsed < stageStartElapsed + stageDuration) {
+              currentPlanningStage = i;
+              currentStageObj = stages[i];
+              break;
+            }
+            stageStartElapsed += stageDuration;
+          }
+
+          if (elapsed >= stageStartElapsed) {
+            currentPlanningStage = 3;
+            currentPlanningPercent = 98;
+          } else {
+            const stageElapsed = elapsed - stageStartElapsed;
+            const stageProgress = stageElapsed / currentStageObj.duration;
+            currentPlanningPercent = Math.min(
+              currentStageObj.end,
+              Math.round(currentStageObj.start + stageProgress * (currentStageObj.end - currentStageObj.start))
+            );
+          }
+
+          updatePlanningUI();
+        }, tickMs);
+      }
+
+      function stopPlanningProgress() {
+        if (planningInterval) {
+          clearInterval(planningInterval);
+          planningInterval = null;
         }
       }
-      try {
-        const vscode = acquireVsCodeApi();
-        let curPrompt = "";
-        let promptHistory = [];
-        let historyIdx = -1;
-        let activeAgentTimer = null;
-        let activeAgentStart = 0;
-        let activeAgentKey = null;
-        let buildLastUpdate = 0;
-        let buildTimeoutTimer = null;
-        let currentPlanData = null;
 
-        const $ = (id) => document.getElementById(id);
-        const ag = {
-          P: { c: $("aP"), s: $("sP"), k: $("kP") },
-          C: { c: $("aC"), s: $("sC"), k: $("kC") },
-          D: { c: $("aD"), s: $("sD"), k: $("kD") },
-        };
+      function completePlanningProgress() {
+        stopPlanningProgress();
+        currentPlanningPercent = 100;
+        currentPlanningStage = 4;
+        updatePlanningUI();
 
-        // Initialize
-        vscode.postMessage({ command: "getPrompts" });
-        vscode.postMessage({ command: "checkHealth" });
+        setTimeout(() => {
+          const container = $("planning-progress-container");
+          if (container) container.classList.add("h");
+        }, 1000);
+      }
 
-        // Global Event Delegation
-        document.addEventListener("click", (e) => {
-          const hdr = e.target.closest(".sec-hdr");
-          if (hdr) {
-            const targetId = hdr.getAttribute("data-target");
-            if (targetId) toggleSec(targetId, hdr);
-            return;
-          }
-          const link = e.target.closest(".log-link");
-          if (link) {
-            e.preventDefault();
-            openFile(link.getAttribute("data-path"));
-            return;
-          }
-          const copyBtn = e.target.closest(".btn-copy");
-          if (copyBtn) {
-            navigator.clipboard.writeText(
-              copyBtn.previousElementSibling.textContent,
-            );
-            return;
-          }
-          const histHdr = e.target.closest(".hist-hdr");
-          if (histHdr) {
-            const body = histHdr.nextElementSibling;
-            const chevron = histHdr.querySelector(".codicon");
-            const isV = body.classList.toggle("v");
-            chevron.className = isV
-              ? "codicon codicon-chevron-down"
-              : "codicon codicon-chevron-right";
-            return;
-          }
-        });
+      function updatePlanningUI() {
+        const bar = $("planning-progress-bar-fill");
+        const percentText = $("planning-percent");
+        if (bar) bar.style.width = currentPlanningPercent + "%";
+        if (percentText) percentText.textContent = currentPlanningPercent + "%";
 
-        // Collapsible
-        window.toggleSec = function (id, hdr) {
-          const b = $(id);
-          const c = hdr.querySelector(".chevron");
-          if (b.classList.contains("collapsed")) {
-            b.classList.remove("collapsed");
-            c.classList.remove("collapsed");
+        const stageIds = ["stage-req", "stage-rag", "stage-gen", "stage-val"];
+        stageIds.forEach((id, idx) => {
+          const el = $(id);
+          if (!el) return;
+
+          if (idx < currentPlanningStage) {
+            el.className = "planning-stage completed";
+          } else if (idx === currentPlanningStage) {
+            el.className = "planning-stage active";
           } else {
-            b.classList.add("collapsed");
-            c.classList.add("collapsed");
+            el.className = "planning-stage";
           }
-        };
+        });
+      }
 
-        // Prompt History
-        $("btn-prev-p").addEventListener("click", () => {
-          if (
-            promptHistory.length > 0 &&
-            historyIdx < promptHistory.length - 1
-          ) {
-            if (historyIdx === -1 && $("pr").value.trim() !== "") {
-              // Save current typed if any
+      function showDiagramModal(data) {
+        if (!data) return;
+        renderClassDiagram(data);
+        $("diagram-modal").classList.add("v");
+      }
+
+      function renderClassDiagram(data) {
+        const grid = $("diagram-grid");
+        if (!grid) return;
+
+        grid.innerHTML = '';
+        const entities = data.entities || [];
+
+        if (entities.length === 0) {
+          grid.innerHTML = '<div style="color:var(--fg3); font-style:italic; padding: 20px;">No classes/entities defined in the plan.</div>';
+          return;
+        }
+
+        entities.forEach(ent => {
+          const card = document.createElement("div");
+          card.className = "class-card";
+          card.id = "card-" + ent.name;
+          card.setAttribute("data-name", ent.name);
+
+          let html = `<div class="class-hdr">`;
+          html += `<i class="codicon codicon-symbol-class"></i>`;
+          html += `<span>${ent.name}</span>`;
+          html += `</div>`;
+
+          html += `<div class="class-fields">`;
+
+          ent.fields.forEach(f => {
+            const isRef = getReferencedEntity(f, entities) !== null;
+            const typeDisplay = f.type;
+
+            html += `<div class="class-field">`;
+            html += `<div class="field-left">`;
+            if (f.unique) {
+              html += `<i class="codicon codicon-key field-key-icon" title="Unique / Index"></i>`;
             }
-            historyIdx++;
-            $("pr").value = promptHistory[historyIdx];
-            updateCounter();
+            html += `<span class="field-name">${f.name}</span>`;
+            if (f.required) {
+              html += `<span class="field-required" title="Required">*</span>`;
+            }
+            html += `</div>`;
+
+            html += `<span class="field-type ${isRef ? 'ref' : ''}" title="${f.default ? 'Default: ' + f.default : ''}">${typeDisplay}</span>`;
+            html += `</div>`;
+          });
+
+          html += `</div>`;
+
+          // Render methods if present
+          if (ent.methods && ent.methods.length) {
+            html += `<div class="class-methods">`;
+            ent.methods.forEach(m => {
+              const params = (m.parameters || []).join(", ");
+              html += `<div class="method-item">`;
+              html += `<span class="method-signature">${m.name}(${params})</span>`;
+              html += `<span class="method-ret">${m.returnType}</span>`;
+              html += `</div>`;
+            });
+            html += `</div>`;
+          }
+
+          if (ent.description) {
+            html += `<div class="class-desc">${ent.description}</div>`;
+          }
+
+          card.innerHTML = html;
+          grid.appendChild(card);
+        });
+
+        setTimeout(() => {
+          drawDiagramConnections();
+          setupDiagramInteractions();
+        }, 100);
+      }
+
+      function getReferencedEntity(field, entities) {
+        const typeLower = field.type.toLowerCase();
+        const nameLower = field.name.toLowerCase();
+
+        for (let ent of entities) {
+          const entLower = ent.name.toLowerCase();
+          if (typeLower.includes(entLower) ||
+            typeLower === entLower ||
+            nameLower === entLower ||
+            nameLower === entLower + 'id' ||
+            nameLower === entLower + '_id') {
+            return ent.name;
+          }
+        }
+        return null;
+      }
+
+      function drawDiagramConnections() {
+        const svg = $("diagram-connections");
+        const wrapper = $("diagram-wrapper");
+        if (!svg || !wrapper || !currentPlanData) return;
+
+        svg.innerHTML = '';
+
+        const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+        
+        // Standard arrow
+        const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+        marker.setAttribute("id", "arrow");
+        marker.setAttribute("viewBox", "0 0 10 10");
+        marker.setAttribute("refX", "8");
+        marker.setAttribute("refY", "5");
+        marker.setAttribute("markerWidth", "6");
+        marker.setAttribute("markerHeight", "6");
+        marker.setAttribute("orient", "auto-start-reverse");
+        const pathArrow = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        pathArrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+        pathArrow.setAttribute("fill", "rgba(59, 130, 246, 0.7)");
+        marker.appendChild(pathArrow);
+        defs.appendChild(marker);
+
+        // Inheritance arrow (hollow triangle)
+        const inhMarker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+        inhMarker.setAttribute("id", "inheritance-arrow");
+        inhMarker.setAttribute("viewBox", "0 0 10 10");
+        inhMarker.setAttribute("refX", "8");
+        inhMarker.setAttribute("refY", "5");
+        inhMarker.setAttribute("markerWidth", "8");
+        inhMarker.setAttribute("markerHeight", "8");
+        inhMarker.setAttribute("orient", "auto-start-reverse");
+        const pathInh = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        pathInh.setAttribute("d", "M 0 0 L 10 5 L 0 10 Z");
+        pathInh.setAttribute("fill", "#18181b");
+        pathInh.setAttribute("stroke", "rgba(59, 130, 246, 0.9)");
+        pathInh.setAttribute("stroke-width", "1.5");
+        inhMarker.appendChild(pathInh);
+        defs.appendChild(inhMarker);
+        
+        svg.appendChild(defs);
+
+        const entities = currentPlanData.entities || [];
+        const cardElements = {};
+
+        entities.forEach(ent => {
+          const card = $("card-" + ent.name);
+          if (card) {
+            cardElements[ent.name] = {
+              el: card,
+              rect: {
+                left: card.offsetLeft,
+                top: card.offsetTop,
+                width: card.offsetWidth,
+                height: card.offsetHeight,
+                right: card.offsetLeft + card.offsetWidth,
+                bottom: card.offsetTop + card.offsetHeight
+              }
+            };
           }
         });
-        $("btn-next-p").addEventListener("click", () => {
-          if (historyIdx > 0) {
-            historyIdx--;
-            $("pr").value = promptHistory[historyIdx];
-          } else if (historyIdx === 0) {
-            historyIdx = -1;
-            $("pr").value = "";
+
+        const drawn = new Set();
+
+        // 1. Draw explicit relationships if defined in the blueprint
+        entities.forEach(sourceEnt => {
+          const sourceCard = cardElements[sourceEnt.name];
+          if (!sourceCard) return;
+
+          (sourceEnt.relationships || []).forEach(rel => {
+            const targetCard = cardElements[rel.target];
+            if (!targetCard) return;
+
+            const connectionKey = `${sourceEnt.name}->${rel.target}`;
+            drawn.add(connectionKey);
+
+            const line = drawCurveBetweenRects(sourceCard.rect, targetCard.rect, sourceEnt.name, rel.target, "", rel.type);
+            svg.appendChild(line);
+          });
+        });
+
+        // 2. Draw implicit relationships from fields referencing other entities
+        entities.forEach(sourceEnt => {
+          const sourceCard = cardElements[sourceEnt.name];
+          if (!sourceCard) return;
+
+          sourceEnt.fields.forEach(field => {
+            const targetName = getReferencedEntity(field, entities);
+            if (targetName && targetName !== sourceEnt.name) {
+              const targetCard = cardElements[targetName];
+              if (!targetCard) return;
+
+              const connectionKey = `${sourceEnt.name}->${targetName}`;
+              if (drawn.has(connectionKey)) return;
+              drawn.add(connectionKey);
+
+              const line = drawCurveBetweenRects(sourceCard.rect, targetCard.rect, sourceEnt.name, targetName, field.name, "association");
+              svg.appendChild(line);
+            }
+          });
+        });
+      }
+
+      function drawCurveBetweenRects(r1, r2, sourceName, targetName, fieldName, relType) {
+        const c1x = r1.left + r1.width / 2;
+        const c1y = r1.top + r1.height / 2;
+        const c2x = r2.left + r2.width / 2;
+        const c2y = r2.top + r2.height / 2;
+
+        let x1, y1, x2, y2;
+
+        if (Math.abs(c1x - c2x) > Math.abs(c1y - c2y)) {
+          if (c1x < c2x) {
+            x1 = r1.right;
+            y1 = c1y;
+            x2 = r2.left;
+            y2 = c2y;
+          } else {
+            x1 = r1.left;
+            y1 = c1y;
+            x2 = r2.right;
+            y2 = c2y;
           }
+        } else {
+          if (c1y < c2y) {
+            x1 = c1x;
+            y1 = r1.bottom;
+            x2 = c2x;
+            y2 = r2.top;
+          } else {
+            x1 = c1x;
+            y1 = r1.top;
+            x2 = c2x;
+            y2 = r2.bottom;
+          }
+        }
+
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const dx = Math.abs(x2 - x1) * 0.5;
+        const dy = Math.abs(y2 - y1) * 0.5;
+
+        let d;
+        if (Math.abs(c1x - c2x) > Math.abs(c1y - c2y)) {
+          d = `M ${x1} ${y1} C ${x1 + (x2 > x1 ? dx : -dx)} ${y1}, ${x2 - (x2 > x1 ? dx : -dx)} ${y2}, ${x2} ${y2}`;
+        } else {
+          d = `M ${x1} ${y1} C ${x1} ${y1 + (y2 > y1 ? dy : -dy)}, ${x2} ${y2 - (y2 > y1 ? dy : -dy)}, ${x2} ${y2}`;
+        }
+
+        path.setAttribute("d", d);
+        path.setAttribute("data-source", sourceName);
+        path.setAttribute("data-target", targetName);
+        if (fieldName) {
+          path.setAttribute("data-field", fieldName);
+          path.setAttribute("title", `${fieldName} references ${targetName}`);
+        } else {
+          path.setAttribute("title", `${sourceName} -> ${targetName} (${relType})`);
+        }
+
+        // Custom styling for relationship types
+        if (relType === "inheritance") {
+          path.style.markerEnd = "url(#inheritance-arrow)";
+          path.setAttribute("stroke", "rgba(59, 130, 246, 0.9)");
+        } else if (relType === "dependency") {
+          path.setAttribute("stroke-dasharray", "5 3");
+          path.style.markerEnd = "url(#arrow)";
+        } else {
+          // association or default
+          path.style.markerEnd = "url(#arrow)";
+        }
+
+        return path;
+      }
+
+      function setupDiagramInteractions() {
+        const cards = document.querySelectorAll(".class-card");
+        const paths = document.querySelectorAll(".diagram-connections path");
+
+        cards.forEach(card => {
+          card.addEventListener("mouseenter", () => {
+            const name = card.getAttribute("data-name");
+
+            cards.forEach(c => {
+              if (c.getAttribute("data-name") !== name) {
+                c.classList.add("dimmed");
+              } else {
+                c.classList.add("active");
+              }
+            });
+
+            let connectedEntities = new Set([name]);
+
+            paths.forEach(p => {
+              const src = p.getAttribute("data-source");
+              const tgt = p.getAttribute("data-target");
+              if (src === name || tgt === name) {
+                p.classList.add("active");
+                connectedEntities.add(src);
+                connectedEntities.add(tgt);
+              } else {
+                p.classList.add("dimmed");
+              }
+            });
+
+            cards.forEach(c => {
+              const cName = c.getAttribute("data-name");
+              if (connectedEntities.has(cName)) {
+                c.classList.remove("dimmed");
+                if (cName !== name) {
+                  c.style.borderColor = "rgba(59, 130, 246, 0.5)";
+                }
+              }
+            });
+          });
+
+          card.addEventListener("mouseleave", () => {
+            cards.forEach(c => {
+              c.classList.remove("dimmed");
+              c.classList.remove("active");
+              c.style.borderColor = "";
+            });
+            paths.forEach(p => {
+              p.classList.remove("active");
+              p.classList.remove("dimmed");
+            });
+          });
+        });
+      }
+
+      function exportDiagramToSvg() {
+        const svgEl = $("diagram-connections").cloneNode(true);
+        const grid = $("diagram-grid");
+        const entities = currentPlanData ? (currentPlanData.entities || []) : [];
+
+        const width = svgEl.clientWidth || 1000;
+        const height = svgEl.clientHeight || 800;
+
+        svgEl.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+        svgEl.setAttribute("width", width);
+        svgEl.setAttribute("height", height);
+        svgEl.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+        const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+        style.textContent = `
+            path { stroke: #3b82f6; stroke-width: 2.5; fill: none; }
+            text { font-family: sans-serif; }
+            .card { fill: #18181b; stroke: rgba(255,255,255,0.1); stroke-width: 1; rx: 8px; }
+            .card-hdr-bg { fill: rgba(59, 130, 246, 0.1); rx: 8px; }
+            .title { fill: #f4f4f5; font-size: 13px; font-weight: bold; }
+            .field-name { fill: #e4e4e7; font-size: 11px; }
+            .field-type { fill: #60a5fa; font-size: 11px; }
+            .desc { fill: #71717a; font-size: 9px; font-style: italic; }
+          `;
+        svgEl.appendChild(style);
+
+        entities.forEach(ent => {
+          const card = $("card-" + ent.name);
+          if (!card) return;
+
+          const x = card.offsetLeft;
+          const y = card.offsetTop;
+          const w = card.offsetWidth;
+          const h = card.offsetHeight;
+
+          const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+          const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          rect.className.baseVal = "card";
+          rect.setAttribute("x", x);
+          rect.setAttribute("y", y);
+          rect.setAttribute("width", w);
+          rect.setAttribute("height", h);
+          group.appendChild(rect);
+
+          const hdrBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          hdrBg.className.baseVal = "card-hdr-bg";
+          hdrBg.setAttribute("x", x);
+          hdrBg.setAttribute("y", y);
+          hdrBg.setAttribute("width", w);
+          hdrBg.setAttribute("height", 36);
+          group.appendChild(hdrBg);
+
+          const titleText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          titleText.className.baseVal = "title";
+          titleText.setAttribute("x", x + 12);
+          titleText.setAttribute("y", y + 22);
+          titleText.textContent = ent.name;
+          group.appendChild(titleText);
+
+          let currentY = y + 54;
+          ent.fields.forEach(f => {
+            const nameText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            nameText.className.baseVal = "field-name";
+            nameText.setAttribute("x", x + 14);
+            nameText.setAttribute("y", currentY);
+            nameText.textContent = f.name + (f.required ? ' *' : '');
+            group.appendChild(nameText);
+
+            const typeText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            typeText.className.baseVal = "field-type";
+            typeText.setAttribute("x", x + w - 14);
+            typeText.setAttribute("text-anchor", "end");
+            typeText.setAttribute("y", currentY);
+            typeText.textContent = f.type;
+            group.appendChild(typeText);
+
+            currentY += 18;
+          });
+
+          // Render methods if present in exported SVG
+          if (ent.methods && ent.methods.length) {
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            line.setAttribute("x1", x);
+            line.setAttribute("y1", currentY - 4);
+            line.setAttribute("x2", x + w);
+            line.setAttribute("y2", currentY - 4);
+            line.setAttribute("stroke", "rgba(255,255,255,0.05)");
+            group.appendChild(line);
+            currentY += 10;
+
+            ent.methods.forEach(m => {
+              const signature = `${m.name}(${(m.parameters || []).join(", ")})`;
+              
+              const sigText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+              sigText.setAttribute("x", x + 14);
+              sigText.setAttribute("y", currentY);
+              sigText.setAttribute("fill", "#f4f4f5");
+              sigText.setAttribute("font-size", "10px");
+              sigText.setAttribute("font-family", "monospace");
+              sigText.textContent = signature;
+              group.appendChild(sigText);
+
+              const retText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+              retText.setAttribute("x", x + w - 14);
+              retText.setAttribute("text-anchor", "end");
+              retText.setAttribute("y", currentY);
+              retText.setAttribute("fill", "#67e8f9"); // cyan
+              retText.setAttribute("font-size", "10px");
+              retText.setAttribute("font-family", "monospace");
+              retText.textContent = m.returnType;
+              group.appendChild(retText);
+
+              currentY += 18;
+            });
+          }
+
+          svgEl.appendChild(group);
+        });
+
+        const serializer = new XMLSerializer();
+        const svgString = serializer.serializeToString(svgEl);
+        const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${currentPlanData ? currentPlanData.projectName : 'project'}-class-diagram.svg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+
+      function showUseCaseModal(data) {
+        if (!data) return;
+        renderUseCaseDiagram(data);
+        $("usecase-modal").classList.add("v");
+      }
+
+      function renderUseCaseDiagram(data) {
+        const actorsCol = $("usecase-actors");
+        const listCont = $("usecase-list");
+        const connectionsSvg = $("usecase-connections");
+
+        if (!actorsCol || !listCont || !connectionsSvg) return;
+
+        actorsCol.innerHTML = '';
+        listCont.innerHTML = '';
+        connectionsSvg.innerHTML = '';
+
+        // Handle fallback generation if data has no use cases or actors
+        if ((!data.actors || data.actors.length === 0) && (!data.useCases || data.useCases.length === 0)) {
+          data.actors = [];
+          data.useCases = [];
+          data.useCaseRelationships = [];
+
+          // 1. Detect actors
+          const entityNames = (data.entities || []).map(e => e.name);
+          
+          data.actors.push({ name: "Admin", role: "Administrator of the system" });
+          
+          // Detect other potential actors from entities list
+          const actorCandidates = ["User", "Customer", "Client", "Student", "Teacher", "Member", "Guest", "Employee", "Driver", "Seller", "Buyer"];
+          let secondaryActor = null;
+          for (const cand of actorCandidates) {
+            if (entityNames.some(n => n.toLowerCase() === cand.toLowerCase())) {
+              secondaryActor = cand;
+              break;
+            }
+          }
+          if (!secondaryActor && entityNames.length > 0) {
+            // Find any entity that looks like a person
+            const personEntity = entityNames.find(n => 
+              n.toLowerCase().includes("user") || 
+              n.toLowerCase().includes("member") || 
+              n.toLowerCase().includes("profile") ||
+              n.toLowerCase().includes("customer")
+            );
+            if (personEntity) {
+              secondaryActor = personEntity;
+            }
+          }
+          if (!secondaryActor) {
+            secondaryActor = "User";
+          }
+          if (secondaryActor !== "Admin") {
+            data.actors.push({ name: secondaryActor, role: `Standard ${secondaryActor} role` });
+          }
+
+          // 2. Generate Use Cases from entities and features
+          const features = data.features || [];
+          features.forEach(f => {
+            data.useCases.push({
+              name: f.name,
+              description: f.description || `Feature to support ${f.name}`,
+              actors: [secondaryActor, "Admin"]
+            });
+          });
+
+          // Generate CRUD use cases for entities
+          const entities = data.entities || [];
+          entities.forEach(ent => {
+            const manageUCName = `Manage ${ent.name}s`;
+            data.useCases.push({
+              name: manageUCName,
+              description: `Admin operations to configure and supervise ${ent.name}s`,
+              actors: ["Admin"]
+            });
+
+            if (secondaryActor && secondaryActor !== "Admin") {
+              const viewUCName = `View ${ent.name}s`;
+              data.useCases.push({
+                name: viewUCName,
+                description: `Access and view ${ent.name} information`,
+                actors: [secondaryActor]
+              });
+              
+              data.useCaseRelationships.push({
+                source: manageUCName,
+                target: viewUCName,
+                type: "extend"
+              });
+            }
+          });
+
+          // Ensure we don't have empty use cases
+          if (data.useCases.length === 0) {
+            data.useCases.push({
+              name: "Access System Features",
+              description: "Core interaction with backend services",
+              actors: ["Admin", secondaryActor]
+            });
+          }
+
+          // Sync with global currentPlanData just in case
+          if (currentPlanData && currentPlanData.projectName === data.projectName) {
+            currentPlanData.actors = data.actors;
+            currentPlanData.useCases = data.useCases;
+            currentPlanData.useCaseRelationships = data.useCaseRelationships;
+          }
+        }
+
+        const actors = data.actors || [];
+        const useCases = data.useCases || [];
+        const relationships = data.useCaseRelationships || [];
+
+        if (actors.length === 0 && useCases.length === 0) {
+          listCont.innerHTML = '<div style="color:var(--fg3); font-style:italic; padding: 20px;">No use cases defined in the plan.</div>';
+          return;
+        }
+
+        // Render actors
+        actors.forEach(act => {
+          const card = document.createElement("div");
+          card.className = "actor-card";
+          card.id = "actor-" + act.name.replace(/\s+/g, "_");
+          card.setAttribute("data-name", act.name);
+          card.innerHTML = `
+            <svg width="30" height="40" viewBox="0 0 30 40" style="fill:none; stroke:rgba(59,130,246,0.8); stroke-width:2;">
+              <circle cx="15" cy="8" r="5" />
+              <line x1="15" y1="13" x2="15" y2="28" />
+              <line x1="5" y1="18" x2="25" y2="18" />
+              <line x1="15" y1="28" x2="7" y2="38" />
+              <line x1="15" y1="28" x2="23" y2="38" />
+            </svg>
+            <span style="font-size:11px; font-weight:600; text-align:center;">${act.name}</span>
+          `;
+          actorsCol.appendChild(card);
+        });
+
+        // Render use cases
+        useCases.forEach(uc => {
+          const card = document.createElement("div");
+          card.className = "usecase-card";
+          card.id = "uc-" + uc.name.replace(/\s+/g, "_");
+          card.setAttribute("data-name", uc.name);
+          
+          let html = `<span style="font-size:11px; font-weight:600; color:#f4f4f5;">${uc.name}</span>`;
+          if (uc.description) {
+            html += `<span class="usecase-desc">${uc.description}</span>`;
+          }
+          card.innerHTML = html;
+          listCont.appendChild(card);
+        });
+
+        // Draw connections after elements are layed out
+        setTimeout(() => {
+          drawUseCaseConnections(actors, useCases, relationships);
+          setupUseCaseInteractions();
+        }, 100);
+      }
+
+      function drawUseCaseConnections(actors, useCases, relationships) {
+        const svg = $("usecase-connections");
+        if (!svg) return;
+        svg.innerHTML = '';
+
+        const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+        
+        // Standard line arrowhead for dependencies
+        const marker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+        marker.setAttribute("id", "uc-arrow");
+        marker.setAttribute("viewBox", "0 0 10 10");
+        marker.setAttribute("refX", "8");
+        marker.setAttribute("refY", "5");
+        marker.setAttribute("markerWidth", "6");
+        marker.setAttribute("markerHeight", "6");
+        marker.setAttribute("orient", "auto-start-reverse");
+        const pathArrow = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        pathArrow.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+        pathArrow.setAttribute("fill", "rgba(59, 130, 246, 0.7)");
+        marker.appendChild(pathArrow);
+        defs.appendChild(marker);
+        svg.appendChild(defs);
+
+        const drawn = new Set();
+
+        // 1. Draw Actor to Use Case connections
+        useCases.forEach(uc => {
+          const ucEl = $("uc-" + uc.name.replace(/\s+/g, "_"));
+          if (!ucEl) return;
+          const ucRect = {
+            left: ucEl.offsetLeft,
+            top: ucEl.offsetTop,
+            width: ucEl.offsetWidth,
+            height: ucEl.offsetHeight
+          };
+
+          (uc.actors || []).forEach(actName => {
+            const actEl = $("actor-" + actName.replace(/\s+/g, "_"));
+            if (!actEl) return;
+            const actRect = {
+              left: actEl.offsetLeft,
+              top: actEl.offsetTop,
+              width: actEl.offsetWidth,
+              height: actEl.offsetHeight
+            };
+
+            const key = `${actName}->${uc.name}`;
+            drawn.add(key);
+
+            const path = drawCurveBetweenUCRects(actRect, ucRect, actName, uc.name, "association");
+            svg.appendChild(path);
+          });
+        });
+
+        // 2. Draw explicit Use Case relationships (include, extend)
+        relationships.forEach(rel => {
+          const srcEl = $("uc-" + rel.source.replace(/\s+/g, "_")) || $("actor-" + rel.source.replace(/\s+/g, "_"));
+          const tgtEl = $("uc-" + rel.target.replace(/\s+/g, "_")) || $("actor-" + rel.target.replace(/\s+/g, "_"));
+          if (!srcEl || !tgtEl) return;
+
+          const srcRect = { left: srcEl.offsetLeft, top: srcEl.offsetTop, width: srcEl.offsetWidth, height: srcEl.offsetHeight };
+          const tgtRect = { left: tgtEl.offsetLeft, top: tgtEl.offsetTop, width: tgtEl.offsetWidth, height: tgtEl.offsetHeight };
+
+          const key = `${rel.source}->${rel.target}`;
+          if (drawn.has(key)) return;
+          drawn.add(key);
+
+          const path = drawCurveBetweenUCRects(srcRect, tgtRect, rel.source, rel.target, rel.type);
+          svg.appendChild(path);
+
+          if (rel.type === "include" || rel.type === "extend") {
+            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            const dStr = path.getAttribute("d");
+            const parts = dStr.split(" ");
+            const x1 = parseFloat(parts[1]);
+            const y1 = parseFloat(parts[2]);
+            const x2 = parseFloat(parts[parts.length - 2]);
+            const y2 = parseFloat(parts[parts.length - 1]);
+            
+            text.setAttribute("x", (x1 + x2) / 2);
+            text.setAttribute("y", (y1 + y2) / 2 - 6);
+            text.setAttribute("text-anchor", "middle");
+            text.setAttribute("fill", "#60a5fa");
+            text.setAttribute("font-size", "9px");
+            text.setAttribute("font-weight", "bold");
+            text.textContent = `<<${rel.type}>>`;
+            svg.appendChild(text);
+          }
+        });
+      }
+
+      function drawCurveBetweenUCRects(r1, r2, src, tgt, type) {
+        const c1x = r1.left + r1.width / 2;
+        const c1y = r1.top + r1.height / 2;
+        const c2x = r2.left + r2.width / 2;
+        const c2y = r2.top + r2.height / 2;
+
+        let x1, y1, x2, y2;
+
+        if (Math.abs(c1x - c2x) > Math.abs(c1y - c2y)) {
+          if (c1x < c2x) {
+            x1 = r1.left + r1.width;
+            y1 = c1y;
+            x2 = r2.left;
+            y2 = c2y;
+          } else {
+            x1 = r1.left;
+            y1 = c1y;
+            x2 = r2.left + r2.width;
+            y2 = c2y;
+          }
+        } else {
+          if (c1y < c2y) {
+            x1 = c1x;
+            y1 = r1.top + r1.height;
+            x2 = c2x;
+            y2 = r2.top;
+          } else {
+            x1 = c1x;
+            y1 = r1.top;
+            x2 = c2x;
+            y2 = r2.top + r2.height;
+          }
+        }
+
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const dx = Math.abs(x2 - x1) * 0.4;
+        
+        const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+        path.setAttribute("d", d);
+        path.setAttribute("data-source", src);
+        path.setAttribute("data-target", tgt);
+        path.setAttribute("title", `${src} -> ${tgt} (${type})`);
+
+        if (type === "include" || type === "extend") {
+          path.setAttribute("stroke-dasharray", "4 3");
+          path.style.markerEnd = "url(#uc-arrow)";
+          path.setAttribute("stroke", "rgba(96, 165, 250, 0.8)"); // light blue for relations
+        } else {
+          path.setAttribute("stroke", "rgba(255, 255, 255, 0.35)");
+        }
+
+        return path;
+      }
+
+      function setupUseCaseInteractions() {
+        const actorCards = document.querySelectorAll(".actor-card");
+        const ucCards = document.querySelectorAll(".usecase-card");
+        const paths = document.querySelectorAll("#usecase-connections path");
+
+        function dimAll() {
+          actorCards.forEach(c => c.classList.add("dimmed"));
+          ucCards.forEach(c => c.classList.add("dimmed"));
+          paths.forEach(p => p.classList.add("dimmed"));
+        }
+
+        function restoreAll() {
+          actorCards.forEach(c => { c.classList.remove("dimmed"); c.classList.remove("active"); });
+          ucCards.forEach(c => { c.classList.remove("dimmed"); c.classList.remove("active"); });
+          paths.forEach(p => { p.classList.remove("dimmed"); p.classList.remove("active"); });
+        }
+
+        actorCards.forEach(card => {
+          card.addEventListener("mouseenter", () => {
+            dimAll();
+            card.classList.remove("dimmed");
+            card.classList.add("active");
+
+            const name = card.getAttribute("data-name");
+            paths.forEach(p => {
+              if (p.getAttribute("data-source") === name || p.getAttribute("data-target") === name) {
+                p.classList.remove("dimmed");
+                p.classList.add("active");
+                
+                const other = p.getAttribute("data-source") === name ? p.getAttribute("data-target") : p.getAttribute("data-source");
+                const uc = $("uc-" + other.replace(/\s+/g, "_"));
+                if (uc) {
+                  uc.classList.remove("dimmed");
+                  uc.classList.add("active");
+                }
+              }
+            });
+          });
+
+          card.addEventListener("mouseleave", restoreAll);
+        });
+
+        ucCards.forEach(card => {
+          card.addEventListener("mouseenter", () => {
+            dimAll();
+            card.classList.remove("dimmed");
+            card.classList.add("active");
+
+            const name = card.getAttribute("data-name");
+            paths.forEach(p => {
+              if (p.getAttribute("data-source") === name || p.getAttribute("data-target") === name) {
+                p.classList.remove("dimmed");
+                p.classList.add("active");
+
+                const other = p.getAttribute("data-source") === name ? p.getAttribute("data-target") : p.getAttribute("data-source");
+                const actor = $("actor-" + other.replace(/\s+/g, "_"));
+                if (actor) {
+                  actor.classList.remove("dimmed");
+                  actor.classList.add("active");
+                }
+                const uc = $("uc-" + other.replace(/\s+/g, "_"));
+                if (uc) {
+                  uc.classList.remove("dimmed");
+                  uc.classList.add("active");
+                }
+              }
+            });
+          });
+
+          card.addEventListener("mouseleave", restoreAll);
+        });
+      }
+
+      function exportUseCaseDiagramToSvg() {
+        const svgEl = $("usecase-connections").cloneNode(true);
+        const actors = currentPlanData ? (currentPlanData.actors || []) : [];
+        const useCases = currentPlanData ? (currentPlanData.useCases || []) : [];
+
+        const width = $("usecase-connections").clientWidth || 1000;
+        const height = $("usecase-connections").clientHeight || 800;
+
+        svgEl.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+        svgEl.setAttribute("width", width);
+        svgEl.setAttribute("height", height);
+        svgEl.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+        const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+        style.textContent = `
+            path { stroke: rgba(255, 255, 255, 0.4); stroke-width: 2; fill: none; }
+            path[stroke-dasharray] { stroke: rgba(96, 165, 250, 0.8); stroke-width: 2; }
+            text { font-family: sans-serif; }
+            .actor-box { fill: #1f2937; stroke: rgba(255,255,255,0.15); stroke-width: 1.5; rx: 8px; }
+            .uc-oval { fill: #111827; stroke: #3b82f6; stroke-width: 2; rx: 24px; ry: 24px; }
+            .actor-name { fill: #e4e4e7; font-size: 11px; font-weight: bold; }
+            .uc-name { fill: #f4f4f5; font-size: 11px; font-weight: bold; }
+            .uc-desc { fill: #71717a; font-size: 9px; font-style: italic; }
+            .boundary-rect { fill: rgba(24, 24, 27, 0.4); stroke: rgba(255,255,255,0.15); stroke-width: 2; rx: 12px; }
+            .boundary-title { fill: #e4e4e7; font-size: 11px; font-weight: bold; }
+        `;
+        svgEl.appendChild(style);
+
+        // Draw system boundary
+        const boundaryEl = $("usecase-system-boundary");
+        if (boundaryEl) {
+          const bx = boundaryEl.offsetLeft;
+          const by = boundaryEl.offsetTop;
+          const bw = boundaryEl.offsetWidth;
+          const bh = boundaryEl.offsetHeight;
+
+          const bRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          bRect.className.baseVal = "boundary-rect";
+          bRect.setAttribute("x", bx);
+          bRect.setAttribute("y", by);
+          bRect.setAttribute("width", bw);
+          bRect.setAttribute("height", bh);
+          svgEl.insertBefore(bRect, svgEl.firstChild);
+
+          const bTitle = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          bTitle.className.baseVal = "boundary-title";
+          bTitle.setAttribute("x", bx + 20);
+          bTitle.setAttribute("y", by + 20);
+          bTitle.textContent = "SYSTEM BOUNDARY";
+          svgEl.appendChild(bTitle);
+        }
+
+        // Draw actors
+        actors.forEach(act => {
+          const card = $("actor-" + act.name.replace(/\s+/g, "_"));
+          if (!card) return;
+
+          const x = card.offsetLeft;
+          const y = card.offsetTop;
+          const w = card.offsetWidth;
+          const h = card.offsetHeight;
+
+          const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+          const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          rect.className.baseVal = "actor-box";
+          rect.setAttribute("x", x);
+          rect.setAttribute("y", y);
+          rect.setAttribute("width", w);
+          rect.setAttribute("height", h);
+          group.appendChild(rect);
+
+          const fig = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          fig.setAttribute("stroke", "rgba(59, 130, 246, 0.8)");
+          fig.setAttribute("stroke-width", "2");
+          fig.setAttribute("fill", "none");
+
+          const cx = x + w / 2;
+          const cy = y + 20;
+
+          const head = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          head.setAttribute("cx", cx);
+          head.setAttribute("cy", cy);
+          head.setAttribute("r", "5");
+          fig.appendChild(head);
+
+          const spine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          spine.setAttribute("x1", cx);
+          spine.setAttribute("y1", cy + 5);
+          spine.setAttribute("x2", cx);
+          spine.setAttribute("y2", cy + 20);
+          fig.appendChild(spine);
+
+          const arms = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          arms.setAttribute("x1", cx - 10);
+          arms.setAttribute("y1", cy + 10);
+          arms.setAttribute("x2", cx + 10);
+          arms.setAttribute("y2", cy + 10);
+          fig.appendChild(arms);
+
+          const lleg = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          lleg.setAttribute("x1", cx);
+          lleg.setAttribute("y1", cy + 20);
+          lleg.setAttribute("x2", cx - 8);
+          lleg.setAttribute("y2", cy + 30);
+          fig.appendChild(lleg);
+
+          const rleg = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          rleg.setAttribute("x1", cx);
+          rleg.setAttribute("y1", cy + 20);
+          rleg.setAttribute("x2", cx + 8);
+          rleg.setAttribute("y2", cy + 30);
+          fig.appendChild(rleg);
+
+          group.appendChild(fig);
+
+          const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          text.className.baseVal = "actor-name";
+          text.setAttribute("x", cx);
+          text.setAttribute("y", y + h - 10);
+          text.setAttribute("text-anchor", "middle");
+          text.textContent = act.name;
+          group.appendChild(text);
+
+          svgEl.appendChild(group);
+        });
+
+        // Draw Use Cases
+        useCases.forEach(uc => {
+          const card = $("uc-" + uc.name.replace(/\s+/g, "_"));
+          if (!card) return;
+
+          const x = card.offsetLeft;
+          const y = card.offsetTop;
+          const w = card.offsetWidth;
+          const h = card.offsetHeight;
+
+          const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+
+          const oval = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
+          oval.className.baseVal = "uc-oval";
+          oval.setAttribute("cx", x + w / 2);
+          oval.setAttribute("cy", y + h / 2);
+          oval.setAttribute("rx", w / 2);
+          oval.setAttribute("ry", h / 2);
+          group.appendChild(oval);
+
+          const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          text.className.baseVal = "uc-name";
+          text.setAttribute("x", x + w / 2);
+          text.setAttribute("y", y + h / 2 + (uc.description ? -2 : 4));
+          text.setAttribute("text-anchor", "middle");
+          text.textContent = uc.name;
+          group.appendChild(text);
+
+          if (uc.description) {
+            const desc = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            desc.className.baseVal = "uc-desc";
+            desc.setAttribute("x", x + w / 2);
+            desc.setAttribute("y", y + h / 2 + 10);
+            desc.setAttribute("text-anchor", "middle");
+            desc.textContent = uc.description;
+            group.appendChild(desc);
+          }
+
+          svgEl.appendChild(group);
+        });
+
+        const serializer = new XMLSerializer();
+        const svgString = serializer.serializeToString(svgEl);
+        const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${currentPlanData ? currentPlanData.projectName : 'project'}-usecase-diagram.svg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+
+      window.addEventListener("resize", () => {
+        if ($("diagram-modal").classList.contains("v")) {
+          drawDiagramConnections();
+        }
+        if ($("usecase-modal").classList.contains("v")) {
+          const actors = currentPlanData ? (currentPlanData.actors || []) : [];
+          const useCases = currentPlanData ? (currentPlanData.useCases || []) : [];
+          const relationships = currentPlanData ? (currentPlanData.useCaseRelationships || []) : [];
+          drawUseCaseConnections(actors, useCases, relationships);
+        }
+      });
+
+
+      const $ = (id) => document.getElementById(id);
+      const ag = {
+        P: { c: $("aP"), s: $("sP"), k: $("kP") },
+        C: { c: $("aC"), s: $("sC"), k: $("kC") },
+        D: { c: $("aD"), s: $("sD"), k: $("kD") },
+      };
+
+      // Initialize
+      vscode.postMessage({ command: "getPrompts" });
+      vscode.postMessage({ command: "checkHealth" });
+
+      // Global Event Delegation
+      document.addEventListener("click", (e) => {
+        const hdr = e.target.closest(".sec-hdr");
+        if (hdr) {
+          const targetId = hdr.getAttribute("data-target");
+          if (targetId) toggleSec(targetId, hdr);
+          return;
+        }
+        const link = e.target.closest(".log-link");
+        if (link) {
+          e.preventDefault();
+          openFile(link.getAttribute("data-path"));
+          return;
+        }
+        const copyBtn = e.target.closest(".btn-copy");
+        if (copyBtn) {
+          navigator.clipboard.writeText(
+            copyBtn.previousElementSibling.textContent,
+          );
+          return;
+        }
+        const histHdr = e.target.closest(".hist-hdr");
+        if (histHdr) {
+          const body = histHdr.nextElementSibling;
+          const chevron = histHdr.querySelector(".codicon");
+          const isV = body.classList.toggle("v");
+          chevron.className = isV
+            ? "codicon codicon-chevron-down"
+            : "codicon codicon-chevron-right";
+          return;
+        }
+      });
+
+      // Collapsible
+      window.toggleSec = function (id, hdr) {
+        const b = $(id);
+        const c = hdr.querySelector(".chevron");
+        if (b.classList.contains("collapsed")) {
+          b.classList.remove("collapsed");
+          c.classList.remove("collapsed");
+        } else {
+          b.classList.add("collapsed");
+          c.classList.add("collapsed");
+        }
+      };
+
+      // Prompt History
+      $("btn-prev-p").addEventListener("click", () => {
+        if (
+          promptHistory.length > 0 &&
+          historyIdx < promptHistory.length - 1
+        ) {
+          if (historyIdx === -1 && $("pr").value.trim() !== "") {
+            // Save current typed if any
+          }
+          historyIdx++;
+          $("pr").value = promptHistory[historyIdx];
           updateCounter();
-        });
-
-        // Character / Token Counter
-        $("pr").addEventListener("input", updateCounter);
-        function updateCounter() {
-          const text = $("pr").value;
-          $("char-cnt").textContent = text.length;
-          $("tok-cnt").textContent = Math.ceil(text.length / 4);
         }
+      });
+      $("btn-next-p").addEventListener("click", () => {
+        if (historyIdx > 0) {
+          historyIdx--;
+          $("pr").value = promptHistory[historyIdx];
+        } else if (historyIdx === 0) {
+          historyIdx = -1;
+          $("pr").value = "";
+        }
+        updateCounter();
+      });
 
-        $("btn-chk").addEventListener("click", () => {
-          $("sd").className = "sd chk";
-          $("st").innerHTML = "Checking...";
-          vscode.postMessage({ command: "checkHealth" });
-        });
-        $("bb").addEventListener("click", () => {
-          curPrompt = $("pr").value.trim();
-          if (curPrompt.length < 10) {
-            $("pr").style.outline = "1px solid var(--err)";
-            setTimeout(() => ($("pr").style.outline = ""), 1500);
-            return;
-          }
-          vscode.postMessage({ command: "startBuild", prompt: curPrompt });
-          vscode.postMessage({ command: "savePrompt", prompt: curPrompt });
-        });
-        $("btn-cancel").addEventListener("click", () =>
-          vscode.postMessage({ command: "cancelBuild" }),
+      // Character / Token Counter
+      $("pr").addEventListener("input", updateCounter);
+      function updateCounter() {
+        const text = $("pr").value;
+        $("char-cnt").textContent = text.length;
+        $("tok-cnt").textContent = Math.ceil(text.length / 4);
+      }
+
+      $("btn-chk").addEventListener("click", () => {
+        $("sd").className = "sd chk";
+        $("st").innerHTML = "Checking...";
+        vscode.postMessage({ command: "checkHealth" });
+      });
+      $("bb").addEventListener("click", () => {
+        curPrompt = $("pr").value.trim();
+        if (curPrompt.length < 10) {
+          $("pr").style.outline = "1px solid var(--err)";
+          setTimeout(() => ($("pr").style.outline = ""), 1500);
+          return;
+        }
+        vscode.postMessage({ command: "startBuild", prompt: curPrompt });
+        vscode.postMessage({ command: "savePrompt", prompt: curPrompt });
+      });
+      $("btn-cancel").addEventListener("click", () =>
+        vscode.postMessage({ command: "cancelBuild" }),
+      );
+      $("btn-set").addEventListener("click", () =>
+        vscode.postMessage({ command: "openSettings" }),
+      );
+      $("btn-logs").addEventListener("click", () =>
+        vscode.postMessage({ command: "showLogs" }),
+      );
+
+      function addHistory(title, html) {
+        const e = document.createElement("div");
+        e.className = "hist-card";
+        e.innerHTML = `<div class="hist-hdr"><i class="codicon codicon-chevron-right"></i><h4>${title}</h4><span class="badge">Approved</span></div><div class="hist-body">${html}</div>`;
+        $("hist").appendChild(e);
+        const btns = e.querySelector(".br");
+        if (btns) btns.remove();
+      }
+
+      function approve(action, data) {
+        const apv = $("apv");
+        if (action === "approve") {
+          const title = apv.querySelector("h3")?.innerText || "Decision";
+          addHistory(title, apv.innerHTML);
+        }
+        apv.classList.remove("v");
+        vscode.postMessage({ command: "approve", action, data: data || {} });
+      }
+
+      function showRejectFeedback(step) {
+        const apv = $("apv");
+        let h =
+          '<h3><i class="codicon codicon-edit"></i> What changes are needed?</h3>';
+        h +=
+          '<textarea id="reject-feedback" class="ta" placeholder="Describe the changes needed to the plan..." style="min-height:100px; margin:8px 0"></textarea>';
+        h += '<div class="br" style="margin-top:8px">';
+        h +=
+          '<button class="btn bp" data-action="submit-feedback"><i class="codicon codicon-check"></i> Re-plan with Changes</button>';
+        h +=
+          '<button class="btn bg" data-action="cancel-feedback"><i class="codicon codicon-close"></i> Cancel</button>';
+        h += "</div>";
+        apv.innerHTML = h;
+        setTimeout(() => $("reject-feedback").focus(), 100);
+      }
+
+      function copyText(txt) {
+        navigator.clipboard.writeText(txt);
+      }
+
+      function openFile(path) {
+        vscode.postMessage({ command: "openFile", path });
+      }
+
+      function linkify(msg) {
+        // Simple regex for file paths (starts with / or has an extension and slashes)
+        return msg.replace(
+          /(\/[^\s]+(\.\w+)?)|([a-zA-Z]:\\[^\s]+(\.\w+)?)/g,
+          (match) => {
+            return (
+              '<a href="#" class="log-link" data-path="' +
+              match.replace(/\\/g, "\\\\").replace(/"/g, "&quot;") +
+              '">' +
+              match +
+              "</a>"
+            );
+          },
         );
-        $("btn-set").addEventListener("click", () =>
-          vscode.postMessage({ command: "openSettings" }),
-        );
-        $("btn-logs").addEventListener("click", () =>
-          vscode.postMessage({ command: "showLogs" }),
-        );
+      }
 
-        function addHistory(title, html) {
-          const e = document.createElement("div");
-          e.className = "hist-card";
-          e.innerHTML = `<div class="hist-hdr"><i class="codicon codicon-chevron-right"></i><h4>${title}</h4><span class="badge">Approved</span></div><div class="hist-body">${html}</div>`;
-          $("hist").appendChild(e);
-          const btns = e.querySelector(".br");
-          if (btns) btns.remove();
-        }
+      function log(m, t) {
+        buildLastUpdate = Date.now();
+        const d = new Date().toLocaleTimeString("en-US", {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+        const e = document.createElement("div");
+        e.className = "le" + (t ? " " + t : "");
+        e.innerHTML =
+          '<span class="tm">' +
+          d +
+          '</span><span class="msg">' +
+          linkify(m) +
+          '</span><button class="btn-icon btn-copy" title="Copy"><i class="codicon codicon-copy"></i></button>';
+        $("lf").appendChild(e);
+        $("lf").scrollTop = $("lf").scrollHeight;
 
-        function approve(action, data) {
-          const apv = $("apv");
-          if (action === "approve") {
-            const title = apv.querySelector("h3")?.innerText || "Decision";
-            addHistory(title, apv.innerHTML);
-          }
-          apv.classList.remove("v");
-          vscode.postMessage({ command: "approve", action, data: data || {} });
-        }
-
-        function showRejectFeedback(step) {
-          const apv = $("apv");
-          let h =
-            '<h3><i class="codicon codicon-edit"></i> What changes are needed?</h3>';
-          h +=
-            '<textarea id="reject-feedback" class="ta" placeholder="Describe the changes needed to the plan..." style="min-height:100px; margin:8px 0"></textarea>';
-          h += '<div class="br" style="margin-top:8px">';
-          h +=
-            '<button class="btn bp" data-action="submit-feedback"><i class="codicon codicon-check"></i> Re-plan with Changes</button>';
-          h +=
-            '<button class="btn bg" data-action="cancel-feedback"><i class="codicon codicon-close"></i> Cancel</button>';
-          h += "</div>";
-          apv.innerHTML = h;
-          setTimeout(() => $("reject-feedback").focus(), 100);
-        }
-
-        function copyText(txt) {
-          navigator.clipboard.writeText(txt);
-        }
-
-        function openFile(path) {
-          vscode.postMessage({ command: "openFile", path });
-        }
-
-        function linkify(msg) {
-          // Simple regex for file paths (starts with / or has an extension and slashes)
-          return msg.replace(
-            /(\/[^\s]+(\.\w+)?)|([a-zA-Z]:\\[^\s]+(\.\w+)?)/g,
-            (match) => {
-              return (
-                '<a href="#" class="log-link" data-path="' +
-                match.replace(/\\/g, "\\\\").replace(/"/g, "&quot;") +
-                '">' +
-                match +
-                "</a>"
-              );
-            },
+        // Auto-expand logs if it's an error
+        if (t === "er" && $("logs-body").classList.contains("collapsed")) {
+          toggleSec(
+            "logs-body",
+            document.querySelector("#sec-logs .sec-hdr"),
           );
         }
-
-        function log(m, t) {
-          buildLastUpdate = Date.now();
-          const d = new Date().toLocaleTimeString("en-US", {
-            hour12: false,
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-          });
-          const e = document.createElement("div");
-          e.className = "le" + (t ? " " + t : "");
-          e.innerHTML =
-            '<span class="tm">' +
-            d +
-            '</span><span class="msg">' +
-            linkify(m) +
-            '</span><button class="btn-icon btn-copy" title="Copy"><i class="codicon codicon-copy"></i></button>';
-          $("lf").appendChild(e);
-          $("lf").scrollTop = $("lf").scrollHeight;
-
-          // Auto-expand logs if it's an error
-          if (t === "er" && $("logs-body").classList.contains("collapsed")) {
-            toggleSec(
-              "logs-body",
-              document.querySelector("#sec-logs .sec-hdr"),
-            );
-          }
-        }
-
-        function rst() {
-          Object.values(ag).forEach((a) => {
-            a.c.className = "ac";
-            a.s.textContent = "Waiting";
-            a.k.innerHTML = "";
-          });
-          stopTimer();
-          $("lf").innerHTML = "";
-          $("hist").innerHTML = "";
-          buildLastUpdate = Date.now();
-          if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
-          buildTimeoutTimer = setInterval(checkTimeout, 1000);
-        }
-
-        function checkTimeout() {
-          if (buildLastUpdate > 0 && Date.now() - buildLastUpdate > 30000) {
-            // 30s timeout
-            $("st").innerHTML = "<b>Warning</b> · No response from backend";
-            $("sd").className = "sd chk";
-          }
-        }
-
-        function startTimer(k) {
-          stopTimer();
-          activeAgentKey = k;
-          activeAgentStart = Date.now();
-          activeAgentTimer = setInterval(() => {
-            if (!activeAgentKey) return;
-            const secs = Math.floor((Date.now() - activeAgentStart) / 1000);
-            ag[activeAgentKey].k.innerHTML =
-              secs + 's <i class="codicon sp codicon-sync"></i>';
-          }, 1000);
-        }
-
-        function stopTimer() {
-          if (activeAgentTimer) {
-            clearInterval(activeAgentTimer);
-            activeAgentTimer = null;
-          }
-          activeAgentKey = null;
-        }
-
-        function aAct(k, m) {
-          if (activeAgentKey !== k) startTimer(k);
-          ag[k].c.className = "ac act";
-          ag[k].s.textContent = m || "Working...";
-        }
-        function aDn(k, m) {
-          if (activeAgentKey === k) stopTimer();
-          ag[k].c.className = "ac ok";
-          ag[k].s.textContent = m || "Done";
-          ag[k].k.innerHTML = '<i class="codicon codicon-check"></i>';
-        }
-        function aEr(k, m) {
-          if (activeAgentKey === k) stopTimer();
-          ag[k].c.className = "ac fail";
-          ag[k].s.textContent = m || "Error";
-          ag[k].k.innerHTML = '<i class="codicon codicon-error"></i>';
-        }
-
-        function phase(m, p) {
-          const l = m.toLowerCase();
-          if (
-            l.includes("planning") ||
-            l.includes("plan ready") ||
-            l.includes("plan approved")
-          ) {
-            if (p <= 10) aAct("P", m.replace(/[🧠📋]/g, "").trim());
-            else aDn("P");
-            return "Planning";
-          }
-          if (l.includes("structure")) {
-            aDn("P");
-            return "Scaffolding";
-          }
-          if (l.includes("generating")) {
-            aDn("P");
-            aAct("C", m.replace(/[⚙️]/g, "").trim());
-            return "Generating";
-          }
-          if (l.includes("debug") || l.includes("attempt")) {
-            aDn("P");
-            aDn("C");
-            aAct("D", m.replace(/[🔍🔧]/g, "").trim());
-            return "Debugging";
-          }
-          if (l.includes("fix") || l.includes("applying")) {
-            aAct("D", m.replace(/[🔧]/g, "").trim());
-            return "Fixing";
-          }
-          if (l.includes("complete") || l.includes("✅")) {
-            aDn("P");
-            aDn("C");
-            aDn("D");
-            return "Complete";
-          }
-          if (l.includes("failed") || l.includes("❌")) return "Error";
-          return $("ph").textContent;
-        }
-
-        // Result card event delegation
-        $("rc").addEventListener("click", (e) => {
-          const btn = e.target.closest(".btn");
-          if (btn) {
-            const cmd = btn.getAttribute("data-cmd");
-            if (cmd === "openFolder")
-              vscode.postMessage({
-                command: "openFolder",
-                path: btn.getAttribute("data-path"),
-              });
-            if (cmd === "showLogs") vscode.postMessage({ command: "showLogs" });
-            if (cmd === "retryBuild")
-              vscode.postMessage({ command: "retryBuild", prompt: curPrompt });
-            return;
-          }
-
-          // Expandable errors
-          if (e.target.classList.contains("err-expand")) {
-            const content = e.target.nextElementSibling;
-            if (content.style.display === "none") {
-              content.style.display = "block";
-              e.target.innerHTML =
-                '<i class="codicon codicon-chevron-up"></i> Hide details';
-            } else {
-              content.style.display = "none";
-              e.target.innerHTML =
-                '<i class="codicon codicon-chevron-down"></i> Show details';
-            }
-          }
-        });
-
-        // Approval delegation
-        $("apv").addEventListener("click", (e) => {
-          const btn = e.target.closest(".btn");
-          if (!btn) return;
-          const action = btn.getAttribute("data-action");
-          if (action === "reject") {
-            showRejectFeedback("plan");
-          } else if (action === "submit-feedback") {
-            const feedback = $("reject-feedback").value;
-            if (feedback.trim()) {
-              approve("reject", { feedback: feedback.trim() });
-            } else {
-              alert("Please provide feedback about what changes are needed.");
-            }
-          } else if (action === "cancel-feedback") {
-            // Re-show the approval dialog instead of hiding it
-            showApproval("plan", currentPlanData);
-          } else if (action === "view-json") {
-            showJsonModal(currentPlanData);
-          } else if (action) {
-            approve(action);
-          }
-        });
-
-        // JSON Modal delegation
-        $("json-modal").addEventListener("click", (e) => {
-          const closeBtn = e.target.closest(".close-btn");
-          if (closeBtn) {
-            $("json-modal").classList.remove("v");
-            return;
-          }
-          if (e.target.id === "json-modal") {
-            $("json-modal").classList.remove("v");
-          }
-        });
-
-        // Close JSON modal on escape key
-        document.addEventListener("keydown", (e) => {
-          if (e.key === "Escape" && $("json-modal").classList.contains("v")) {
-            $("json-modal").classList.remove("v");
-          }
-        });
-
-        function showJsonModal(data) {
-          if (!data) return;
-          const jsonContent = $("json-content");
-          jsonContent.textContent = JSON.stringify(data, null, 2);
-          $("json-modal").classList.add("v");
-        }
-
-        function showApproval(step, d) {
-          stopTimer(); // Pause timer while waiting
-          if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
-
-          const a = $("apv");
-          let h = "";
-          if (step === "plan") {
-            h =
-              '<h3><i class="codicon codicon-note"></i> Review Project Plan</h3><div class="desc">Project: <b>' +
-              d.projectName +
-              "</b></div>";
-            if (d.entities && d.entities.length) {
-              h +=
-                '<div class="lbl" style="margin-top:6px">Entities (' +
-                d.entities.length +
-                ')</div><div class="detail-list">';
-              d.entities.forEach((e) => {
-                h +=
-                  '<div class="item"><i class="codicon codicon-symbol-class" style="margin-right:6px"></i> <div><b>' +
-                  e.name +
-                  "</b>" +
-                  (e.description
-                    ? '<br><span style="color:var(--fg3)">' +
-                      e.description +
-                      "</span>"
-                    : "") +
-                  "</div></div>";
-              });
-              h += "</div>";
-            }
-            if (d.features && d.features.length) {
-              h +=
-                '<div class="lbl" style="margin-top:6px">Features (' +
-                d.features.length +
-                ')</div><div class="detail-list">';
-              d.features.forEach((f) => {
-                h +=
-                  '<div class="item"><i class="codicon codicon-sparkle" style="margin-right:6px"></i> <div><b>' +
-                  f.name +
-                  '</b><br><span style="color:var(--fg3)">' +
-                  f.description +
-                  "</span></div></div>";
-              });
-              h += "</div>";
-            }
-            if (d.files && d.files.length) {
-              h +=
-                '<div class="lbl" style="margin-top:6px">Files (' +
-                d.files.length +
-                ')</div><div class="detail-list">';
-              d.files.forEach((f) => {
-                h +=
-                  '<div class="item"><i class="codicon codicon-file-code" style="margin-right:6px"></i> ' +
-                  f.path +
-                  "</div>";
-              });
-              h += "</div>";
-            }
-            h +=
-              '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-check"></i> Approve & Continue</button><button class="btn bg" data-action="reject"><i class="codicon codicon-edit"></i> Reject & Modify</button><button class="btn bg" data-action="view-json" title="View raw JSON"><i class="codicon codicon-json"></i> JSON View</button></div>';
-            currentPlanData = d;
-          } else if (step === "codegen_error") {
-            h =
-              '<h3><i class="codicon codicon-error"></i> File Generation Failed</h3><div class="desc">' +
-              d.explanation +
-              "</div>";
-            h +=
-              '<div class="detail-list" style="margin-top:6px"><div class="item" style="color:var(--err)">File: ' +
-              d.file +
-              '</div><div class="item" style="color:var(--err)">Error: ' +
-              d.error +
-              "</div></div>";
-            h +=
-              '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="retry"><i class="codicon codicon-refresh"></i> Retry</button><button class="btn bg" data-action="skip"><i class="codicon codicon-debug-step-over"></i> Skip</button><button class="btn bd" data-action="cancel">Cancel</button></div>';
-          } else if (step === "pre_debug") {
-            h =
-              '<h3><i class="codicon codicon-pass"></i> Code Generation Complete</h3><div class="desc">' +
-              d.message +
-              "</div>";
-            if (d.fileList) {
-              h += '<div class="detail-list" style="margin-top:6px">';
-              d.fileList.forEach((f) => {
-                h +=
-                  '<div class="item" style="color:var(--ok)"><i class="codicon codicon-check" style="margin-right:6px"></i> ' +
-                  f +
-                  "</div>";
-              });
-              h += "</div>";
-            }
-            h +=
-              '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-play"></i> Run Debug Phase</button><button class="btn bd" data-action="cancel">Skip Debug</button></div>';
-          } else if (step === "debug_fix") {
-            h =
-              '<h3><i class="codicon codicon-wrench"></i> Debug Fixes Proposed</h3><div class="desc">' +
-              d.explanation +
-              "</div>";
-            if (d.errors) {
-              h +=
-                '<div class="lbl" style="margin-top:6px">Errors Found</div><div class="detail-list">';
-              d.errors.forEach((e) => {
-                h +=
-                  '<div class="item diff-rem"><i class="codicon codicon-error" style="margin-right:6px"></i> ' +
-                  e.substring(0, 150) +
-                  "...</div>";
-              });
-              h += "</div>";
-            }
-            if (d.fixes) {
-              h +=
-                '<div class="lbl" style="margin-top:6px">Proposed Fixes</div><div class="detail-list">';
-              d.fixes.forEach((f) => {
-                h +=
-                  '<div class="item diff-add"><i class="codicon codicon-file-code" style="margin-right:6px"></i> <div><b>' +
-                  f.file +
-                  '</b><br><span style="opacity:0.8">' +
-                  f.issue +
-                  "</span></div></div>";
-              });
-              h += "</div>";
-            }
-            h +=
-              '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-check"></i> Apply Fixes</button><button class="btn bg" data-action="skip"><i class="codicon codicon-debug-step-over"></i> Skip</button><button class="btn bd" data-action="cancel">Cancel</button></div>';
-          }
-          a.innerHTML = h;
-          a.classList.add("v");
-          // Ensure parent section is open
-          $("pipe-body").classList.remove("collapsed");
-          document
-            .querySelector("#pipe-body")
-            .previousElementSibling.querySelector(".chevron")
-            .classList.remove("collapsed");
-        }
-
-        window.addEventListener("message", (ev) => {
-          const m = ev.data;
-          switch (m.command) {
-            case "promptHistory":
-              promptHistory = m.prompts || [];
-              historyIdx = -1;
-              break;
-            case "healthStatus":
-              if (m.status === "connected") {
-                $("sd").className = "sd on";
-                $("st").innerHTML =
-                  "<b>Connected</b> · " +
-                  (m.ollama === "connected"
-                    ? 'Ollama <i class="codicon codicon-check"></i>'
-                    : 'Ollama <i class="codicon codicon-error"></i>');
-                if (buildLastUpdate && Date.now() - buildLastUpdate > 30000)
-                  buildLastUpdate = Date.now(); // reset timeout logic
-              } else {
-                $("sd").className = "sd off";
-                $("st").innerHTML = "<b>Disconnected</b> · " + m.url;
-              }
-              break;
-            case "buildStarted":
-              $("bb").disabled = true;
-              $("cr").classList.remove("h");
-              $("inp").style.opacity = ".5";
-              $("inp").style.pointerEvents = "none";
-              $("ps").classList.add("v");
-              $("lf").classList.remove("h");
-              $("rc").classList.remove("v");
-              $("apv").classList.remove("v");
-              rst();
-              $("pf").style.width = "0%";
-              $("pc").textContent = "0%";
-              log("Build started...");
-              $("logs-body").classList.remove("h");
-              break;
-            case "buildProgress":
-              $("pf").style.width = m.progress + "%";
-              $("pc").textContent = m.progress + "%";
-              $("pm").textContent = m.message;
-              $("ph").textContent = phase(m.message, m.progress);
-              log(m.message.replace(/[🧠📋📁⚙️🔍🔧✅❌]/g, "").trim());
-              break;
-            case "approvalNeeded":
-              showApproval(m.step, m.details);
-              log("Waiting for approval: " + m.step, "fx");
-              break;
-            case "fileGenerated":
-              if (m.status === "success")
-                log(m.path + " (" + m.chars + " chars)", "ok");
-              else if (m.status === "skipped") log("Skipped: " + m.path, "er");
-              else log("Failed: " + m.path, "er");
-              break;
-            case "fixApplied":
-              log("Fixed: " + m.file + " (" + m.type + ") — " + m.issue, "fx");
-              break;
-            case "buildComplete": {
-              stopTimer();
-              if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
-              $("bb").disabled = false;
-              $("cr").classList.add("h");
-              $("inp").style.opacity = "1";
-              $("inp").style.pointerEvents = "auto";
-              $("pf").style.width = "100%";
-              $("pc").textContent = "100%";
-              $("apv").classList.remove("v");
-              const r = m.result,
-                rc = $("rc");
-              if (r.success) {
-                aDn("P");
-                aDn("C");
-                aDn("D");
-                rc.innerHTML =
-                  '<div style="display:flex;align-items:center;gap:6px;color:var(--ok)"><i class="codicon codicon-pass ri"></i><span class="rt">' +
-                  r.projectName +
-                  '</span></div><div class="rs"><div class="stat"><div class="sv">' +
-                  r.filesGenerated +
-                  '</div><div class="sl">Files</div></div><div class="stat"><div class="sv">' +
-                  r.debugAttempts +
-                  '</div><div class="sl">Cycles</div></div><div class="stat"><div class="sv">' +
-                  (r.duration / 1000).toFixed(1) +
-                  's</div><div class="sl">Time</div></div><div class="stat"><div class="sv" style="color:var(--ok)"><i class="codicon codicon-check"></i></div><div class="sl">Status</div></div></div><div class="br" style="margin-top:4px"><button class="btn bp" data-cmd="openFolder" data-path="' +
-                  r.projectRoot.replace(/\\/g, "\\\\") +
-                  '"><i class="codicon codicon-folder-opened"></i> Open Project</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>';
-                log("Build succeeded!", "ok");
-              } else {
-                aEr("D", "Failed");
-                let errs = "";
-                if (r.errors && r.errors.length) {
-                  errs =
-                    '<div class="err-expand" style="font-size:10px;color:var(--focus);cursor:pointer;margin-top:4px"><i class="codicon codicon-chevron-down"></i> Show details</div><div class="detail-list" style="display:none;margin-top:4px">' +
-                    r.errors
-                      .map(
-                        (e) =>
-                          '<div class="item" style="color:var(--err)">' +
-                          linkify(e) +
-                          "</div>",
-                      )
-                      .join("") +
-                    "</div>";
-                }
-                rc.innerHTML =
-                  '<div style="display:flex;align-items:center;gap:6px;color:var(--err)"><i class="codicon codicon-error ri"></i><span class="rt">Build Failed</span></div><div class="rs"><div class="stat"><div class="sv">' +
-                  r.debugAttempts +
-                  '</div><div class="sl">Attempts</div></div><div class="stat"><div class="sv">' +
-                  (r.duration / 1000).toFixed(1) +
-                  's</div><div class="sl">Time</div></div></div>' +
-                  errs +
-                  '<div class="br" style="margin-top:4px"><button class="btn bp" data-cmd="retryBuild"><i class="codicon codicon-refresh"></i> Retry</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>';
-                log("Build failed", "er");
-              }
-              rc.classList.add("v");
-              $("ph").textContent = r.success ? "Complete" : "Failed";
-              break;
-            }
-            case "buildCancelled":
-              stopTimer();
-              if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
-              $("bb").disabled = false;
-              $("cr").classList.add("h");
-              $("inp").style.opacity = "1";
-              $("inp").style.pointerEvents = "auto";
-              $("apv").classList.remove("v");
-              $("pm").textContent = "Cancelled";
-              log("Cancelled by user", "er");
-              break;
-            case "buildError":
-              stopTimer();
-              if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
-              $("bb").disabled = false;
-              $("cr").classList.add("h");
-              $("inp").style.opacity = "1";
-              $("inp").style.pointerEvents = "auto";
-              $("apv").classList.remove("v");
-              $("pm").textContent = m.error;
-              log("Error: " + m.error, "er");
-              break;
-          }
-        });
-      } catch (err) {
-        dbg("SCRIPT ERROR: " + err.message);
       }
-    </script>
-  </body>
+
+      function rst() {
+        Object.values(ag).forEach((a) => {
+          a.c.className = "ac";
+          a.s.textContent = "Waiting";
+          a.k.innerHTML = "";
+        });
+        stopTimer();
+        $("lf").innerHTML = "";
+        $("hist").innerHTML = "";
+        buildLastUpdate = Date.now();
+        if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
+        buildTimeoutTimer = setInterval(checkTimeout, 1000);
+      }
+
+      function checkTimeout() {
+        if (buildLastUpdate > 0 && Date.now() - buildLastUpdate > 30000) {
+          // 30s timeout
+          $("st").innerHTML = "<b>Warning</b> · No response from backend";
+          $("sd").className = "sd chk";
+        }
+      }
+
+      function startTimer(k) {
+        stopTimer();
+        activeAgentKey = k;
+        activeAgentStart = Date.now();
+        activeAgentTimer = setInterval(() => {
+          if (!activeAgentKey) return;
+          const secs = Math.floor((Date.now() - activeAgentStart) / 1000);
+          ag[activeAgentKey].k.innerHTML =
+            secs + 's <i class="codicon sp codicon-sync"></i>';
+        }, 1000);
+      }
+
+      function stopTimer() {
+        if (activeAgentTimer) {
+          clearInterval(activeAgentTimer);
+          activeAgentTimer = null;
+        }
+        activeAgentKey = null;
+      }
+
+      function aAct(k, m) {
+        if (activeAgentKey !== k) startTimer(k);
+        ag[k].c.className = "ac act";
+        ag[k].s.textContent = m || "Working...";
+      }
+      function aDn(k, m) {
+        if (activeAgentKey === k) stopTimer();
+        ag[k].c.className = "ac ok";
+        ag[k].s.textContent = m || "Done";
+        ag[k].k.innerHTML = '<i class="codicon codicon-check"></i>';
+      }
+      function aEr(k, m) {
+        if (activeAgentKey === k) stopTimer();
+        ag[k].c.className = "ac fail";
+        ag[k].s.textContent = m || "Error";
+        ag[k].k.innerHTML = '<i class="codicon codicon-error"></i>';
+      }
+
+      function phase(m, p) {
+        const l = m.toLowerCase();
+        if (
+          l.includes("planning") ||
+          l.includes("plan ready") ||
+          l.includes("plan approved")
+        ) {
+          if (p <= 10) aAct("P", m.replace(/[🧠📋]/g, "").trim());
+          else aDn("P");
+          return "Planning";
+        }
+        if (l.includes("structure")) {
+          aDn("P");
+          return "Scaffolding";
+        }
+        if (l.includes("generating")) {
+          aDn("P");
+          aAct("C", m.replace(/[⚙️]/g, "").trim());
+          return "Generating";
+        }
+        if (l.includes("debug") || l.includes("attempt")) {
+          aDn("P");
+          aDn("C");
+          aAct("D", m.replace(/[🔍🔧]/g, "").trim());
+          return "Debugging";
+        }
+        if (l.includes("fix") || l.includes("applying")) {
+          aAct("D", m.replace(/[🔧]/g, "").trim());
+          return "Fixing";
+        }
+        if (l.includes("complete") || l.includes("✅")) {
+          aDn("P");
+          aDn("C");
+          aDn("D");
+          return "Complete";
+        }
+        if (l.includes("failed") || l.includes("❌")) return "Error";
+        return $("ph").textContent;
+      }
+
+      // Result card event delegation
+      $("rc").addEventListener("click", (e) => {
+        const btn = e.target.closest(".btn");
+        if (btn) {
+          const cmd = btn.getAttribute("data-cmd");
+          if (cmd === "openFolder")
+            vscode.postMessage({
+              command: "openFolder",
+              path: btn.getAttribute("data-path"),
+            });
+          if (cmd === "showLogs") vscode.postMessage({ command: "showLogs" });
+          if (cmd === "view-diagram") {
+            showDiagramModal(currentPlanData);
+          }
+          if (cmd === "view-usecase") {
+            showUseCaseModal(currentPlanData);
+          }
+          if (cmd === "retryBuild")
+            vscode.postMessage({ command: "retryBuild", prompt: curPrompt });
+          return;
+        }
+
+        // Expandable errors
+        if (e.target.classList.contains("err-expand")) {
+          const content = e.target.nextElementSibling;
+          if (content.style.display === "none") {
+            content.style.display = "block";
+            e.target.innerHTML =
+              '<i class="codicon codicon-chevron-up"></i> Hide details';
+          } else {
+            content.style.display = "none";
+            e.target.innerHTML =
+              '<i class="codicon codicon-chevron-down"></i> Show details';
+          }
+        }
+      });
+
+      // Approval delegation
+      $("apv").addEventListener("click", (e) => {
+        const btn = e.target.closest(".btn");
+        if (!btn) return;
+        const action = btn.getAttribute("data-action");
+        if (action === "reject") {
+          showRejectFeedback("plan");
+        } else if (action === "submit-feedback") {
+          const feedback = $("reject-feedback").value;
+          if (feedback.trim()) {
+            $("pm").textContent = "🔄 Re-planning with changes...";
+            $("pf").style.width = "10%";
+            $("pc").textContent = "10%";
+            startPlanningProgress();
+            approve("reject", { feedback: feedback.trim() });
+          } else {
+            alert("Please provide feedback about what changes are needed.");
+          }
+        } else if (action === "cancel-feedback") {
+          // Re-show the approval dialog instead of hiding it
+          showApproval("plan", currentPlanData);
+        } else if (action === "view-diagram") {
+          showDiagramModal(currentPlanData);
+        } else if (action === "view-usecase") {
+          showUseCaseModal(currentPlanData);
+        } else if (action === "view-json") {
+          showJsonModal(currentPlanData);
+        } else if (action) {
+          approve(action);
+        }
+      });
+
+      // Diagram Modal delegation
+      $("diagram-modal").addEventListener("click", (e) => {
+        const closeBtn = e.target.closest(".close-btn") || e.target.closest("#close-diagram");
+        if (closeBtn) {
+          $("diagram-modal").classList.remove("v");
+          return;
+        }
+        if (e.target.id === "diagram-modal") {
+          $("diagram-modal").classList.remove("v");
+        }
+      });
+
+      $("btn-export-diagram").addEventListener("click", () => {
+        exportDiagramToSvg();
+      });
+
+      // Use Case Modal delegation
+      $("usecase-modal").addEventListener("click", (e) => {
+        const closeBtn = e.target.closest(".close-btn") || e.target.closest("#close-usecase");
+        if (closeBtn) {
+          $("usecase-modal").classList.remove("v");
+          return;
+        }
+        if (e.target.id === "usecase-modal") {
+          $("usecase-modal").classList.remove("v");
+        }
+      });
+
+      $("btn-export-usecase").addEventListener("click", () => {
+        exportUseCaseDiagramToSvg();
+      });
+
+      // JSON Modal delegation
+      $("json-modal").addEventListener("click", (e) => {
+        const closeBtn = e.target.closest(".close-btn");
+        if (closeBtn) {
+          $("json-modal").classList.remove("v");
+          return;
+        }
+        if (e.target.id === "json-modal") {
+          $("json-modal").classList.remove("v");
+        }
+      });
+
+      // Close modals on escape key
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          if ($("json-modal").classList.contains("v")) {
+            $("json-modal").classList.remove("v");
+          }
+          if ($("diagram-modal").classList.contains("v")) {
+            $("diagram-modal").classList.remove("v");
+          }
+          if ($("usecase-modal").classList.contains("v")) {
+            $("usecase-modal").classList.remove("v");
+          }
+        }
+      });
+
+      function showJsonModal(data) {
+        if (!data) return;
+        const jsonContent = $("json-content");
+        jsonContent.textContent = JSON.stringify(data, null, 2);
+        $("json-modal").classList.add("v");
+      }
+
+      function showApproval(step, d) {
+        stopTimer(); // Pause timer while waiting
+        if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
+
+        const a = $("apv");
+        let h = "";
+        if (step === "plan") {
+          h =
+            '<h3><i class="codicon codicon-note"></i> Review Project Plan</h3><div class="desc">Project: <b>' +
+            d.projectName +
+            "</b></div>";
+          if (d.entities && d.entities.length) {
+            h +=
+              '<div class="lbl" style="margin-top:6px">Entities (' +
+              d.entities.length +
+              ')</div><div class="detail-list">';
+            d.entities.forEach((e) => {
+              h +=
+                '<div class="item"><i class="codicon codicon-symbol-class" style="margin-right:6px"></i> <div><b>' +
+                e.name +
+                "</b>" +
+                (e.description
+                  ? '<br><span style="color:var(--fg3)">' +
+                  e.description +
+                  "</span>"
+                  : "") +
+                "</div></div>";
+            });
+            h += "</div>";
+          }
+          if (d.features && d.features.length) {
+            h +=
+              '<div class="lbl" style="margin-top:6px">Features (' +
+              d.features.length +
+              ')</div><div class="detail-list">';
+            d.features.forEach((f) => {
+              h +=
+                '<div class="item"><i class="codicon codicon-sparkle" style="margin-right:6px"></i> <div><b>' +
+                f.name +
+                '</b><br><span style="color:var(--fg3)">' +
+                f.description +
+                "</span></div></div>";
+            });
+            h += "</div>";
+          }
+          if (d.files && d.files.length) {
+            h +=
+              '<div class="lbl" style="margin-top:6px">Files (' +
+              d.files.length +
+              ')</div><div class="detail-list">';
+            d.files.forEach((f) => {
+              h +=
+                '<div class="item"><i class="codicon codicon-file-code" style="margin-right:6px"></i> ' +
+                f.path +
+                "</div>";
+            });
+            h += "</div>";
+          }
+          h +=
+            '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-check"></i> Approve & Continue</button><button class="btn bg" data-action="reject"><i class="codicon codicon-edit"></i> Reject & Modify</button><button class="btn bg" data-action="view-json" title="View raw JSON"><i class="codicon codicon-json"></i> JSON View</button></div>' +
+            '<div class="visual-models-hdr" style="margin-top: 14px; margin-bottom: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg3);">Visual Models</div>' +
+            '<div class="br" style="margin-top:4px"><button class="btn bg" data-action="view-diagram" style="flex: 1;"><i class="codicon codicon-symbol-class"></i> View Class Diagram</button><button class="btn bg" data-action="view-usecase" style="flex: 1;"><i class="codicon codicon-person"></i> View Use Case Diagram</button></div>';
+          currentPlanData = d;
+        } else if (step === "codegen_error") {
+          h =
+            '<h3><i class="codicon codicon-error"></i> File Generation Failed</h3><div class="desc">' +
+            d.explanation +
+            "</div>";
+          h +=
+            '<div class="detail-list" style="margin-top:6px"><div class="item" style="color:var(--err)">File: ' +
+            d.file +
+            '</div><div class="item" style="color:var(--err)">Error: ' +
+            d.error +
+            "</div></div>";
+          h +=
+            '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="retry"><i class="codicon codicon-refresh"></i> Retry</button><button class="btn bg" data-action="skip"><i class="codicon codicon-debug-step-over"></i> Skip</button><button class="btn bd" data-action="cancel">Cancel</button></div>';
+        } else if (step === "pre_debug") {
+          h =
+            '<h3><i class="codicon codicon-pass"></i> Code Generation Complete</h3><div class="desc">' +
+            d.message +
+            "</div>";
+          if (d.fileList) {
+            h += '<div class="detail-list" style="margin-top:6px">';
+            d.fileList.forEach((f) => {
+              h +=
+                '<div class="item" style="color:var(--ok)"><i class="codicon codicon-check" style="margin-right:6px"></i> ' +
+                f +
+                "</div>";
+            });
+            h += "</div>";
+          }
+          h +=
+            '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-play"></i> Run Debug Phase</button><button class="btn bd" data-action="cancel">Skip Debug</button></div>';
+        } else if (step === "debug_fix") {
+          h =
+            '<h3><i class="codicon codicon-wrench"></i> Debug Fixes Proposed</h3><div class="desc">' +
+            d.explanation +
+            "</div>";
+          if (d.errors) {
+            h +=
+              '<div class="lbl" style="margin-top:6px">Errors Found</div><div class="detail-list">';
+            d.errors.forEach((e) => {
+              h +=
+                '<div class="item diff-rem"><i class="codicon codicon-error" style="margin-right:6px"></i> ' +
+                e.substring(0, 150) +
+                "...</div>";
+            });
+            h += "</div>";
+          }
+          if (d.fixes) {
+            h +=
+              '<div class="lbl" style="margin-top:6px">Proposed Fixes</div><div class="detail-list">';
+            d.fixes.forEach((f) => {
+              h +=
+                '<div class="item diff-add"><i class="codicon codicon-file-code" style="margin-right:6px"></i> <div><b>' +
+                f.file +
+                '</b><br><span style="opacity:0.8">' +
+                f.issue +
+                "</span></div></div>";
+            });
+            h += "</div>";
+          }
+          h +=
+            '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-check"></i> Apply Fixes</button><button class="btn bg" data-action="skip"><i class="codicon codicon-debug-step-over"></i> Skip</button><button class="btn bd" data-action="cancel">Cancel</button></div>';
+        }
+        a.innerHTML = h;
+        a.classList.add("v");
+        // Ensure parent section is open
+        $("pipe-body").classList.remove("collapsed");
+        document
+          .querySelector("#pipe-body")
+          .previousElementSibling.querySelector(".chevron")
+          .classList.remove("collapsed");
+      }
+
+      window.addEventListener("message", (ev) => {
+        const m = ev.data;
+        switch (m.command) {
+          case "promptHistory":
+            promptHistory = m.prompts || [];
+            historyIdx = -1;
+            break;
+          case "healthStatus":
+            if (m.status === "connected") {
+              $("sd").className = "sd on";
+              $("st").innerHTML =
+                "<b>Connected</b> · " +
+                (m.ollama === "connected"
+                  ? 'Ollama <i class="codicon codicon-check"></i>'
+                  : 'Ollama <i class="codicon codicon-error"></i>');
+              if (buildLastUpdate && Date.now() - buildLastUpdate > 30000)
+                buildLastUpdate = Date.now(); // reset timeout logic
+            } else {
+              $("sd").className = "sd off";
+              $("st").innerHTML = "<b>Disconnected</b> · " + m.url;
+            }
+            break;
+          case "buildStarted":
+            $("bb").disabled = true;
+            $("cr").classList.remove("h");
+            $("inp").style.opacity = ".5";
+            $("inp").style.pointerEvents = "none";
+            $("ps").classList.add("v");
+            $("lf").classList.remove("h");
+            $("rc").classList.remove("v");
+            $("apv").classList.remove("v");
+            rst();
+            $("pf").style.width = "0%";
+            $("pc").textContent = "0%";
+            log("Build started...");
+            $("logs-body").classList.remove("h");
+            startPlanningProgress();
+            break;
+          case "buildProgress":
+            $("pf").style.width = m.progress + "%";
+            $("pc").textContent = m.progress + "%";
+            $("pm").textContent = m.message;
+            $("ph").textContent = phase(m.message, m.progress);
+            log(m.message.replace(/[🧠📋📁⚙️🔍🔧✅❌]/g, "").trim());
+            if (m.message.toLowerCase().includes("planning")) {
+              if (!planningInterval) {
+                startPlanningProgress();
+              }
+            }
+            break;
+          case "approvalNeeded":
+            showApproval(m.step, m.details);
+            log("Waiting for approval: " + m.step, "fx");
+            if (m.step === "plan") {
+              completePlanningProgress();
+            }
+            break;
+          case "fileGenerated":
+            if (m.status === "success")
+              log(m.path + " (" + m.chars + " chars)", "ok");
+            else if (m.status === "skipped") log("Skipped: " + m.path, "er");
+            else log("Failed: " + m.path, "er");
+            break;
+          case "fixApplied":
+            log("Fixed: " + m.file + " (" + m.type + ") — " + m.issue, "fx");
+            break;
+          case "buildComplete": {
+            stopTimer();
+            stopPlanningProgress();
+            const planningContainer = $("planning-progress-container");
+            if (planningContainer) planningContainer.classList.add("h");
+            if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
+            $("bb").disabled = false;
+            $("cr").classList.add("h");
+            $("inp").style.opacity = "1";
+            $("inp").style.pointerEvents = "auto";
+            $("pf").style.width = "100%";
+            $("pc").textContent = "100%";
+            $("apv").classList.remove("v");
+            const r = m.result,
+              rc = $("rc");
+            if (r.success) {
+              aDn("P");
+              aDn("C");
+              aDn("D");
+              rc.innerHTML =
+                '<div style="display:flex;align-items:center;gap:6px;color:var(--ok)"><i class="codicon codicon-pass ri"></i><span class="rt">' +
+                r.projectName +
+                '</span></div><div class="rs"><div class="stat"><div class="sv">' +
+                r.filesGenerated +
+                '</div><div class="sl">Files</div></div><div class="stat"><div class="sv">' +
+                r.debugAttempts +
+                '</div><div class="sl">Cycles</div></div><div class="stat"><div class="sv">' +
+                (r.duration / 1000).toFixed(1) +
+                's</div><div class="sl">Time</div></div><div class="stat"><div class="sv" style="color:var(--ok)"><i class="codicon codicon-check"></i></div><div class="sl">Status</div></div></div><div class="br" style="margin-top:4px"><button class="btn bp" data-cmd="openFolder" data-path="' +
+                r.projectRoot.replace(/\\/g, "\\\\") +
+                '"><i class="codicon codicon-folder-opened"></i> Open Project</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>' +
+                '<div class="visual-models-hdr" style="margin-top: 14px; margin-bottom: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg3);">Visual Models</div>' +
+                '<div class="br" style="margin-top:4px"><button class="btn bg" data-cmd="view-diagram" style="flex: 1;"><i class="codicon codicon-symbol-class"></i> View Class Diagram</button><button class="btn bg" data-cmd="view-usecase" style="flex: 1;"><i class="codicon codicon-person"></i> View Use Case Diagram</button></div>';
+              log("Build succeeded!", "ok");
+            } else {
+              aEr("D", "Failed");
+              let errs = "";
+              if (r.errors && r.errors.length) {
+                errs =
+                  '<div class="err-expand" style="font-size:10px;color:var(--focus);cursor:pointer;margin-top:4px"><i class="codicon codicon-chevron-down"></i> Show details</div><div class="detail-list" style="display:none;margin-top:4px">' +
+                  r.errors
+                    .map(
+                      (e) =>
+                        '<div class="item" style="color:var(--err)">' +
+                        linkify(e) +
+                        "</div>",
+                    )
+                    .join("") +
+                  "</div>";
+              }
+              rc.innerHTML =
+                '<div style="display:flex;align-items:center;gap:6px;color:var(--err)"><i class="codicon codicon-error ri"></i><span class="rt">Build Failed</span></div><div class="rs"><div class="stat"><div class="sv">' +
+                r.debugAttempts +
+                '</div><div class="sl">Attempts</div></div><div class="stat"><div class="sv">' +
+                (r.duration / 1000).toFixed(1) +
+                's</div><div class="sl">Time</div></div></div>' +
+                errs +
+                '<div class="br" style="margin-top:4px"><button class="btn bp" data-cmd="retryBuild"><i class="codicon codicon-refresh"></i> Retry</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>';
+              log("Build failed", "er");
+            }
+            rc.classList.add("v");
+            $("ph").textContent = r.success ? "Complete" : "Failed";
+            break;
+          }
+          case "buildCancelled":
+            stopTimer();
+            stopPlanningProgress();
+            const cancelledContainer = $("planning-progress-container");
+            if (cancelledContainer) cancelledContainer.classList.add("h");
+            if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
+            $("bb").disabled = false;
+            $("cr").classList.add("h");
+            $("inp").style.opacity = "1";
+            $("inp").style.pointerEvents = "auto";
+            $("apv").classList.remove("v");
+            $("pm").textContent = "Cancelled";
+            log("Cancelled by user", "er");
+            break;
+          case "buildError":
+            stopTimer();
+            stopPlanningProgress();
+            const errorContainer = $("planning-progress-container");
+            if (errorContainer) errorContainer.classList.add("h");
+            if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
+            $("bb").disabled = false;
+            $("cr").classList.add("h");
+            $("inp").style.opacity = "1";
+            $("inp").style.pointerEvents = "auto";
+            $("apv").classList.remove("v");
+            $("pm").textContent = m.error;
+            log("Error: " + m.error, "er");
+            break;
+        }
+      });
+    } catch (err) {
+      dbg("SCRIPT ERROR: " + err.message);
+    }
+  </script>
+</body>
+
 </html>

@@ -62,7 +62,6 @@ class EpisodicMemory:
         """
         Retrieves similar memory cases using simple keyword matching.
 
-        This is enough for PP1 demonstration.
         """
 
         cases = self.load_cases()

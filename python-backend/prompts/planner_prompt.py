@@ -170,6 +170,11 @@ It should export a named function:
 app.js should import:
 import { errorHandler } from './middleware/errorHandler.js';
 
+## CLASS AND USE CASE DIAGRAM RULES
+1. You MUST generate custom class methods (`methods`) and class relationships (`relationships`) for all entities, reflecting their real-world interactions and requirements (e.g. `User` might have `hashPassword` and an `association` to `Profile`).
+2. You MUST design a complete Use Case model including all relevant `actors` (e.g., Student, Teacher, Admin), `useCases` (e.g., Manage Courses, Enroll Student, View Grades), and their `useCaseRelationships` (association, include, extend) matching the requirements.
+3. Do NOT limit these diagrams to only 3 entities or use default templates; design them dynamically to reflect the actual complexity of the user's prompt.
+
 ## OUTPUT JSON SCHEMA
 {
   "projectName": "string — kebab-case name for the project",
@@ -184,7 +189,20 @@ import { errorHandler } from './middleware/errorHandler.js';
           "unique": true/false
         }
       ],
-      "description": "string — what this entity represents"
+      "description": "string — what this entity represents",
+      "methods": [
+        {
+          "name": "string — method name, e.g., registerUser, calculateTotal, findActive",
+          "parameters": ["string — parameter name with type, e.g., email: String", "password: String"],
+          "returnType": "string — return type, e.g., Promise<User>, Double, void"
+        }
+      ],
+      "relationships": [
+        {
+          "target": "string — name of target Entity",
+          "type": "string — relationship type: inheritance, association, dependency"
+        }
+      ]
     }
   ],
   "features": [
@@ -197,6 +215,26 @@ import { errorHandler } from './middleware/errorHandler.js';
     {
       "path": "string — relative file path, e.g., models/User.js",
       "description": "string — detailed description of file purpose, expected imports, expected exports, and contents"
+    }
+  ],
+  "useCases": [
+    {
+      "name": "string — Use case name, e.g., Register Account, Assign Grades, View Reports",
+      "description": "string — optional description of the use case",
+      "actors": ["string — list of actor names associated with this use case"]
+    }
+  ],
+  "actors": [
+    {
+      "name": "string — actor name, e.g., Admin, User, Student, Teacher",
+      "role": "string — description of the actor's role"
+    }
+  ],
+  "useCaseRelationships": [
+    {
+      "source": "string — source Actor or Use Case name",
+      "target": "string — target Actor or Use Case name",
+      "type": "string — association, include, extend"
     }
   ]
 }

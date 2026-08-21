@@ -14,10 +14,23 @@ class EntityField(BaseModel):
     default: Optional[str] = None
 
 
+class EntityMethod(BaseModel):
+    name: str
+    parameters: List[str] = Field(default_factory=list)
+    returnType: str = "void"
+
+
+class EntityRelationship(BaseModel):
+    target: str
+    type: str  # inheritance, association, dependency
+
+
 class Entity(BaseModel):
     name: str
     fields: List[EntityField]
     description: Optional[str] = None
+    methods: Optional[List[EntityMethod]] = Field(default_factory=list)
+    relationships: Optional[List[EntityRelationship]] = Field(default_factory=list)
 
 
 class Feature(BaseModel):
@@ -30,11 +43,31 @@ class FileSpec(BaseModel):
     description: str
 
 
+class UseCase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    actors: List[str] = Field(default_factory=list)
+
+
+class Actor(BaseModel):
+    name: str
+    role: Optional[str] = None
+
+
+class UseCaseRelationship(BaseModel):
+    source: str
+    target: str
+    type: str  # association, include, extend
+
+
 class PlannerOutput(BaseModel):
     projectName: str
     entities: List[Entity]
     features: List[Feature]
     files: List[FileSpec]
+    useCases: Optional[List[UseCase]] = Field(default_factory=list)
+    actors: Optional[List[Actor]] = Field(default_factory=list)
+    useCaseRelationships: Optional[List[UseCaseRelationship]] = Field(default_factory=list)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
