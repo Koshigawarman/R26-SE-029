@@ -14,7 +14,7 @@ from prompts.codegen_prompt import (
     build_code_fix_prompt,
     get_codegen_system_prompt,
 )
-from code_validator import validate_and_fix
+from services.code_validator import validate_and_fix
 
 logger = logging.getLogger(__name__)
 

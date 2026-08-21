@@ -6,6 +6,11 @@
  */
 
 import * as vscode from "vscode";
+import * as path from "path";
+import * as os from "os";
+import { exec, spawn } from "child_process";
+import * as fs from "fs";
+
 import { Logger } from "./utils/logger.js";
 import { COMMANDS } from "./utils/constants.js";
 import { SidePanelProvider } from "./panel/SidePanel.js";
@@ -20,6 +25,16 @@ let logger: Logger;
 export function activate(context: vscode.ExtensionContext): void {
   logger = Logger.getInstance();
   logger.info("AI Backend Builder extension activated");
+
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  const workspacePath = workspaceFolders && workspaceFolders.length > 0 ? workspaceFolders[0].uri.fsPath : "";
+  
+  if (workspacePath) {
+    logger.info(`Starting Python backend via local Docker build. Workspace: ${workspacePath}`);
+    logger.info("Assuming backend is running locally at http://localhost:5000");
+  } else {
+    logger.warn("No workspace folder open. Docker backend cannot mount workspace.");
+  }
 
   // Register the WebviewView sidebar panel
   const panelProvider = new SidePanelProvider(context);
@@ -47,6 +62,8 @@ export function activate(context: vscode.ExtensionContext): void {
  * Extension deactivation — cleanup.
  */
 export function deactivate(): void {
+  // No longer stopping Docker backend as it's run manually
+
   if (logger) {
     logger.info("AI Backend Builder extension deactivated");
     logger.dispose();
