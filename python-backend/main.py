@@ -366,6 +366,7 @@ async def list_sessions():
 
 if __name__ == "__main__":
     import uvicorn
-    host = os.getenv("API_HOST", "0.0.0.0")
+    host = os.getenv("API_HOST", "127.0.0.1")
     port = int(os.getenv("API_PORT", "5000"))
-    uvicorn.run("main:app", host=host, port=port, reload=True)
+    logger.info(f"Starting embedded backend on {host}:{port}")
+    uvicorn.run(app, host=host, port=port)
