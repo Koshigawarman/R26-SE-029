@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Tuple
 import requests
 
 from schema import DebugResult, RuntimeErrorInfo
+from services.http_settings import get_ssl_verify_setting
+from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
 from prompts.debug_prompt import TESTING_AGENT_SYSTEM_PROMPT, build_model_testcase_prompt
 
 logger = logging.getLogger(__name__)
@@ -81,21 +83,24 @@ class DebugAgent:
 
     def __init__(
         self,
-        ollama_url: str = "http://localhost:11434",
-        model: str = "qwen2.5-coder:1.5b",
-        debug_timeout: int = 10000,
-        use_openrouter: bool = False,
-        openrouter_api_key: str = "",
+        ollama_url: str = os.getenv("OLLAMA_URL", "http://localhost:11434"),
+        model: str = os.getenv("DEBUG_MODEL", "qwen2.5-coder:1.5b"),
+        debug_timeout: int = int(os.getenv("DEBUG_TIMEOUT", "10000")),
+        use_openai_compatible: bool = False,
+        openai_compatible_url: str = "",
+        openai_compatible_api_key: str = "",
+        openai_compatible_provider: str = "openai-compatible",
     ):
         self.ollama_url = ollama_url.rstrip("/")
         self.model = model
         self.debug_timeout = debug_timeout
 
-        self.use_openrouter = use_openrouter
-        self.openrouter_api_key = openrouter_api_key
-        self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.use_openai_compatible = use_openai_compatible
+        self.openai_compatible_api_key = openai_compatible_api_key
+        self.openai_compatible_url = openai_compatible_url
+        self.openai_compatible_provider = openai_compatible_provider
 
-        self.install_timeout = int(os.getenv("NPM_INSTALL_TIMEOUT", "120"))
+        self.install_timeout = int(os.getenv("NPM_INSTALL_TIMEOUT", "300"))
         self.test_timeout = int(os.getenv("TEST_TIMEOUT", "120"))
         self.docker_image = os.getenv("DOCKER_IMAGE", "node:20-alpine")
         self.use_docker = os.getenv("USE_DOCKER_SANDBOX", "true").lower() == "true"
@@ -151,27 +156,58 @@ class DebugAgent:
                     stage="package_json_preparation",
                 )
 
+            logger.info("Executing pre-test project startup check...")
+            startup_result = self._run_project_startup(sandbox_project_path)
+            if not startup_result.get("success", False):
+                logger.warning("Project startup crashed early!")
+
+                startup_errors = self._parse_errors(startup_result)
+                if not startup_errors:
+                    startup_errors = [
+                        RuntimeErrorInfo(
+                            message="Project crashed immediately on startup",
+                            stack=startup_result.get("stderr", "") or startup_result.get("stdout", ""),
+                            type="startup_failure",
+                        )
+                    ]
+
+                self._copy_testing_artifacts_back(sandbox_project_path, original_project_path)
+                return self._final_result(
+                    project_path=original_project_path,
+                    success=False,
+                    errors=startup_errors,
+                    stdout=startup_result.get("stdout", ""),
+                    stderr=startup_result.get("stderr", ""),
+                    exit_code=startup_result.get("exitCode", 1),
+                    stage="project_startup",
+                )
+
+            logger.info("Project startup successful. Proceeding to tests...")
+
             detected_routes = self._detect_routes(sandbox_project_path)
             file_contents = self._read_project_source_files(sandbox_project_path)
-            
+
             test_file_path = sandbox_project_path / "tests" / "api.test.js"
-            regenerate_tests = os.getenv("REGENERATE_TESTS_EACH_ATTEMPT", "false").lower() == "true"
-            
-            if test_file_path.exists() and not regenerate_tests:
+            is_retry = os.getenv("CURRENT_DEBUG_ATTEMPT", "1") != "1"
+            regenerate_tests = (
+                not test_file_path.exists()
+                or os.getenv("REGENERATE_TESTS_EACH_ATTEMPT", "false").lower() == "true"
+                or is_retry
+            )
+
+            if not regenerate_tests:
                 logger.info("Reusing existing test file: %s", test_file_path)
-                
             else:
                 test_content = self._generate_tests_with_model(
                     file_contents=file_contents,
                     detected_routes=detected_routes,
                 )
-                
+
                 if not test_content:
                     logger.warning("Model test generation failed after retries. Falling back to deterministic tests.")
                     test_content = self._generate_fallback_supertest_content(detected_routes)
 
                 self._write_test_file(sandbox_project_path, test_content)
-                
 
             if self.use_docker:
                 test_result = self._run_tests_in_docker(sandbox_project_path)
@@ -322,7 +358,7 @@ class DebugAgent:
 
         dev_dependencies = package_data.setdefault("devDependencies", {})
         dev_dependencies.setdefault("jest", "^29.7.0")
-        dev_dependencies.setdefault("supertest", "^6.3.3")
+        dev_dependencies.setdefault("supertest", "^7.1.3")
 
         package_path.write_text(json.dumps(package_data, indent=2), encoding="utf-8")
 
@@ -431,8 +467,8 @@ class DebugAgent:
                     max_attempts,
                 )
 
-                if self.use_openrouter:
-                    raw = self._query_openrouter(prompt, TESTING_AGENT_SYSTEM_PROMPT)
+                if self.use_openai_compatible:
+                    raw = self._query_openai_compatible(prompt, TESTING_AGENT_SYSTEM_PROMPT)
                 else:
                     raw = self._query_ollama(prompt, TESTING_AGENT_SYSTEM_PROMPT)
 
@@ -484,16 +520,11 @@ class DebugAgent:
 
         return data["response"]
 
-    def _query_openrouter(self, prompt: str, system_prompt: str) -> str:
-        if not self.openrouter_api_key:
-            raise ValueError("OPENROUTER_API_KEY is not set")
+    def _query_openai_compatible(self, prompt: str, system_prompt: str) -> str:
+        if not self.openai_compatible_url:
+            raise ValueError("OPENAI_COMPATIBLE_URL is not set")
 
-        headers = {
-            "Authorization": f"Bearer {self.openrouter_api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/Koshigawarman/R26-SE-029",
-            "X-Title": "AI Backend Builder",
-        }
+        headers = build_provider_headers(self.openai_compatible_api_key)
 
         payload = {
             "model": self.model,
@@ -506,12 +537,13 @@ class DebugAgent:
         }
 
         response = requests.post(
-            self.openrouter_url,
+            self.openai_compatible_url,
             headers=headers,
             json=payload,
-            timeout=120,
+            timeout=int(os.getenv("MODEL_TIMEOUT", "240")),
+            verify=get_ssl_verify_setting(),
         )
-        response.raise_for_status()
+        raise_for_provider_error(response, self.openai_compatible_provider, self.openai_compatible_url)
 
         data = response.json()
         return data["choices"][0]["message"]["content"]
@@ -593,6 +625,66 @@ describe('Generated API validation tests', () => {{
     # Docker / local execution
     # ─────────────────────────────────────────────────────────────────────
 
+    def _run_project_startup(self, sandbox_project_path: Path) -> Dict[str, object]:
+        """
+        Attempts to start the project normally (e.g., node app.js) with a short timeout.
+        If it crashes immediately, returns the error result to fail early.
+        If it times out, we assume the server booted successfully and is running.
+        """
+        if self.use_docker:
+            # Install packages first
+            install_result = self._run_command(
+                command=[
+                    "docker", "run", "--rm", "--memory=512m", "--cpus=1",
+                    "--user", f"{os.getuid()}:{os.getgid()}",
+                    "-e", "npm_config_cache=/app/.npm-cache", "-e", "HOME=/app",
+                    "-v", f"{str(sandbox_project_path)}:/app", "-w", "/app",
+                    self.docker_image, "sh", "-lc", "npm install"
+                ],
+                cwd=sandbox_project_path,
+                timeout=self.install_timeout,
+            )
+            if install_result["exitCode"] != 0:
+                return install_result
+
+            # Attempt to run project with a 5 second timeout
+            run_result = self._run_command(
+                command=[
+                    "docker", "run", "--rm", "--memory=512m", "--cpus=1",
+                    "--user", f"{os.getuid()}:{os.getgid()}",
+                    "-e", "npm_config_cache=/app/.npm-cache", "-e", "HOME=/app",
+                    "-v", f"{str(sandbox_project_path)}:/app", "-w", "/app",
+                    self.docker_image, "sh", "-lc", "npm start || node app.js || node index.js"
+                ],
+                cwd=sandbox_project_path,
+                timeout=5,
+            )
+        else:
+            install_result = self._run_command(
+                command=["npm", "install"],
+                cwd=sandbox_project_path,
+                timeout=self.install_timeout,
+            )
+            if install_result["exitCode"] != 0:
+                return install_result
+
+            run_result = self._run_command(
+                command=["sh", "-c", "npm start || node app.js || node index.js"],
+                cwd=sandbox_project_path,
+                timeout=5,
+            )
+
+        # If it timed out, the server is running successfully in the foreground!
+        if run_result.get("timedOut", False):
+            return {"success": True}
+
+        # If it exited quickly with an error, it crashed
+        if run_result.get("exitCode", 0) != 0:
+            return run_result
+
+        # Exited quickly with 0 (maybe it's not a server script, but still successful)
+        return {"success": True}
+
     def _run_tests_in_docker(self, sandbox_project_path: Path) -> Dict[str, object]:
         """
         Runs tests inside Docker using only the temporary sandbox project copy.
@@ -613,17 +705,17 @@ describe('Generated API validation tests', () => {{
             "--memory=512m",
             "--cpus=1",
             "--pids-limit=128",
-            
+
             # Run container process as current host user to avoid root-owned files.
             "--user",
             f"{uid}:{gid}",
-            
+
             # Give npm a writable cache folder inside the mounted app directory.
             "-e",
             "npm_config_cache=/app/.npm-cache",
             "-e",
             "HOME=/app",
-            
+
             "-v",
             f"{str(sandbox_project_path)}:/app",
             "-w",
@@ -631,7 +723,7 @@ describe('Generated API validation tests', () => {{
             self.docker_image,
             "sh",
             "-lc",
-            "npm install && npm test -- --runInBand",
+            "npm install && npm test -- --runInBand --forceExit",
         ]
 
         return self._run_command(
@@ -651,7 +743,7 @@ describe('Generated API validation tests', () => {{
             return install_result
 
         return self._run_command(
-            command=["npm", "test", "--", "--runInBand"],
+            command=["npm", "test", "--", "--runInBand", "--forceExit"],
             cwd=sandbox_project_path,
             timeout=self.test_timeout,
         )
@@ -709,7 +801,14 @@ describe('Generated API validation tests', () => {{
     # ─────────────────────────────────────────────────────────────────────
 
     def _parse_errors(self, result: Dict[str, object]) -> List[RuntimeErrorInfo]:
-        output = f"{result.get('stderr', '')}\n{result.get('stdout', '')}".strip()
+        raw_stderr = result.get("stderr", "") or ""
+        raw_stdout = result.get("stdout", "") or ""
+
+        # \u2500\u2500 Agentic: Clean noise before classifying errors \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        clean_stderr = self._filter_test_noise(raw_stderr)
+        output = f"{clean_stderr}\n{raw_stdout}".strip()
+        # \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
         errors: List[RuntimeErrorInfo] = []
 
         if not output:
@@ -826,6 +925,84 @@ describe('Generated API validation tests', () => {{
                     type="test_failure",
                 )
             )
+
+        # \u2500\u2500 Agentic: Enrich errors with file/line from stack trace \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        errors = self._enrich_errors_with_location(errors, raw_stderr + "\n" + raw_stdout)
+        # \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+        return errors
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Agentic Error Processing Methods
+    # ─────────────────────────────────────────────────────────────────────
+
+    # Lines matching these patterns are pure noise — they don't help the Critic identify root cause
+    _NOISE_PATTERNS = [
+        re.compile(r"^npm\s+(warn|notice|ERR!)\s", re.IGNORECASE),
+        re.compile(r"^npm\s+WARN\s", re.IGNORECASE),
+        re.compile(r"Downloading\s+@"),
+        re.compile(r"^added\s+\d+\s+packages"),
+        re.compile(r"^up to date"),
+        re.compile(r"ExperimentalWarning:"),
+        re.compile(r"^\s*\(Use\s+`node\s+--trace"),
+        re.compile(r"^\s*$"),  # blank lines
+        re.compile(r"^jest-circus"),
+        re.compile(r"^\s*●\s*$"),  # lone bullet
+        re.compile(r"^PASS\s+"),    # Jest PASS lines (not failures)
+    ]
+
+    def _filter_test_noise(self, stderr: str) -> str:
+        """
+        Remove npm warnings, Node.js deprecation notices, and Jest verbose lines
+        from stderr so the Critic sees only actionable error content.
+        """
+        if not stderr:
+            return stderr
+
+        filtered = []
+        for line in stderr.splitlines():
+            if any(p.search(line) for p in self._NOISE_PATTERNS):
+                continue
+            filtered.append(line)
+
+        cleaned = "\n".join(filtered).strip()
+        if len(cleaned) < len(stderr) * 0.9:
+            logger.info(
+                "[debug] Noise filter reduced stderr from %d to %d chars",
+                len(stderr), len(cleaned)
+            )
+        return cleaned
+
+    def _enrich_errors_with_location(
+        self, errors: List[RuntimeErrorInfo], full_output: str
+    ) -> List[RuntimeErrorInfo]:
+        """
+        For any error that has no .file set, try to extract the originating JS file
+        path from the stack trace using regex. This gives the Critic accurate
+        affected_files without needing LLM interpretation.
+        """
+        for err in errors:
+            if err.file:
+                continue  # already has a file
+
+            # Try file:///.../X.js:line pattern (Node ESM)
+            url_match = ERROR_PATTERNS["FILE_URL_LINE"].search(full_output)
+            if url_match:
+                err.file = self._extract_project_relative_file(url_match.group(1))
+                try:
+                    err.line = int(url_match.group(2))
+                except (ValueError, TypeError):
+                    pass
+                continue
+
+            # Try "at X (path/to/file.js:line:col)" pattern
+            stack_match = ERROR_PATTERNS["STACK_FILE_LINE"].search(full_output)
+            if stack_match:
+                err.file = self._extract_project_relative_file(stack_match.group(1))
+                try:
+                    err.line = int(stack_match.group(2))
+                except (ValueError, TypeError):
+                    pass
 
         return errors
 

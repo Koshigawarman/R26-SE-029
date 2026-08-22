@@ -8,3 +8,11 @@ tsconfig.json
 **/*.map
 **/*.ts
 !out/**
+python-backend/venv/**
+python-backend/__pycache__/**
+python-backend/build/**
+python-backend/dist/**
+python-backend/memory/chroma_db/**
+bin/**
+**/.env
+**/.env.*

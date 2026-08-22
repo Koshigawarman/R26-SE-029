@@ -2,8 +2,14 @@
   "name": "ai-backend-builder",
   "displayName": "AI Backend Builder",
   "description": "Autonomous multi-agent system that plans, generates, and debugs production-ready Node.js/Express backend applications using AI",
-  "version": "0.1.0",
-  "publisher": "jaydee",
+  "version": "0.1.1",
+  "publisher": "R26-SE-029",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Koshigawarman/R26-SE-029.git"
+  },
+  "icon": "media/icon.png",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -20,7 +26,7 @@
     "code-generation",
     "multi-agent"
   ],
-  "activationEvents": [  ],
+  "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -53,7 +59,7 @@
       "properties": {
         "aiBackendBuilder.backendUrl": {
           "type": "string",
-          "default": "http://localhost:5001",
+          "default": "http://localhost:5000",
           "description": "Base URL for the AI Backend API proxy"
         },
         "aiBackendBuilder.openaiApiKey": {
