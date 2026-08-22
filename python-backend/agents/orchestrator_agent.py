@@ -211,7 +211,10 @@ class OrchestratorAgent:
 
     def _run(self, request: BuildRequest, session: BuildSession) -> None:
         start_time = time.time()
-        project_root = request.workspace_uri
+        
+        # Use an isolated cloud workspace path instead of the user's local path
+        project_root = f"/tmp/ai-backend-builder/{session.session_id}"
+        os.makedirs(project_root, exist_ok=True)
         
         initial_state = OrchestrationState(
             request=request,

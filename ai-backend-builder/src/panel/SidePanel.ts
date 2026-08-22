@@ -7,6 +7,8 @@
  */
 
 import * as vscode from "vscode";
+import * as path from "path";
+import * as fs from "fs";
 import { Logger } from "../utils/logger.js";
 import type { ExtensionConfig } from "../types/index.js";
 import { getPanelHtml } from "./panelHtml.js";
@@ -321,6 +323,16 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
                   break;
 
                 case "file_generated":
+                  if (data.data.content && workspaceUri) {
+                    try {
+                      const fullPath = path.join(workspaceUri, data.data.path);
+                      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+                      fs.writeFileSync(fullPath, data.data.content, "utf8");
+                      this._logger.info(`☁️ Synced file from cloud: ${data.data.path}`);
+                    } catch (e: any) {
+                      this._logger.error(`Failed to sync file: ${e.message}`);
+                    }
+                  }
                   this._postMessage({
                     command: "fileGenerated",
                     ...data.data,
@@ -328,6 +340,16 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
                   break;
 
                 case "fix_applied":
+                  if (data.data.content && workspaceUri) {
+                    try {
+                      const fullPath = path.join(workspaceUri, data.data.file);
+                      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+                      fs.writeFileSync(fullPath, data.data.content, "utf8");
+                      this._logger.info(`☁️ Synced fix from cloud: ${data.data.file}`);
+                    } catch (e: any) {
+                      this._logger.error(`Failed to sync fix: ${e.message}`);
+                    }
+                  }
                   this._postMessage({
                     command: "fixApplied",
                     ...data.data,

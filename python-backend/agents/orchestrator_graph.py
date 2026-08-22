@@ -219,7 +219,7 @@ def node_generate_files(state: OrchestrationState) -> dict:
                 files_generated += 1
                 file_generation_success = True
                 
-                session.emit("file_generated", {"path": generated.path, "status": "success", "chars": len(generated.content), "index": i + 1, "total": total_files})
+                session.emit("file_generated", {"path": generated.path, "status": "success", "chars": len(generated.content), "index": i + 1, "total": total_files, "content": generated.content})
                 status(session, f"✅ Generated file: {generated.path}", progress_pct, "FILE_GENERATED")
                 break
             if file_attempt < 3: time.sleep(2)

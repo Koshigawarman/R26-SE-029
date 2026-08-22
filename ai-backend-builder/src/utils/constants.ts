@@ -7,7 +7,7 @@
 
 /** Default configuration values matching package.json contributes */
 export const DEFAULT_CONFIG = {
-  backendUrl: 'http://localhost:5000',
+  backendUrl: 'http://13.61.155.52:5000',
   openaiApiKey: '',
   openaiModel: 'gpt-4',
   models: {
