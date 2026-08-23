@@ -10,3 +10,6 @@ langgraph
 chromadb
 sentence-transformers
 tiktoken>=0.7.0
+
+#to generate the dataset for the codegen model
+google-genai>=1.0.0

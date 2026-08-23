@@ -524,6 +524,7 @@ class OrchestratorAgent:
         errors: List[str],
         start: float,
         test_results: Optional[TestResults] = None,
+        architecture: Optional[Dict[str, Any]] = None,
     ) -> None:
         duration = time.time() - start
 
@@ -538,13 +539,19 @@ class OrchestratorAgent:
             testResults=test_results,
         )
 
-        session.emit("complete", response.model_dump())
+        payload = response.model_dump()
+        if architecture:
+            payload["architecture"] = architecture
+
+        session.emit("complete", payload)
         session.active = False
 
         logger.info("=" * 70)
         logger.info("🏁 ORCHESTRATION COMPLETE")
         logger.info("Success: %s", success)
         logger.info("Project: %s", name)
+        if architecture:
+            logger.info("Architecture: %s", architecture.get("pattern", "mvc"))
         logger.info("Files generated: %s", files)
         logger.info("Debug attempts: %s", attempts)
         logger.info("Duration: %.2fs", duration)

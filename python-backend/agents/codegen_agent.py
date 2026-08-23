@@ -12,8 +12,8 @@ from services.openai_compatible_http import build_provider_headers, raise_for_pr
 from prompts.codegen_prompt import (
     build_codegen_prompt,
     build_code_fix_prompt,
-    get_codegen_system_prompt,
 )
+from prompts.codegen_prompt_factory import get_architecture_codegen_system_prompt
 from services.code_validator import validate_and_fix
 
 logger = logging.getLogger(__name__)
@@ -54,9 +54,13 @@ class CodeGenAgent:
                 features=context.features,
                 all_files=context.allFiles,
                 existing_contents=context.existingFileContents,
-                existing_file_content=existing_content
+                existing_file_content=existing_content,
+                architecture=context.architecture.model_dump(),
             )
-            system_prompt = get_codegen_system_prompt(file_spec.path)
+            system_prompt = get_architecture_codegen_system_prompt(
+                file_spec.path,
+                context.architecture,
+            )
 
             if self.use_openai_compatible:
                 raw_response = self._query_openai_compatible(prompt, system_prompt, cancel_token)
@@ -71,6 +75,7 @@ class CodeGenAgent:
                 "provider": provider,
                 "model": self.model,
                 "target_file": file_spec.path,
+                "architecture": context.architecture.model_dump(),
                 "system_prompt": system_prompt,
                 "built_prompt": prompt,
                 "raw_output": raw_response,
@@ -100,7 +105,11 @@ class CodeGenAgent:
             code = result.final_code
             # ─────────────────────────────────────────────────────────────────
             self._validate_code(file_spec.path, code)
-            validation_result = self.output_validator.validate(file_spec.path, code)
+            validation_result = self.output_validator.validate(
+                file_spec.path,
+                code,
+                context.architecture.model_dump(),
+            )
             self.last_request_trace["output_validation"] = validation_result
 
             logger.info(f"✓ Generated: {file_spec.path} ({len(code)} chars)")
@@ -128,6 +137,7 @@ class CodeGenAgent:
         critic_strategy: str,
         instructions_for_code_agent: str,
         file_list: list = None,
+        architecture: Dict[str, Any] = None,
         cancel_token: Optional[Callable[[], bool]] = None,
     ) -> GeneratedFile:
         """
@@ -153,7 +163,11 @@ class CodeGenAgent:
                     critic_strategy=critic_strategy,
                     instructions_for_code_agent=instructions_for_code_agent,
                 )
-                system_prompt = get_codegen_system_prompt(file_path, mode="fix")
+                system_prompt = get_architecture_codegen_system_prompt(
+                    file_path,
+                    architecture,
+                    mode="fix",
+                )
 
                 if self.use_openai_compatible:
                     raw_response = self._query_openai_compatible(prompt, system_prompt, cancel_token)
@@ -168,6 +182,7 @@ class CodeGenAgent:
                     "provider": provider,
                     "model": self.model,
                     "target_file": file_path,
+                    "architecture": architecture or {"pattern": "mvc"},
                     "system_prompt": system_prompt,
                     "built_prompt": prompt,
                     "raw_output": raw_response,
@@ -176,7 +191,7 @@ class CodeGenAgent:
                 fixed_code = self._extract_code(raw_response)
 
                 self._validate_code(file_path, fixed_code)
-                validation_result = self.output_validator.validate(file_path, fixed_code)
+                validation_result = self.output_validator.validate(file_path, fixed_code, architecture)
                 self.last_request_trace["output_validation"] = validation_result
 
                 if not fixed_code or len(fixed_code.strip()) < 10:
@@ -356,10 +371,11 @@ class CodeGenAgent:
             "provider": "local-template",
             "model": None,
             "target_file": file_spec.path,
-            "system_prompt": get_codegen_system_prompt(file_spec.path),
+            "architecture": context.architecture.model_dump(),
+            "system_prompt": get_architecture_codegen_system_prompt(file_spec.path, context.architecture),
             "built_prompt": "Deterministic .env template generated from project name and features.",
             "raw_output": content,
-            "output_validation": self.output_validator.validate(file_spec.path, content),
+            "output_validation": self.output_validator.validate(file_spec.path, content, context.architecture.model_dump()),
         }
 
         logger.info(f"✓ Generated: {file_spec.path} (env file — deterministic)")
@@ -400,10 +416,11 @@ class CodeGenAgent:
             "provider": "local-template",
             "model": None,
             "target_file": file_spec.path,
-            "system_prompt": get_codegen_system_prompt(file_spec.path),
+            "architecture": context.architecture.model_dump(),
+            "system_prompt": get_architecture_codegen_system_prompt(file_spec.path, context.architecture),
             "built_prompt": "Deterministic package.json template generated from project name and features.",
             "raw_output": content,
-            "output_validation": self.output_validator.validate(file_spec.path, content),
+            "output_validation": self.output_validator.validate(file_spec.path, content, context.architecture.model_dump()),
         }
 
         logger.info(f"✓ Generated: {file_spec.path} (package.json — deterministic)")
