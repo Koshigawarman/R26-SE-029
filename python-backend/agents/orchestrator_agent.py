@@ -17,6 +17,7 @@ import queue
 import threading
 import time
 import uuid
+import requests
 from typing import Any, Callable, Dict, Generator, List, Optional
 
 from schema import (
