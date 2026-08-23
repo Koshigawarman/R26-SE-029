@@ -2,7 +2,7 @@
   "name": "ai-backend-builder",
   "displayName": "AI Backend Builder",
   "description": "Autonomous multi-agent system that plans, generates, and debugs production-ready Node.js/Express backend applications using AI",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "publisher": "R26-SE-029",
   "repository": {
     "type": "git",
@@ -57,7 +57,7 @@
     "configuration": {
       "title": "AI Backend Builder",
       "properties": {
-        "aiBackendBuilder.backendUrl": {
+        "aiBackendBuilder.cloudBackendUrl": {
           "type": "string",
           "default": "http://13.61.155.52:5000",
           "description": "Base URL for the AI Backend API proxy"

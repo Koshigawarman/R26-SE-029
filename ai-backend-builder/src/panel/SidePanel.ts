@@ -397,7 +397,7 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
   private _loadConfig(): ExtensionConfig {
     const config = vscode.workspace.getConfiguration("aiBackendBuilder");
     return {
-      backendUrl: config.get<string>("backendUrl", "http://localhost:5000"),
+      backendUrl: config.get<string>("cloudBackendUrl", "http://13.61.155.52:5000"),
       openaiApiKey: config.get<string>("openaiApiKey", ""),
       openaiModel: config.get<string>("openaiModel", "gpt-4"),
       models: {
