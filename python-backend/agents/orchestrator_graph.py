@@ -219,7 +219,7 @@ def node_generate_files(state: OrchestrationState) -> dict:
                 files_generated += 1
                 file_generation_success = True
                 
-                session.emit("file_generated", {"path": generated.path, "status": "success", "chars": len(generated.content), "index": i + 1, "total": total_files, "content": generated.content})
+                session.emit("file_generated", {"path": f"{plan.projectName}/{generated.path}", "status": "success", "chars": len(generated.content), "index": i + 1, "total": total_files, "content": generated.content})
                 status(session, f"✅ Generated file: {generated.path}", progress_pct, "FILE_GENERATED")
                 break
             if file_attempt < 3: time.sleep(2)
@@ -331,6 +331,8 @@ def node_apply_fixes(state: OrchestrationState) -> dict:
         if fixed and fixed.status == "fixed" and fixed.content:
             agent._write_project_file(state["project_path"], fixed.path, fixed.content)
             existing_contents[fixed.path] = fixed.content
+            if "plan" in state and state["plan"]:
+                session.emit("fix_applied", {"file": f"{state['plan'].projectName}/{fixed.path}", "content": fixed.content})
             
     return {"existing_contents": existing_contents}
 
