@@ -21,9 +21,9 @@ class PlannerAgent:
     def __init__(
         self, 
         ollama_url: str = "http://localhost:11434", 
-        model: str = "qwen-planner",  # Default to your fine-tuned model
+        model: str = "qwen7b-planner",  # Updated default to 7B fine-tuned model
         use_openrouter: bool = False, 
-        openrouter_api_key: str = ""
+        openrouter_api_key: str = ""  
     ):
         self.ollama_url = ollama_url
         self.model = model
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     
     agent = PlannerAgent(
         ollama_url="http://localhost:11434",
-        model="qwen-planner",
+        model="qwen7b-planner",
         use_openrouter=False,
     )
     
