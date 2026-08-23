@@ -71,7 +71,7 @@ def node_plan_project(state: OrchestrationState) -> dict:
     
     plan = agent._retry_operation(
         operation_name="Planner Agent model call",
-        operation=lambda: agent.planner_agent.execute(request.prompt, cancel_token=lambda: not session.active),
+        operation=lambda: agent.planner_agent.execute(request.prompt, cancel_token=lambda: not session.active, http_session=session.http_session),
         session=session,
         progress=5,
         state="PLANNING_RETRY",
@@ -132,7 +132,7 @@ def node_replan_project(state: OrchestrationState) -> dict:
         
     plan = agent._retry_operation(
         operation_name=f"Planner Agent re-plan attempt {rejection_count}",
-        operation=lambda: agent.planner_agent.execute(updated_prompt, cancel_token=lambda: not session.active),
+        operation=lambda: agent.planner_agent.execute(updated_prompt, cancel_token=lambda: not session.active, http_session=session.http_session),
         session=session,
         progress=10,
         state="RE_PLANNING_RETRY",
@@ -203,7 +203,7 @@ def node_generate_files(state: OrchestrationState) -> dict:
             try:
                 generated = agent._retry_operation(
                     operation_name=f"CodeGen Agent generate {file_spec.path}",
-                    operation=lambda: agent.codegen_agent.execute(file_spec, context, cancel_token=lambda: not session.active),
+                    operation=lambda: agent.codegen_agent.execute(file_spec, context, cancel_token=lambda: not session.active, http_session=session.http_session),
                     session=session,
                     progress=progress_pct,
                     state="GENERATING_MODEL_RETRY",
@@ -219,7 +219,7 @@ def node_generate_files(state: OrchestrationState) -> dict:
                 files_generated += 1
                 file_generation_success = True
                 
-                session.emit("file_generated", {"path": f"{plan.projectName}/{generated.path}", "status": "success", "chars": len(generated.content), "index": i + 1, "total": total_files, "content": generated.content})
+                session.emit("file_generated", {"path": generated.path, "full_path": f"{plan.projectName}/{generated.path}", "status": "success", "chars": len(generated.content), "index": i + 1, "total": total_files, "content": generated.content})
                 status(session, f"✅ Generated file: {generated.path}", progress_pct, "FILE_GENERATED")
                 break
             if file_attempt < 3: time.sleep(2)
@@ -269,7 +269,37 @@ def node_run_debug(state: OrchestrationState) -> dict:
     debug_attempt_count = state["debug_attempt_count"] + 1
     status(session, f"🧪 STATE → TESTING: Running Debug Agent (Attempt {debug_attempt_count}/{agent.max_retries})...", 75, "TESTING")
     
-    debug_result = agent.debug_agent.execute(project_path)
+    if not session.active:
+        raise Exception("Build Cancelled")
+        
+    debug_result = agent.debug_agent.execute(project_path, http_session=session.http_session)
+    
+    # Sync sandbox artifacts to VS Code
+    report_path = Path(project_path) / "testing-report.json"
+    if report_path.exists():
+        content = report_path.read_text(encoding="utf-8")
+        session.emit("file_generated", {
+            "path": "testing-report.json",
+            "full_path": f"{state['plan'].projectName}/testing-report.json",
+            "status": "success",
+            "chars": len(content),
+            "index": 0,
+            "total": 0,
+            "content": content
+        })
+        
+    test_path = Path(project_path) / "tests" / "api.test.js"
+    if test_path.exists():
+        content = test_path.read_text(encoding="utf-8")
+        session.emit("file_generated", {
+            "path": "tests/api.test.js",
+            "full_path": f"{state['plan'].projectName}/tests/api.test.js",
+            "status": "success",
+            "chars": len(content),
+            "index": 0,
+            "total": 0,
+            "content": content
+        })
     
     if debug_result.success:
         status(session, "✅ STATE → SUCCESS: Debug Agent verified the project successfully.", 100, "SUCCESS")
@@ -300,6 +330,7 @@ def node_run_critic(state: OrchestrationState) -> dict:
         file_list=list(state["existing_contents"].keys()),
         attempt=state["debug_attempt_count"],
         file_contents=state["existing_contents"],
+        http_session=session.http_session,
     )
     
     action = session.wait_for_approval("debug_fix", {
@@ -326,13 +357,15 @@ def node_apply_fixes(state: OrchestrationState) -> dict:
         fixed = agent.codegen_agent.fix_file_with_strategy(
             file_path=f, original_content=original, error_log=agent._build_error_log(state["latest_errors"], state["latest_stderr"]),
             critic_strategy=state["critic_strategy"].fixing_strategy, instructions_for_code_agent=state["critic_strategy"].instructions_for_code_agent,
-            file_list=list(existing_contents.keys())
+            file_list=list(existing_contents.keys()),
+            cancel_token=lambda: not session.active,
+            http_session=session.http_session
         )
         if fixed and fixed.status == "fixed" and fixed.content:
             agent._write_project_file(state["project_path"], fixed.path, fixed.content)
             existing_contents[fixed.path] = fixed.content
             if "plan" in state and state["plan"]:
-                session.emit("fix_applied", {"file": f"{state['plan'].projectName}/{fixed.path}", "content": fixed.content})
+                session.emit("fix_applied", {"file": fixed.path, "full_path": f"{state['plan'].projectName}/{fixed.path}", "content": fixed.content})
             
     return {"existing_contents": existing_contents}
 

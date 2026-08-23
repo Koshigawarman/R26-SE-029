@@ -56,6 +56,7 @@ class CriticAgent:
         file_list: List[str],
         attempt: int,
         file_contents: Optional[Dict[str, str]] = None,
+        http_session: Optional[requests.Session] = None,
     ) -> CriticStrategy:
         logger.info("Critic Agent analyzing error logs...")
         logger.info(f"Using critic model: {self.model}")
@@ -84,9 +85,9 @@ class CriticAgent:
                 )
 
                 if self.use_openai_compatible:
-                    raw_response = self._query_openai_compatible(prompt, CRITIC_SYSTEM_PROMPT)
+                    raw_response = self._query_openai_compatible(prompt, CRITIC_SYSTEM_PROMPT, http_session)
                 else:
-                    raw_response = self._query_ollama(prompt, CRITIC_SYSTEM_PROMPT)
+                    raw_response = self._query_ollama(prompt, CRITIC_SYSTEM_PROMPT, http_session)
                 data = self._extract_json(raw_response)
                 strategy = self._to_strategy(data)
                 break
@@ -350,7 +351,7 @@ class CriticAgent:
         )
         return strategy
 
-    def _query_ollama(self, prompt: str, system_prompt: str) -> str:
+    def _query_ollama(self, prompt: str, system_prompt: str, http_session: Optional[requests.Session] = None) -> str:
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -363,7 +364,8 @@ class CriticAgent:
             },
         }
 
-        response = requests.post(
+        session_obj = http_session or requests
+        response = session_obj.post(
             f"{self.ollama_url}/api/generate",
             json=payload,
             timeout=int(os.getenv("MODEL_TIMEOUT", "240")),
@@ -377,7 +379,7 @@ class CriticAgent:
 
         return data["response"]
 
-    def _query_openai_compatible(self, prompt: str, system_prompt: str) -> str:
+    def _query_openai_compatible(self, prompt: str, system_prompt: str, http_session: Optional[requests.Session] = None) -> str:
         if not self.openai_compatible_url:
             raise ValueError("OPENAI_COMPATIBLE_URL is not set")
 
@@ -393,7 +395,8 @@ class CriticAgent:
             "max_tokens": 1024,
         }
 
-        response = requests.post(
+        session_obj = http_session or requests
+        response = session_obj.post(
             self.openai_compatible_url,
             headers=headers,
             json=payload,

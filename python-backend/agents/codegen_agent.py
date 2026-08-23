@@ -37,7 +37,7 @@ class CodeGenAgent:
         self.last_request_trace: Dict[str, Any] = {}
         self.output_validator = CodeGenOutputValidator()
 
-    def execute(self, file_spec: FileSpec, context: CodeGenContext, existing_content: str = None, cancel_token: Optional[Callable[[], bool]] = None) -> GeneratedFile:
+    def execute(self, file_spec: FileSpec, context: CodeGenContext, existing_content: str = None, cancel_token: Optional[Callable[[], bool]] = None, http_session: Optional[requests.Session] = None) -> GeneratedFile:
         logger.info(f"Generating: {file_spec.path}")
 
         try:
@@ -59,10 +59,10 @@ class CodeGenAgent:
             system_prompt = get_codegen_system_prompt(file_spec.path)
 
             if self.use_openai_compatible:
-                raw_response = self._query_openai_compatible(prompt, system_prompt, cancel_token)
+                raw_response = self._query_openai_compatible(prompt, system_prompt, cancel_token, http_session)
                 provider = self.openai_compatible_provider
             else:
-                raw_response = self._query_ollama(prompt, system_prompt, cancel_token)
+                raw_response = self._query_ollama(prompt, system_prompt, cancel_token, http_session)
                 provider = "ollama"
 
             self.last_request_trace = {
@@ -127,8 +127,9 @@ class CodeGenAgent:
         error_log: str,
         critic_strategy: str,
         instructions_for_code_agent: str,
-        file_list: list = None,
+        file_list: Optional[List[str]] = None,
         cancel_token: Optional[Callable[[], bool]] = None,
+        http_session: Optional[requests.Session] = None
     ) -> GeneratedFile:
         """
         Applies the Critic Agent's fixing strategy to one affected file.
@@ -156,10 +157,10 @@ class CodeGenAgent:
                 system_prompt = get_codegen_system_prompt(file_path, mode="fix")
 
                 if self.use_openai_compatible:
-                    raw_response = self._query_openai_compatible(prompt, system_prompt, cancel_token)
+                    raw_response = self._query_openai_compatible(prompt, system_prompt, cancel_token, http_session)
                     provider = self.openai_compatible_provider
                 else:
-                    raw_response = self._query_ollama(prompt, system_prompt, cancel_token)
+                    raw_response = self._query_ollama(prompt, system_prompt, cancel_token, http_session)
                     provider = "ollama"
 
                 self.last_request_trace = {
@@ -234,7 +235,7 @@ class CodeGenAgent:
                     errorMessage=str(e)
                 )
 
-    def _query_ollama(self, prompt: str, system_prompt: str, cancel_token: Optional[Callable[[], bool]] = None) -> str:
+    def _query_ollama(self, prompt: str, system_prompt: str, cancel_token: Optional[Callable[[], bool]] = None, http_session: Optional[requests.Session] = None) -> str:
         logger.info("\n" + "="*50)
         logger.info(f"OLLAMA REQUEST [CodeGenAgent] | Model: {self.model}")
         logger.info(f"--- SYSTEM PROMPT ---\n{system_prompt}")
@@ -251,7 +252,8 @@ class CodeGenAgent:
                 "num_predict": 4096,
             }
         }
-        resp = requests.post(
+        session_obj = http_session or requests
+        resp = session_obj.post(
             f"{self.ollama_url}/api/generate",
             json=payload,
             timeout=int(os.getenv("MODEL_TIMEOUT", "240")),
@@ -275,7 +277,7 @@ class CodeGenAgent:
 
         return response_text
 
-    def _query_openai_compatible(self, prompt: str, system_prompt: str, cancel_token: Optional[Callable[[], bool]] = None) -> str:
+    def _query_openai_compatible(self, prompt: str, system_prompt: str, cancel_token: Optional[Callable[[], bool]] = None, http_session: Optional[requests.Session] = None) -> str:
         
         logger.info("\n" + "="*50)
         logger.info(f"OPENAI-COMPATIBLE REQUEST [CodeGenAgent] | Provider: {self.openai_compatible_provider} | Model: {self.model}")
@@ -295,7 +297,8 @@ class CodeGenAgent:
             "max_tokens": 4096,
             "stream": True
         }
-        resp = requests.post(
+        session_obj = http_session or requests
+        resp = session_obj.post(
             self.openai_compatible_url,
             headers=headers,
             json=payload,

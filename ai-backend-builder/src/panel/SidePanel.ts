@@ -325,10 +325,11 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
                 case "file_generated":
                   if (data.data.content && workspaceUri) {
                     try {
-                      const fullPath = path.join(workspaceUri, data.data.path);
+                      const writePath = data.data.full_path || data.data.path;
+                      const fullPath = path.join(workspaceUri, writePath);
                       fs.mkdirSync(path.dirname(fullPath), { recursive: true });
                       fs.writeFileSync(fullPath, data.data.content, "utf8");
-                      this._logger.info(`☁️ Synced file from cloud: ${data.data.path}`);
+                      this._logger.info(`☁️ Synced file from cloud: ${writePath}`);
                     } catch (e: any) {
                       this._logger.error(`Failed to sync file: ${e.message}`);
                     }
@@ -342,10 +343,11 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
                 case "fix_applied":
                   if (data.data.content && workspaceUri) {
                     try {
-                      const fullPath = path.join(workspaceUri, data.data.file);
+                      const writePath = data.data.full_path || data.data.file;
+                      const fullPath = path.join(workspaceUri, writePath);
                       fs.mkdirSync(path.dirname(fullPath), { recursive: true });
                       fs.writeFileSync(fullPath, data.data.content, "utf8");
-                      this._logger.info(`☁️ Synced fix from cloud: ${data.data.file}`);
+                      this._logger.info(`☁️ Synced fix from cloud: ${writePath}`);
                     } catch (e: any) {
                       this._logger.error(`Failed to sync fix: ${e.message}`);
                     }

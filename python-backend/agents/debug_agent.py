@@ -105,7 +105,11 @@ class DebugAgent:
         self.docker_image = os.getenv("DOCKER_IMAGE", "node:20-alpine")
         self.use_docker = os.getenv("USE_DOCKER_SANDBOX", "true").lower() == "true"
 
-    def execute(self, project_root: str) -> DebugResult:
+    def execute(
+        self,
+        project_root: str,
+        http_session: Optional[requests.Session] = None,
+    ) -> DebugResult:
         logger.info("Testing Agent started for project: %s", project_root)
 
         original_project_path = Path(project_root)
@@ -201,6 +205,7 @@ class DebugAgent:
                 test_content = self._generate_tests_with_model(
                     file_contents=file_contents,
                     detected_routes=detected_routes,
+                    http_session=http_session,
                 )
 
                 if not test_content:
@@ -445,10 +450,10 @@ class DebugAgent:
     # Model-based test generation
     # ─────────────────────────────────────────────────────────────────────
 
-    def _generate_tests_with_model(
         self,
         file_contents: Dict[str, str],
         detected_routes: List[Dict[str, str]],
+        http_session: Optional[requests.Session] = None,
     ) -> str:
         max_attempts = int(os.getenv("MODEL_MAX_RETRIES", "3"))
 
@@ -468,9 +473,9 @@ class DebugAgent:
                 )
 
                 if self.use_openai_compatible:
-                    raw = self._query_openai_compatible(prompt, TESTING_AGENT_SYSTEM_PROMPT)
+                    raw = self._query_openai_compatible(prompt, TESTING_AGENT_SYSTEM_PROMPT, http_session)
                 else:
-                    raw = self._query_ollama(prompt, TESTING_AGENT_SYSTEM_PROMPT)
+                    raw = self._query_ollama(prompt, TESTING_AGENT_SYSTEM_PROMPT, http_session)
 
                 test_code = self._extract_code(raw)
 
@@ -494,7 +499,7 @@ class DebugAgent:
         logger.warning("Model-based test generation failed after all retries: %s", last_error)
         return ""
 
-    def _query_ollama(self, prompt: str, system_prompt: str) -> str:
+    def _query_ollama(self, prompt: str, system_prompt: str, http_session: Optional[requests.Session] = None) -> str:
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -507,7 +512,8 @@ class DebugAgent:
             },
         }
 
-        response = requests.post(
+        session_obj = http_session or requests
+        response = session_obj.post(
             f"{self.ollama_url}/api/generate",
             json=payload,
             timeout=int(os.getenv("MODEL_TIMEOUT", "240")),
@@ -520,7 +526,7 @@ class DebugAgent:
 
         return data["response"]
 
-    def _query_openai_compatible(self, prompt: str, system_prompt: str) -> str:
+    def _query_openai_compatible(self, prompt: str, system_prompt: str, http_session: Optional[requests.Session] = None) -> str:
         if not self.openai_compatible_url:
             raise ValueError("OPENAI_COMPATIBLE_URL is not set")
 
@@ -536,7 +542,8 @@ class DebugAgent:
             "max_tokens": 2048,
         }
 
-        response = requests.post(
+        session_obj = http_session or requests
+        response = session_obj.post(
             self.openai_compatible_url,
             headers=headers,
             json=payload,
@@ -1118,6 +1125,7 @@ describe('Generated API validation tests', () => {{
             logger.info("Testing report written: %s", report_path)
         except Exception as exc:
             logger.warning("Failed to write testing-report.json: %s", exc)
+
 
     def _final_result(
         self,

@@ -38,7 +38,7 @@ class PlannerAgent:
         self.openai_compatible_provider = openai_compatible_provider
         self.last_request_trace: Dict[str, Any] = {}
 
-    def execute(self, user_prompt: str, cancel_token: Optional[Callable[[], bool]] = None) -> PlannerOutput:
+    def execute(self, user_prompt: str, cancel_token: Optional[Callable[[], bool]] = None, http_session: Optional[requests.Session] = None) -> PlannerOutput:
         logger.info("Starting project planning...")
         plan = None
         last_error = None
@@ -52,10 +52,10 @@ class PlannerAgent:
 
                 logger.info(f"Querying AI (attempt {attempt + 1})...")
                 if self.use_openai_compatible:
-                    raw_response = self._query_openai_compatible(prompt, PLANNER_SYSTEM_PROMPT, cancel_token)
+                    raw_response = self._query_openai_compatible(prompt, PLANNER_SYSTEM_PROMPT, cancel_token, http_session)
                     provider = self.openai_compatible_provider
                 else:
-                    raw_response = self._query_ollama(prompt, PLANNER_SYSTEM_PROMPT, cancel_token)
+                    raw_response = self._query_ollama(prompt, PLANNER_SYSTEM_PROMPT, cancel_token, http_session)
                     provider = "ollama"
 
                 self.last_request_trace = {
@@ -92,7 +92,7 @@ class PlannerAgent:
         logger.info(f"Planning complete: '{plan.projectName}' — {len(plan.files)} files")
         return plan
 
-    def _query_ollama(self, prompt: str, system_prompt: str, cancel_token: Optional[Callable[[], bool]] = None) -> str:
+    def _query_ollama(self, prompt: str, system_prompt: str, cancel_token: Optional[Callable[[], bool]] = None, http_session: Optional[requests.Session] = None) -> str:
         payload = {
             "model": self.model,
             "prompt": prompt,
@@ -103,7 +103,8 @@ class PlannerAgent:
                 "num_predict": 4096,
             }
         }
-        resp = requests.post(
+        session_obj = http_session or requests
+        resp = session_obj.post(
             f"{self.ollama_url}/api/generate",
             json=payload,
             timeout=int(os.getenv("MODEL_TIMEOUT", "240")),
@@ -121,7 +122,7 @@ class PlannerAgent:
                     content += data["response"]
         return content
 
-    def _query_openai_compatible(self, prompt: str, system_prompt: str, cancel_token: Optional[Callable[[], bool]] = None) -> str:
+    def _query_openai_compatible(self, prompt: str, system_prompt: str, cancel_token: Optional[Callable[[], bool]] = None, http_session: Optional[requests.Session] = None) -> str:
         if not self.openai_compatible_url:
             raise ValueError("OPENAI_COMPATIBLE_URL is not set")
 
@@ -137,7 +138,8 @@ class PlannerAgent:
             "max_tokens": 4096,
             "stream": True
         }
-        resp = requests.post(
+        session_obj = http_session or requests
+        resp = session_obj.post(
             self.openai_compatible_url,
             headers=headers,
             json=payload,

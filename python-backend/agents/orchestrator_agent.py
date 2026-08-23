@@ -61,6 +61,7 @@ class BuildSession:
         self.approval_event: threading.Event = threading.Event()
         self.approval_action: Optional[str] = None
         self.approval_data: Optional[dict] = None
+        self.http_session = requests.Session()
         self.active: bool = True
 
     def emit(self, event_type: str, data: dict) -> None:

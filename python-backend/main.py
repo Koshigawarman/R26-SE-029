@@ -314,6 +314,7 @@ async def build_project(req: BuildRequest, request: Request):
                     session.active = False
                     session.approval_action = "cancel"
                     session.approval_event.set()
+                    session.http_session.close()
                     break
                 await asyncio.sleep(0.1)
 
