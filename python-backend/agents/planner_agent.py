@@ -13,15 +13,18 @@ MANDATORY_FILES = [
     'package.json',
     'app.js',
     'config/db.js',
+    'README.md',
 ]
 
+MIN_REQUIRED_ENTITIES = 5
+
 class PlannerAgent:
-    MAX_JSON_RETRIES = 2
+    MAX_JSON_RETRIES = 1
 
     def __init__(
         self, 
         ollama_url: str = "http://localhost:11434", 
-        model: str = "qwen7b-planner",  # Updated default to 7B fine-tuned model
+        model: str = "qwen7b-planner", 
         use_openrouter: bool = False, 
         openrouter_api_key: str = ""  
     ):
@@ -62,7 +65,7 @@ class PlannerAgent:
             raise RuntimeError("Planner Agent produced no output")
 
         plan = self._ensure_mandatory_files(plan)
-        logger.info(f"Planning complete: '{plan.projectName}' — {len(plan.files)} files")
+        logger.info(f"Planning complete: '{plan.projectName}' — {len(plan.entities)} entities, {len(plan.files)} files")
         return plan
 
     def _query_ollama(self, prompt: str, system_prompt: str) -> str:
@@ -70,17 +73,17 @@ class PlannerAgent:
             "model": self.model,
             "prompt": prompt,
             "system": system_prompt,
-            "format": "json",  # Force strict JSON output from Ollama
+            "format": "json",
             "stream": False,
             "options": {
-                "temperature": 0.2,  # Low temperature for deterministic, structured schema
-                "num_predict": 4096,
+                "temperature": 0.2,
+                "num_predict": 3072,
             }
         }
         resp = requests.post(
             f"{self.ollama_url}/api/generate",
             json=payload,
-            timeout=240
+            timeout=600
         )
         resp.raise_for_status()
         data = resp.json()
@@ -110,26 +113,26 @@ class PlannerAgent:
         return data['choices'][0]['message']['content']
 
     def _parse_and_validate(self, raw_response: str) -> PlannerOutput:
-        # Extract JSON if wrapped in markdown blocks
         json_match = re.search(r'```json\s*(.*?)\s*```', raw_response, re.DOTALL)
         if json_match:
             raw_response = json_match.group(1)
         else:
-            # Fallback to slice between the first { and last }
             start = raw_response.find('{')
             end = raw_response.rfind('}')
             if start != -1 and end != -1:
                 raw_response = raw_response[start:end+1]
 
         data = json.loads(raw_response)
-        
-        # Pydantic validation against PlannerOutput schema
         parsed = PlannerOutput(**data)
         
-        # Sanitize project name
+        # Validation Guardrail: Ensure minimum 5 entities are present
+        if len(parsed.entities) < MIN_REQUIRED_ENTITIES:
+            raise ValueError(
+                f"Generated only {len(parsed.entities)} entities. A minimum of {MIN_REQUIRED_ENTITIES} entities is strictly required."
+            )
+
         parsed.projectName = re.sub(r'[^a-z0-9]+', '-', parsed.projectName.lower()).strip('-')
 
-        # Clean paths (remove leading ./ or /)
         for file in parsed.files:
             file.path = re.sub(r'^\.?/', '', file.path)
             
@@ -162,18 +165,19 @@ class PlannerAgent:
             'app.js': f"Main Express application entry point for {project_name}. Imports dotenv/config, sets up Express middleware (json, cors), connects to MongoDB, mounts all route files, adds error handling middleware, and starts the server on PORT from environment.",
             'package.json': f"NPM package manifest for {project_name}. Sets type to 'module' for ES modules, lists dependencies: express, mongoose, dotenv, cors, bcryptjs, jsonwebtoken. Includes start script.",
             'config/db.js': "MongoDB connection configuration. Exports an async connectDB function that uses mongoose.connect() with MONGODB_URI from process.env. Logs success/failure.",
+            'README.md': f"Project documentation for {project_name}. Includes project setup instructions, environment variables required, API endpoints summary, and how to run the application locally.",
         }
         return descriptions.get(path, f"Configuration file for {project_name}")
 
     def _build_retry_prompt(self, user_prompt: str, error_message: str) -> str:
-        return f"""Your previous response was not valid JSON. Error: {error_message}
+        return f"""Your previous plan was invalid: {error_message}
 
-Please try again. Analyze this requirement and output ONLY valid JSON matching the schema in your system prompt.
+Please regenerate the architecture plan. You MUST provide AT LEAST 5 distinct domain entities with all associated files.
 
 ## USER REQUIREMENT
 {user_prompt}
 
-Remember: Output ONLY the JSON object. No markdown fences, no explanations, no extra text."""
+Remember: Output ONLY valid JSON matching the schema."""
 
 
 # =====================================================================
@@ -188,7 +192,7 @@ if __name__ == "__main__":
         use_openrouter=False,
     )
     
-    sample_request = "Build an E-Commerce backend with User, Product, Category, and Order management."
+    sample_request = "Give a gym management system backend"
     result = agent.execute(sample_request)
     print("\n--- Plan Generated Successfully ---")
     print(json.dumps(result.model_dump() if hasattr(result, "model_dump") else result.dict(), indent=2))
