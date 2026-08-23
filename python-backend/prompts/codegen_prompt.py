@@ -840,7 +840,8 @@ def build_codegen_prompt(
     features: List[Feature],
     all_files: List[FileSpec],
     existing_contents: Dict[str, str],
-    existing_file_content: str = None
+    existing_file_content: str = None,
+    architecture: Dict = None,
 ) -> str:
     parts = []
 
@@ -856,6 +857,16 @@ def build_codegen_prompt(
     parts.append(f"## PROJECT")
     parts.append(project_name)
     parts.append("")
+
+    if architecture:
+        parts.append("## ARCHITECTURE")
+        parts.append(f"- stack: {architecture.get('stack', 'node-express-mongoose')}")
+        parts.append(f"- pattern: {architecture.get('pattern', 'mvc')}")
+        parts.append(f"- language: {architecture.get('language', 'javascript')}")
+        parts.append(f"- moduleSystem: {architecture.get('moduleSystem', 'esm')}")
+        parts.append(f"- database: {architecture.get('database', 'mongodb')}")
+        parts.append(f"- orm: {architecture.get('orm', 'mongoose')}")
+        parts.append("")
 
     if entities:
         parts.append("## ENTITIES")
@@ -919,7 +930,12 @@ def build_codegen_prompt(
         parts.append("If not generating package.json, avoid optional external packages.")
         parts.append("")
 
-    related_files = get_related_files(file_spec.path, all_files, existing_contents)
+    related_files = get_related_files(
+        file_spec.path,
+        all_files,
+        existing_contents,
+        architecture_pattern=(architecture or {}).get("pattern", "mvc"),
+    )
 
     if related_files:
         parts.append("## ALREADY GENERATED RELATED FILES")
@@ -961,10 +977,12 @@ def build_codegen_prompt(
 def get_related_files(
     target_path: str,
     all_files: List[FileSpec],
-    existing_contents: Dict[str, str]
+    existing_contents: Dict[str, str],
+    architecture_pattern: str = "mvc",
 ) -> List[tuple]:
     allowed_paths = {f.path for f in all_files}
     selected_paths = []
+    pattern = (architecture_pattern or "mvc").strip().lower()
 
     def add_if_available(path: str) -> None:
         if (
@@ -980,42 +998,122 @@ def get_related_files(
             if path != target_path and path.startswith(directory) and _path_stem(path).lower().startswith(prefix):
                 add_if_available(path)
 
-    is_controller = target_path.startswith("controllers/")
-    is_route = target_path.startswith("routes/")
-    is_app = target_path == "app.js"
-    is_middleware = target_path.startswith("middleware/")
-    is_config = target_path.startswith("config/")
-    is_model = target_path.startswith("models/")
+    def add_matching_module_file(module_name: str, filename: str) -> None:
+        add_if_available(f"modules/{module_name}/{filename}")
 
     if target_path != "package.json":
         add_if_available("package.json")
 
-    if is_controller:
-        entity_prefix = _path_stem(target_path).replace("Controller", "").lower()
-        add_matching_prefix("models/", entity_prefix)
+    if pattern == "service-repository":
+        _add_service_repository_related(target_path, add_if_available, add_matching_prefix, existing_contents)
 
-    elif is_route:
-        entity_prefix = _path_stem(target_path).replace("Routes", "").lower()
-        add_matching_prefix("controllers/", entity_prefix)
+    elif pattern == "clean-architecture":
+        _add_clean_architecture_related(target_path, add_if_available, add_matching_prefix, existing_contents)
 
-        # Route files may need auth/validation middleware, but not the global
-        # error handler. Keep this narrow to avoid sending unrelated middleware.
-        for path in sorted(existing_contents):
-            if path.startswith("middleware/") and not path.endswith("errorHandler.js"):
-                add_if_available(path)
+    elif pattern == "modular-monolith":
+        _add_modular_monolith_related(target_path, add_if_available, add_matching_module_file, existing_contents)
 
-    elif is_app:
+    else:
+        _add_mvc_related(target_path, add_if_available, add_matching_prefix, existing_contents)
+
+    if target_path == "app.js":
         add_if_available("config/db.js")
 
         for path in sorted(existing_contents):
-            if path.startswith("routes/") or path == "middleware/errorHandler.js":
+            if _is_route_file_for_pattern(path, pattern) or path == "middleware/errorHandler.js":
                 add_if_available(path)
 
-    elif is_model or is_middleware or is_config:
-        # package.json is enough for external dependency consistency.
-        pass
-
     return [(path, existing_contents[path]) for path in selected_paths]
+
+
+def _add_mvc_related(target_path, add_if_available, add_matching_prefix, existing_contents) -> None:
+    if target_path.startswith("controllers/"):
+        entity_prefix = _path_stem(target_path).replace("Controller", "").lower()
+        add_matching_prefix("models/", entity_prefix)
+
+    elif target_path.startswith("routes/"):
+        entity_prefix = _path_stem(target_path).replace("Routes", "").lower()
+        add_matching_prefix("controllers/", entity_prefix)
+        _add_non_error_middleware(add_if_available, existing_contents)
+
+
+def _add_service_repository_related(target_path, add_if_available, add_matching_prefix, existing_contents) -> None:
+    if target_path.startswith("repositories/"):
+        entity_prefix = _path_stem(target_path).replace("Repository", "").lower()
+        add_matching_prefix("models/", entity_prefix)
+
+    elif target_path.startswith("services/"):
+        entity_prefix = _path_stem(target_path).replace("Service", "").lower()
+        add_matching_prefix("repositories/", entity_prefix)
+
+    elif target_path.startswith("controllers/"):
+        entity_prefix = _path_stem(target_path).replace("Controller", "").lower()
+        add_matching_prefix("services/", entity_prefix)
+
+    elif target_path.startswith("routes/"):
+        entity_prefix = _path_stem(target_path).replace("Routes", "").lower()
+        add_matching_prefix("controllers/", entity_prefix)
+        _add_non_error_middleware(add_if_available, existing_contents)
+
+
+def _add_clean_architecture_related(target_path, add_if_available, add_matching_prefix, existing_contents) -> None:
+    if target_path.startswith("application/use-cases/"):
+        entity_prefix = _path_stem(target_path).replace("UseCases", "").lower()
+        add_matching_prefix("domain/entities/", entity_prefix)
+        add_matching_prefix("infrastructure/repositories/", entity_prefix)
+
+    elif target_path.startswith("infrastructure/repositories/"):
+        entity_prefix = _path_stem(target_path).replace("Repository", "").lower()
+        add_matching_prefix("infrastructure/database/", entity_prefix)
+
+    elif target_path.startswith("interfaces/controllers/"):
+        entity_prefix = _path_stem(target_path).replace("Controller", "").lower()
+        add_matching_prefix("application/use-cases/", entity_prefix)
+
+    elif target_path.startswith("interfaces/routes/"):
+        entity_prefix = _path_stem(target_path).replace("Routes", "").lower()
+        add_matching_prefix("interfaces/controllers/", entity_prefix)
+        _add_non_error_middleware(add_if_available, existing_contents)
+
+
+def _add_modular_monolith_related(target_path, add_if_available, add_matching_module_file, existing_contents) -> None:
+    module_name = _module_name(target_path)
+    if not module_name:
+        return
+
+    if target_path.endswith("/repository.js"):
+        add_matching_module_file(module_name, "model.js")
+
+    elif target_path.endswith("/service.js"):
+        add_matching_module_file(module_name, "repository.js")
+
+    elif target_path.endswith("/controller.js"):
+        add_matching_module_file(module_name, "service.js")
+
+    elif target_path.endswith("/routes.js"):
+        add_matching_module_file(module_name, "controller.js")
+        _add_non_error_middleware(add_if_available, existing_contents)
+
+
+def _add_non_error_middleware(add_if_available, existing_contents: Dict[str, str]) -> None:
+    for path in sorted(existing_contents):
+        if path.startswith("middleware/") and not path.endswith("errorHandler.js"):
+            add_if_available(path)
+
+
+def _is_route_file_for_pattern(path: str, pattern: str) -> bool:
+    if pattern == "clean-architecture":
+        return path.startswith("interfaces/routes/")
+    if pattern == "modular-monolith":
+        return path.startswith("modules/") and path.endswith("/routes.js")
+    return path.startswith("routes/")
+
+
+def _module_name(path: str) -> str:
+    parts = path.split("/")
+    if len(parts) >= 3 and parts[0] == "modules":
+        return parts[1]
+    return ""
 
 
 def _path_stem(path: str) -> str:

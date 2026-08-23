@@ -207,6 +207,18 @@
       /* Preview Feature (Project Architecture) */
       .pv-hdr { display: flex; align-items: center; justify-content: space-between; font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--fg2); margin-top: 16px; margin-bottom: 8px; letter-spacing: 0.5px; }
       .pv-hdr:first-child { margin-top: 0; }
+      .arch-summary { display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+      .arch-top { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+      .arch-icon { width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--cyan); background: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.18); flex-shrink: 0; }
+      .arch-title { font-size: 13px; color: var(--fg); font-weight: 700; line-height: 1.2; word-break: break-word; }
+      .arch-subtitle { font-size: 11px; color: var(--fg2); margin-top: 3px; line-height: 1.4; }
+      .arch-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .arch-meta { min-width: 0; padding: 8px; border: 1px solid var(--border2); border-radius: 6px; background: var(--bg3); }
+      .arch-meta-label { font-size: 9px; color: var(--fg3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+      .arch-meta-value { font-size: 11px; color: var(--fg); font-family: var(--mono); overflow-wrap: anywhere; }
+      .arch-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 2px; }
+      .arch-flow-step { display: inline-flex; align-items: center; min-height: 22px; padding: 3px 7px; border-radius: 5px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.16); color: var(--fg); font-size: 10px; font-family: var(--mono); }
+      .arch-flow-arrow { color: var(--fg3); font-size: 10px; }
       .tree-root-header { display: flex; align-items: center; gap: 6px; font-weight: 600; padding: 6px 8px; color: var(--fg); background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; font-size: 12px; }
       .tree-root-header .codicon { color: var(--cyan); }
       .tree-root-body { display: flex; flex-direction: column; gap: 2px; }
@@ -399,7 +411,11 @@
              <span id="plan-badge" class="badge h" style="background:var(--ok);font-size:9px;padding:2px 6px;">Approved</span>
           </span>
         </div>
-        <div class="sec-body" id="preview-body" style="padding: 16px; background: var(--bg2);">
+          <div class="sec-body" id="preview-body" style="padding: 16px; background: var(--bg2);">
+          <div class="pv-hdr">Selected Architecture</div>
+          <div id="architecture-container">
+            <div style="font-size: 11px; color: var(--fg3); font-style: italic;">Waiting for planner architecture.</div>
+          </div>
           
           <div class="pv-hdr">Generated Files</div>
           <div id="project-tree-container">
@@ -480,6 +496,7 @@
         let buildLastUpdate = 0;
         let buildTimeoutTimer = null;
         let currentPlanData = null;
+        let currentArchitecture = null;
 
         // Preview State
         let workspaceRoot = "";
@@ -992,7 +1009,87 @@
             `;
         }
 
+        function esc(value) {
+            return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+
+        function titleCase(value) {
+            return String(value || "")
+                .replace(/[-_]/g, " ")
+                .replace(/\b\w/g, c => c.toUpperCase());
+        }
+
+        function architectureFlow(pattern) {
+            const flows = {
+                "mvc": ["Route", "Controller", "Model"],
+                "service-repository": ["Route", "Controller", "Service", "Repository", "Model"],
+                "clean-architecture": ["Route", "Controller", "Use Case", "Repository Interface", "Infrastructure"],
+                "modular-monolith": ["Module Route", "Module Controller", "Module Service", "Module Repository", "Module Model"],
+            };
+            return flows[pattern] || flows.mvc;
+        }
+
+        function normalizeArchitecture(architecture) {
+            const arch = architecture || {};
+            return {
+                stack: arch.stack || "node-express-mongoose",
+                pattern: arch.pattern || "mvc",
+                language: arch.language || "javascript",
+                moduleSystem: arch.moduleSystem || "esm",
+                database: arch.database || "mongodb",
+                orm: arch.orm || "mongoose",
+            };
+        }
+
+        function renderArchitecture(architecture) {
+            currentArchitecture = normalizeArchitecture(architecture);
+            const container = $("architecture-container");
+            if (!container) return;
+
+            const patternLabel = titleCase(currentArchitecture.pattern);
+            const flow = architectureFlow(currentArchitecture.pattern);
+            const flowHtml = flow.map((step, idx) => {
+                const arrow = idx < flow.length - 1 ? '<span class="arch-flow-arrow"><i class="codicon codicon-arrow-right"></i></span>' : '';
+                return '<span class="arch-flow-step">' + esc(step) + '</span>' + arrow;
+            }).join("");
+
+            container.innerHTML = `
+                <div class="arch-summary">
+                    <div class="arch-top">
+                        <div class="arch-icon"><i class="codicon codicon-symbol-namespace"></i></div>
+                        <div style="flex:1;min-width:0">
+                            <div class="arch-title">${esc(patternLabel)}</div>
+                            <div class="arch-subtitle">${esc(currentArchitecture.stack)} backend generated with ${esc(currentArchitecture.moduleSystem.toUpperCase())} modules.</div>
+                        </div>
+                    </div>
+                    <div class="arch-grid">
+                        <div class="arch-meta">
+                            <div class="arch-meta-label">Language</div>
+                            <div class="arch-meta-value">${esc(currentArchitecture.language)}</div>
+                        </div>
+                        <div class="arch-meta">
+                            <div class="arch-meta-label">Database</div>
+                            <div class="arch-meta-value">${esc(currentArchitecture.database)}</div>
+                        </div>
+                        <div class="arch-meta">
+                            <div class="arch-meta-label">ORM</div>
+                            <div class="arch-meta-value">${esc(currentArchitecture.orm)}</div>
+                        </div>
+                        <div class="arch-meta">
+                            <div class="arch-meta-label">Pattern</div>
+                            <div class="arch-meta-value">${esc(currentArchitecture.pattern)}</div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="arch-meta-label" style="margin-bottom:6px;">Expected Dependency Flow</div>
+                        <div class="arch-flow">${flowHtml}</div>
+                    </div>
+                </div>
+            `;
+        }
+
         function updatePlanDetails(details) {
+            renderArchitecture(details.architecture);
             const entContainer = $("entities-container");
             if (entContainer) {
                 if (details.entities && details.entities.length) {
@@ -1105,6 +1202,9 @@
               workspaceRoot = m.workspaceRoot || "";
               projectRootName = "project";
               planFiles = [];
+              currentArchitecture = null;
+              currentPlanData = null;
+              $("architecture-container").innerHTML = '<div style="font-size: 11px; color: var(--fg3); font-style: italic;">Waiting for planner architecture.</div>';
               $("sec-preview").style.display = "none";
               
               setBuildActionState(true);
@@ -1150,6 +1250,7 @@
               log("Waiting for approval: " + m.step, "fx");
               break;
             case "fileGenerated":
+              if (m.architecture) renderArchitecture(m.architecture);
               const file = planFiles.find(f => f.path === m.path);
               if (file) file.status = m.status;
               else planFiles.push({ path: m.path, status: m.status });
@@ -1173,12 +1274,14 @@
               $("apv").classList.remove("v");
               
               const r = m.result, rc = $("rc");
+              if (r.architecture) renderArchitecture(r.architecture);
               if (r.success) {
                 aDn("O"); aDn("P"); aDn("C"); aDn("T"); aDn("R");
                 planFiles.forEach(f => { if(f.status === 'pending') f.status = 'success'; });
                 updateFileTree();
 
-                rc.innerHTML = '<div style="display:flex;align-items:center;gap:6px;color:var(--ok)"><i class="codicon codicon-pass ri"></i><span class="rt">' + r.projectName + '</span></div><div class="rs"><div class="stat"><div class="sv">' + r.filesGenerated + '</div><div class="sl">Files</div></div><div class="stat"><div class="sv">' + r.debugAttempts + '</div><div class="sl">Cycles</div></div><div class="stat"><div class="sv">' + (r.duration / 1000).toFixed(1) + 's</div><div class="sl">Time</div></div><div class="stat"><div class="sv" style="color:var(--ok)"><i class="codicon codicon-check"></i></div><div class="sl">Status</div></div></div><div class="br" style="margin-top:4px"><button class="btn bp" data-cmd="openFolder" data-path="' + r.projectRoot.replace(/\\/g, "\\\\") + '"><i class="codicon codicon-folder-opened"></i> Open Project</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>';
+                const archName = currentArchitecture ? titleCase(currentArchitecture.pattern) : "Architecture";
+                rc.innerHTML = '<div style="display:flex;align-items:center;gap:6px;color:var(--ok)"><i class="codicon codicon-pass ri"></i><span class="rt">' + r.projectName + '</span></div><div style="font-size:11px;color:var(--fg2);margin-top:-6px;">' + esc(archName) + '</div><div class="rs"><div class="stat"><div class="sv">' + r.filesGenerated + '</div><div class="sl">Files</div></div><div class="stat"><div class="sv">' + r.debugAttempts + '</div><div class="sl">Cycles</div></div><div class="stat"><div class="sv">' + (r.duration / 1000).toFixed(1) + 's</div><div class="sl">Time</div></div><div class="stat"><div class="sv" style="color:var(--ok)"><i class="codicon codicon-check"></i></div><div class="sl">Status</div></div></div><div class="br" style="margin-top:4px"><button class="btn bp" data-cmd="openFolder" data-path="' + r.projectRoot.replace(/\\/g, "\\\\") + '"><i class="codicon codicon-folder-opened"></i> Open Project</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>';
                 log("Build succeeded!", "ok");
               } else {
                 aEr("O", "Failed");

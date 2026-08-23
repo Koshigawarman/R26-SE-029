@@ -107,6 +107,7 @@ def node_await_plan_approval(state: OrchestrationState) -> dict:
         {
             "message": msg,
             "projectName": plan.projectName,
+            "architecture": plan.architecture.model_dump(),
             "entities": [entity.model_dump() for entity in plan.entities],
             "features": [feature.model_dump() for feature in plan.features],
             "files": [file_spec.model_dump() for file_spec in plan.files],
@@ -183,6 +184,7 @@ def node_generate_files(state: OrchestrationState) -> dict:
     
     context = CodeGenContext(
         projectName=plan.projectName,
+        architecture=plan.architecture,
         entities=plan.entities,
         features=plan.features,
         allFiles=plan.files,
@@ -219,7 +221,17 @@ def node_generate_files(state: OrchestrationState) -> dict:
                 files_generated += 1
                 file_generation_success = True
                 
-                session.emit("file_generated", {"path": generated.path, "status": "success", "chars": len(generated.content), "index": i + 1, "total": total_files})
+                session.emit(
+                    "file_generated",
+                    {
+                        "path": generated.path,
+                        "status": "success",
+                        "chars": len(generated.content),
+                        "index": i + 1,
+                        "total": total_files,
+                        "architecture": plan.architecture.model_dump(),
+                    },
+                )
                 status(session, f"✅ Generated file: {generated.path}", progress_pct, "FILE_GENERATED")
                 break
             if file_attempt < 3: time.sleep(2)
@@ -326,7 +338,8 @@ def node_apply_fixes(state: OrchestrationState) -> dict:
         fixed = agent.codegen_agent.fix_file_with_strategy(
             file_path=f, original_content=original, error_log=agent._build_error_log(state["latest_errors"], state["latest_stderr"]),
             critic_strategy=state["critic_strategy"].fixing_strategy, instructions_for_code_agent=state["critic_strategy"].instructions_for_code_agent,
-            file_list=list(existing_contents.keys())
+            file_list=list(existing_contents.keys()),
+            architecture=state["plan"].architecture.model_dump()
         )
         if fixed and fixed.status == "fixed" and fixed.content:
             agent._write_project_file(state["project_path"], fixed.path, fixed.content)
@@ -335,11 +348,12 @@ def node_apply_fixes(state: OrchestrationState) -> dict:
     return {"existing_contents": existing_contents}
 
 def node_cancelled(state: OrchestrationState) -> dict:
-    state["agent"]._emit_complete(state["session"], False, state["plan"].projectName if state.get("plan") else "Project", state["project_path"], state["files_generated"], state["debug_attempt_count"], ["Build Cancelled"], state["start_time"])
+    architecture = state["plan"].architecture.model_dump() if state.get("plan") else None
+    state["agent"]._emit_complete(state["session"], False, state["plan"].projectName if state.get("plan") else "Project", state["project_path"], state["files_generated"], state["debug_attempt_count"], ["Build Cancelled"], state["start_time"], architecture=architecture)
     return {}
 
 def node_success(state: OrchestrationState) -> dict:
-    state["agent"]._emit_complete(state["session"], True, state["plan"].projectName, state["project_path"], state["files_generated"], state["debug_attempt_count"], [], state["start_time"])
+    state["agent"]._emit_complete(state["session"], True, state["plan"].projectName, state["project_path"], state["files_generated"], state["debug_attempt_count"], [], state["start_time"], architecture=state["plan"].architecture.model_dump())
     return {}
 
 def node_exhausted(state: OrchestrationState) -> dict:

@@ -51,9 +51,11 @@ class ResearchArtifactRecorder:
         planner_output: Dict[str, Any],
     ) -> None:
         enriched_trace = self._with_token_counts(trace)
+        architecture = self._extract_architecture(planner_output, enriched_trace)
         payload = {
             "agent": "planner",
             "user_prompt": user_prompt,
+            "architecture": architecture,
             "model_request": enriched_trace,
             "planner_output": planner_output,
             "recorded_at": time.time(),
@@ -64,6 +66,7 @@ class ResearchArtifactRecorder:
             "Planner Agent Trace",
             {
                 "User Input Prompt": user_prompt,
+                "Architecture": architecture,
                 "Token Counts": enriched_trace.get("token_counts", {}),
                 "System Prompt": enriched_trace.get("system_prompt", ""),
                 "Built Prompt": enriched_trace.get("built_prompt", ""),
@@ -81,6 +84,7 @@ class ResearchArtifactRecorder:
         error: Optional[str] = None,
     ) -> None:
         enriched_trace = self._with_token_counts(trace)
+        architecture = self._extract_architecture({}, enriched_trace)
         safe_file_name = self._safe_path(file_path)
         self._codegen_counts[safe_file_name] = self._codegen_counts.get(safe_file_name, 0) + 1
         attempt_no = self._codegen_counts[safe_file_name]
@@ -91,6 +95,7 @@ class ResearchArtifactRecorder:
             "artifact_attempt": attempt_no,
             "status": status,
             "error": error,
+            "architecture": architecture,
             "model_request": enriched_trace,
             "output_validation": enriched_trace.get("output_validation", {}),
             "generated_content": generated_content,
@@ -102,6 +107,7 @@ class ResearchArtifactRecorder:
             f"CodeGen Agent Trace: {file_path}",
             {
                 "Target File": file_path,
+                "Architecture": architecture,
                 "Token Counts": enriched_trace.get("token_counts", {}),
                 "System Prompt": enriched_trace.get("system_prompt", ""),
                 "Built Prompt": enriched_trace.get("built_prompt", ""),
@@ -137,3 +143,20 @@ class ResearchArtifactRecorder:
         enriched = dict(trace)
         enriched["token_counts"] = budget
         return enriched
+
+    @staticmethod
+    def _extract_architecture(primary: Dict[str, Any], trace: Dict[str, Any]) -> Dict[str, Any]:
+        architecture = primary.get("architecture") if isinstance(primary, dict) else None
+        if not architecture:
+            architecture = trace.get("architecture") if isinstance(trace, dict) else None
+        if not isinstance(architecture, dict):
+            architecture = {}
+
+        return {
+            "stack": architecture.get("stack", "node-express-mongoose"),
+            "pattern": architecture.get("pattern", "mvc"),
+            "language": architecture.get("language", "javascript"),
+            "moduleSystem": architecture.get("moduleSystem", "esm"),
+            "database": architecture.get("database", "mongodb"),
+            "orm": architecture.get("orm", "mongoose"),
+        }
