@@ -450,6 +450,7 @@ class DebugAgent:
     # Model-based test generation
     # ─────────────────────────────────────────────────────────────────────
 
+    def _generate_tests_with_model(
         self,
         file_contents: Dict[str, str],
         detected_routes: List[Dict[str, str]],
