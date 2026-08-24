@@ -151,6 +151,13 @@ def node_create_structure(state: OrchestrationState) -> dict:
     session = state["session"]
     agent = state["agent"]
     plan = state["plan"]
+    request = state["request"]
+    
+    try:
+        if hasattr(agent, 'planner_agent') and hasattr(agent.planner_agent, 'plan_memory'):
+            agent.planner_agent.plan_memory.store_approved_plan(request.prompt, plan.model_dump_json())
+    except Exception as e:
+        logger.error(f"Failed to store approved plan in memory: {e}")
     
     status(session, "📁 STATE → CREATING_STRUCTURE: Creating project structure...", 15, "CREATING_STRUCTURE")
     
