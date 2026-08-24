@@ -35,7 +35,28 @@ USECASE_DIAGRAM_PROMPT = """You are an expert software architect. Given the JSON
 8. DO NOT output any conversational text, explanations, or markdown outside the mermaid block.
 """
 
-class DiagramAgent:
+SWAGGER_PROMPT = """You are an expert software architect. Given the JSON representation of a project plan and the ACTUAL generated source code of the backend, generate a complete OpenAPI 3.0 specification in YAML format.
+
+## CRITICAL RULES
+1. Output ONLY the YAML code inside a ```yaml code block.
+2. The specification MUST be valid OpenAPI 3.0.
+3. The paths, methods, and schemas MUST strictly reflect the actual implementation provided in the Codebase Context.
+4. Include realistic tags, request bodies, and responses.
+5. DO NOT output any conversational text, explanations, or markdown outside the yaml block.
+"""
+
+MOCK_DATA_PROMPT = """You are an expert QA engineer. Given the JSON representation of a project plan and the ACTUAL generated source code of the backend, generate realistic mock JSON data for the entities.
+
+## CRITICAL RULES
+1. Output ONLY the JSON code inside a ```json code block.
+2. The output MUST be a JSON object where each key is an entity name (e.g., "User", "Post"), and the value is an array of dummy objects.
+3. Generate EXACTLY {count} objects per entity.
+4. The properties of the objects MUST strictly reflect the actual Mongoose schemas defined in the Codebase Context.
+5. Use realistic dummy data (e.g., proper emails, MongoDB ObjectIDs for references, coherent text).
+6. DO NOT output any conversational text, explanations, or markdown outside the json block.
+"""
+
+class ArtifactAgent:
     def __init__(
         self,
         ollama_url: str,
@@ -52,36 +73,60 @@ class DiagramAgent:
         self.openai_compatible_url = openai_compatible_url
         self.openai_compatible_provider = openai_compatible_provider
 
-    def generate(self, diagram_type: str, plan_json: Dict[str, Any]) -> str:
-        logger.info(f"Generating {diagram_type} diagram...")
+    def generate(self, artifact_type: str, plan_json: Dict[str, Any], count: int = 5, codebase: Optional[str] = None) -> str:
+        logger.info(f"Generating {artifact_type} artifact...")
         
-        if diagram_type == "class":
+        context_str = f"Plan JSON:\n```json\n{json.dumps(plan_json, indent=2)}\n```\n"
+        if codebase:
+            context_str += f"\nCodebase Context (Generated Source Code):\n```javascript\n{codebase}\n```\n"
+            
+        if artifact_type == "class":
             system_prompt = CLASS_DIAGRAM_PROMPT
-        elif diagram_type == "usecase":
+            prompt = context_str + "\nGenerate the mermaid diagram."
+        elif artifact_type == "usecase":
             system_prompt = USECASE_DIAGRAM_PROMPT
+            prompt = context_str + "\nGenerate the mermaid diagram."
+        elif artifact_type == "swagger":
+            system_prompt = SWAGGER_PROMPT
+            prompt = context_str + "\nGenerate the Swagger YAML."
+        elif artifact_type == "mock_data":
+            system_prompt = MOCK_DATA_PROMPT.format(count=count)
+            prompt = context_str + "\nGenerate the mock data JSON."
         else:
-            raise ValueError(f"Unknown diagram type: {diagram_type}")
-
-        prompt = f"Plan JSON:\n```json\n{json.dumps(plan_json, indent=2)}\n```\n\nGenerate the mermaid diagram."
+            raise ValueError(f"Unknown artifact type: {artifact_type}")
 
         if self.use_openai_compatible:
             raw_response = self._query_openai_compatible(prompt, system_prompt)
         else:
             raw_response = self._query_ollama(prompt, system_prompt)
             
-        return self._extract_mermaid(raw_response)
+        return self._extract_code(raw_response, artifact_type)
         
-    def _extract_mermaid(self, raw_response: str) -> str:
-        # Extract content inside ```mermaid ... ``` or just ``` ... ```
-        match = re.search(r'```(?:mermaid)?\s*\n(.*?)\n\s*```', raw_response, re.DOTALL | re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-            
-        # Fallback if no backticks but starts with classDiagram or flowchart
-        if "classDiagram" in raw_response or "flowchart" in raw_response:
-            # Just strip leading/trailing whitespace
-            return raw_response.strip().strip('`')
-            
+    def _extract_code(self, raw_response: str, artifact_type: str) -> str:
+        # Check for specific language blocks
+        if artifact_type in ("class", "usecase"):
+            match = re.search(r'```(?:mermaid)?\s*\n(.*?)\n\s*```', raw_response, re.DOTALL | re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+            # Fallback
+            if "classDiagram" in raw_response or "flowchart" in raw_response:
+                return raw_response.strip().strip('`')
+                
+        elif artifact_type == "swagger":
+            match = re.search(r'```(?:yaml)?\s*\n(.*?)\n\s*```', raw_response, re.DOTALL | re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+                
+        elif artifact_type == "mock_data":
+            match = re.search(r'```(?:json)?\s*\n(.*?)\n\s*```', raw_response, re.DOTALL | re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+            # Fallback
+            start = raw_response.find('{')
+            end = raw_response.rfind('}')
+            if start != -1 and end != -1:
+                return raw_response[start:end+1]
+
         return raw_response.strip()
 
     def _query_ollama(self, prompt: str, system_prompt: str) -> str:

@@ -438,6 +438,23 @@
         </div>
       </div>
 
+      <div class="sec" id="sec-artifacts">
+        <div class="sec-hdr" data-target="artifacts-body">
+          <i class="codicon codicon-chevron-down chevron"></i>
+          <span class="lbl">Project Artifacts</span>
+        </div>
+        <div class="sec-body" id="artifacts-body">
+          <div style="padding: 12px 16px; display: flex; flex-direction: column; gap: 8px;" id="artifacts-container">
+             <div class="desc" style="font-size: 11px; color: var(--fg2); margin-bottom: 4px;">Generate live documentation and visual diagrams for your project architecture.</div>
+             <button class="btn bg" data-action="view-artifact" data-type="class" id="btn-art-class" disabled><i class="codicon codicon-type-hierarchy"></i> Class Diagram</button>
+             <button class="btn bg" data-action="view-artifact" data-type="usecase" id="btn-art-usecase" disabled><i class="codicon codicon-organization"></i> Use Case Diagram</button>
+             <button class="btn bg" data-action="view-artifact" data-type="swagger" id="btn-art-swagger" disabled><i class="codicon codicon-server-environment"></i> Swagger API Contract</button>
+             <button class="btn bg" data-action="generate-mock-data" id="btn-art-mock" disabled><i class="codicon codicon-database"></i> Mock Data Seeder</button>
+          </div>
+        </div>
+      </div>
+
+
       <div id="hist"></div>
       <div class="sec" id="sec-logs">
         <div class="sec-hdr" data-target="logs-body">
@@ -661,10 +678,6 @@
         function renderPlanApprovalActions() {
             $("plan-approval-container").innerHTML = `
               <div class="desc" style="color:var(--cyan); font-weight: 500; font-size: 11px; margin-bottom: 8px;">Review the architecture above. What would you like to do?</div>
-              <div class="br" style="margin-bottom: 8px;">
-                  <button class="btn bg" data-action="view-diagram" data-type="class"><i class="codicon codicon-type-hierarchy"></i> View Class Diagram</button>
-                  <button class="btn bg" data-action="view-diagram" data-type="usecase"><i class="codicon codicon-organization"></i> View Use Case Diagram</button>
-              </div>
               <div class="br">
                   <button class="btn bp" data-action="approve"><i class="codicon codicon-check"></i> Approve & Continue</button>
                   <button class="btn bg" data-action="reject"><i class="codicon codicon-edit"></i> Modify</button>
@@ -902,13 +915,23 @@
             renderPlanApprovalActions();
           } else if (action === "view-json") {
               showJsonModal(currentPlanData);
-          } else if (action === "view-diagram") {
+          } else if (action === "view-artifact") {
               const type = btn.getAttribute("data-type");
               btn.innerHTML = '<i class="codicon codicon-sync codicon-modifier-spin"></i> Generating...';
               btn.disabled = true;
-              vscode.postMessage({ command: "viewDiagram", type: type, plan: currentPlanData });
+              vscode.postMessage({ command: "viewArtifact", type: type, plan: currentPlanData });
               setTimeout(() => {
-                btn.innerHTML = type === "class" ? '<i class="codicon codicon-type-hierarchy"></i> View Class Diagram' : '<i class="codicon codicon-organization"></i> View Use Case Diagram';
+                if (type === "class") btn.innerHTML = '<i class="codicon codicon-type-hierarchy"></i> View Class Diagram';
+                else if (type === "usecase") btn.innerHTML = '<i class="codicon codicon-organization"></i> View Use Case Diagram';
+                else if (type === "swagger") btn.innerHTML = '<i class="codicon codicon-server-environment"></i> View API Contract';
+                btn.disabled = false;
+              }, 5000);
+          } else if (action === "generate-mock-data") {
+              btn.innerHTML = '<i class="codicon codicon-sync codicon-modifier-spin"></i> Generating...';
+              btn.disabled = true;
+              vscode.postMessage({ command: "generateMockData", plan: currentPlanData });
+              setTimeout(() => {
+                btn.innerHTML = '<i class="codicon codicon-database"></i> Generate Mock Data';
                 btn.disabled = false;
               }, 5000);
           } else if (action === "approve") {
@@ -940,10 +963,28 @@
             if (feedback.trim()) approve("reject", { feedback: feedback.trim() });
             else alert("Please provide feedback.");
           } else if (action === "cancel-feedback") {
-              // Hide apv entirely on cancel if they wanted to cancel
               $("apv").classList.remove("v");
           }
-          else if (action) approve(action);
+          else if (action && action !== "view-artifact" && action !== "generate-mock-data") {
+            approve(action);
+          }
+        });
+
+        $("artifacts-container").addEventListener("click", (e) => {
+          const btn = e.target.closest(".btn");
+          if (!btn || btn.disabled) return;
+          const action = btn.getAttribute("data-action");
+          if (action === "view-artifact") {
+            vscode.postMessage({ command: "viewArtifact", type: btn.getAttribute("data-type"), plan: currentPlanData, projectName: projectRootName });
+          } else if (action === "generate-mock-data") {
+            btn.innerHTML = '<i class="codicon codicon-loading codicon-modifier-spin"></i> Generating...';
+            btn.disabled = true;
+            vscode.postMessage({ command: "generateMockData", plan: currentPlanData, projectName: projectRootName });
+            setTimeout(() => {
+              btn.innerHTML = '<i class="codicon codicon-database"></i> Mock Data Seeder';
+              btn.disabled = false;
+            }, 5000);
+          }
         });
 
         $("json-modal").addEventListener("click", (e) => {
@@ -1164,6 +1205,10 @@
           } else if (step === "pre_debug") {
             h = '<h3><i class="codicon codicon-pass"></i> Code Generation Complete</h3><div class="desc">' + d.message + "</div>";
             h += '<div class="br" style="margin-top:8px"><button class="btn bp" data-action="approve"><i class="codicon codicon-play"></i> Run Debug Phase</button><button class="btn bd" data-action="cancel">Skip Debug</button></div>';
+            
+            // Enable post-build artifacts
+            $("btn-art-swagger").disabled = false;
+            $("btn-art-mock").disabled = false;
           } else if (step === "debug_fix") {
             h = '<h3><i class="codicon codicon-wrench"></i> Critic Strategy Review</h3><div class="desc">' + (d.message || "Review the critic strategy before applying code fixes.") + "</div>";
             if (d.strategy) h += '<div class="lbl" style="margin-top:6px">Fixing Strategy</div><div class="detail-list"><div class="item diff-add">' + linkify(String(d.strategy)) + "</div></div>";
@@ -1257,6 +1302,9 @@
                 $("plan-approval-container").style.display = "block";
                 $("plan-badge").classList.add("h");
                 currentPlanData = m.details;
+                
+                $("btn-art-class").disabled = false;
+                $("btn-art-usecase").disabled = false;
               } else {
                 showApproval(m.step, m.details);
               }
@@ -1294,8 +1342,13 @@
                 updateFileTree();
 
                 const archName = currentArchitecture ? titleCase(currentArchitecture.pattern) : "Architecture";
-                rc.innerHTML = '<div style="display:flex;align-items:center;gap:6px;color:var(--ok)"><i class="codicon codicon-pass ri"></i><span class="rt">' + r.projectName + '</span></div><div style="font-size:11px;color:var(--fg2);margin-top:-6px;">' + esc(archName) + '</div><div class="rs"><div class="stat"><div class="sv">' + r.filesGenerated + '</div><div class="sl">Files</div></div><div class="stat"><div class="sv">' + r.debugAttempts + '</div><div class="sl">Cycles</div></div><div class="stat"><div class="sv">' + (r.duration / 1000).toFixed(1) + 's</div><div class="sl">Time</div></div><div class="stat"><div class="sv" style="color:var(--ok)"><i class="codicon codicon-check"></i></div><div class="sl">Status</div></div></div><div class="br" style="margin-top:4px"><button class="btn bp" data-cmd="openFolder" data-path="' + r.projectRoot.replace(/\\/g, "\\\\") + '"><i class="codicon codicon-folder-opened"></i> Open Project</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>';
+                rc.innerHTML = '<div style="display:flex;align-items:center;gap:6px;color:var(--ok)"><i class="codicon codicon-pass ri"></i><span class="rt">' + r.projectName + '</span></div><div style="font-size:11px;color:var(--fg2);margin-top:-6px;">' + esc(archName) + '</div><div class="rs"><div class="stat"><div class="sv">' + r.filesGenerated + '</div><div class="sl">Files</div></div><div class="stat"><div class="sv">' + r.debugAttempts + '</div><div class="sl">Cycles</div></div><div class="stat"><div class="sv">' + (r.duration / 1000).toFixed(1) + 's</div><div class="sl">Time</div></div><div class="stat"><div class="sv" style="color:var(--ok)"><i class="codicon codicon-check"></i></div><div class="sl">Status</div></div></div>' +
+                               '<div class="br"><button class="btn bp" data-cmd="openFolder" data-path="' + r.projectRoot.replace(/\\/g, "\\\\") + '"><i class="codicon codicon-folder-opened"></i> Open Project</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>';
                 log("Build succeeded!", "ok");
+                
+                // Ensure post-build artifacts are enabled in case we skipped debug
+                $("btn-art-swagger").disabled = false;
+                $("btn-art-mock").disabled = false;
               } else {
                 aEr("O", "Failed");
                 if (activeAgentKey) aEr(activeAgentKey, "Failed");

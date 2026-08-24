@@ -33,14 +33,16 @@ from agents.orchestrator_agent import BuildSession
 
 from schema import BuildRequest, GenerateRequest, ApprovalRequest
 from pydantic import BaseModel
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
-class DiagramRequest(BaseModel):
+class ArtifactRequest(BaseModel):
     type: str
     plan: Dict[str, Any]
+    count: int = 5
+    codebase: Optional[str] = None
 
 from agents.orchestrator_agent import OrchestratorAgent
-from agents.diagram_agent import DiagramAgent
+from agents.artifact_agent import ArtifactAgent
 from services.http_settings import get_ssl_verify_setting
 from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
 
@@ -262,12 +264,12 @@ async def generate(req: GenerateRequest):
         raise HTTPException(status_code=500, detail=f"Request failed: {str(e)}")
 
 
-@app.post("/api/diagrams/generate")
-async def generate_diagram(req: DiagramRequest):
-    """Generate a Mermaid diagram (class or usecase) based on the plan."""
-    logger.info(f"Generating diagram: {req.type}")
+@app.post("/api/artifacts/generate")
+async def generate_artifact(req: ArtifactRequest):
+    """Generate an artifact (class, usecase, swagger, mock_data) based on the plan."""
+    logger.info(f"Generating artifact: {req.type}")
     
-    diagram_agent = DiagramAgent(
+    artifact_agent = ArtifactAgent(
         ollama_url=OLLAMA_URL,
         model=DEFAULT_MODELS["planner"],
         use_openai_compatible=USE_OPENAI_COMPATIBLE,
@@ -277,10 +279,10 @@ async def generate_diagram(req: DiagramRequest):
     )
     
     try:
-        mermaid_code = diagram_agent.generate(req.type, req.plan)
-        return {"status": "ok", "mermaid": mermaid_code}
+        content = artifact_agent.generate(req.type, req.plan, req.count, req.codebase)
+        return {"status": "ok", "content": content}
     except Exception as e:
-        logger.error(f"Failed to generate diagram: {e}")
+        logger.error(f"Failed to generate artifact: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
