@@ -358,13 +358,27 @@ def node_success(state: OrchestrationState) -> dict:
 
 def node_exhausted(state: OrchestrationState) -> dict:
     session = state["session"]
+    agent = state["agent"]
+    
     action = session.wait_for_approval("debug_exhausted", {
-        "message": f"Testing failed after {state['debug_attempt_count']} retries.",
+        "message": f"Testing failed after {state['debug_attempt_count']} retries. Do you want to generate a DEBUG_README.md and exit, or extend retries?",
         "errors": [e.message for e in state["latest_errors"]]
     })
     
     if action == "retry":
         state["agent"].max_retries += 2
+    else:
+        status(session, "📝 STATE → DEBUG_EXHAUSTED: Generating DEBUG_README.md...", 95, "DEBUG_EXHAUSTED")
+        readme_content = agent.critic_agent.generate_debug_readme(
+            errors=state["latest_errors"],
+            stderr=state["latest_stderr"],
+            stdout=state["latest_stdout"],
+            file_list=list(state["existing_contents"].keys()),
+            file_contents=state["existing_contents"]
+        )
+        readme_path = os.path.join(state["project_path"], "DEBUG_README.md")
+        agent._write_project_file(state["project_path"], "DEBUG_README.md", readme_content)
+        logger.info(f"Generated DEBUG_README.md at {readme_path}")
         
     return {"exhausted_action": action}
 
