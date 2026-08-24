@@ -18,6 +18,7 @@ MANDATORY_FILES = [
     'package.json',
     'app.js',
     'config/db.js',
+    'README.md',
 ]
 
 class PlannerAgent:
@@ -378,6 +379,7 @@ class PlannerAgent:
             'app.js': f"Main Express application entry point for {project_name}. Imports dotenv/config, sets up Express middleware (json, cors), connects to MongoDB, mounts all route files, adds error handling middleware, and starts the server on PORT from environment.",
             'package.json': f"NPM package manifest for {project_name}. Sets type to 'module' for ES modules, lists dependencies: express, mongoose, dotenv, cors, bcryptjs, jsonwebtoken. Includes start script.",
             'config/db.js': "MongoDB connection configuration. Exports an async connectDB function that uses mongoose.connect() with MONGODB_URI from process.env. Logs success/failure.",
+            'README.md': f"Official project documentation for {project_name}. MUST include: 1. Project overview and purpose. 2. List of all API endpoints with HTTP methods and descriptions. 3. Key functions and features. 4. How to setup the environment (.env variables). 5. How to install dependencies and run the project.",
         }
         return descriptions.get(path, f"Configuration file for {project_name}")
 

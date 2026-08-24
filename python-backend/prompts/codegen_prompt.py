@@ -778,6 +778,33 @@ JWT_SECRET=your_jwt_secret_key_change_in_production
 JWT_EXPIRE=7d"""
 
 
+README_SYSTEM_PROMPT = """You are an expert technical writer and developer. Generate a comprehensive README.md file for this project.
+
+## CRITICAL RULES
+1. Output raw Markdown content only.
+2. DO NOT wrap the output in a markdown code fence (do not start with ```markdown and end with ```). Just output the raw markdown text directly.
+3. Be detailed, professional, and clear.
+
+## FILE-SPECIFIC GUIDELINES: README.md
+You MUST include the following sections:
+1. Project Title and Overview: A clear description of the project and its purpose based on the features.
+2. Architecture & Tech Stack: Briefly mention Node.js, Express, Mongoose, and the selected architecture pattern.
+3. Setup Instructions:
+   - Prerequisites (Node.js, MongoDB)
+   - npm install
+   - Environment variables setup (.env)
+   - Running the project (npm run dev / npm start)
+4. API Endpoints: A detailed, organized list of all REST API endpoints. Group them by entity (e.g. Users, Tasks, Products).
+   - Show the HTTP method and path (e.g., `GET /api/tasks`)
+   - Briefly describe what it does.
+5. Key Features: Mention authentication, validation, or other notable features if present.
+
+## FINAL SELF-CHECK BEFORE OUTPUT
+1. Did I include setup instructions and a list of all endpoints?
+2. Did I output raw markdown without wrapping the whole response in ```markdown ... ```?
+3. Is the documentation clear and professional?"""
+
+
 FIX_SYSTEM_PROMPT = BASE_CODEGEN_RULES + """
 
 ## TARGET TYPE: Repair one existing file
@@ -814,6 +841,8 @@ def get_codegen_system_prompt(path: str, mode: str = "generate") -> str:
         return FIX_SYSTEM_PROMPT
     if path == "package.json":
         return PACKAGE_SYSTEM_PROMPT
+    if path == "README.md":
+        return README_SYSTEM_PROMPT
     if path == ".env":
         return ENV_SYSTEM_PROMPT
     if path == "app.js":
