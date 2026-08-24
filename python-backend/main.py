@@ -32,7 +32,15 @@ import threading
 from agents.orchestrator_agent import BuildSession
 
 from schema import BuildRequest, GenerateRequest, ApprovalRequest
+from pydantic import BaseModel
+from typing import Dict, Any
+
+class DiagramRequest(BaseModel):
+    type: str
+    plan: Dict[str, Any]
+
 from agents.orchestrator_agent import OrchestratorAgent
+from agents.diagram_agent import DiagramAgent
 from services.http_settings import get_ssl_verify_setting
 from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
 
@@ -252,6 +260,28 @@ async def generate(req: GenerateRequest):
     except requests.exceptions.RequestException as e:
         logger.error(f"Ollama request failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Request failed: {str(e)}")
+
+
+@app.post("/api/diagrams/generate")
+async def generate_diagram(req: DiagramRequest):
+    """Generate a Mermaid diagram (class or usecase) based on the plan."""
+    logger.info(f"Generating diagram: {req.type}")
+    
+    diagram_agent = DiagramAgent(
+        ollama_url=OLLAMA_URL,
+        model=DEFAULT_MODELS["planner"],
+        use_openai_compatible=USE_OPENAI_COMPATIBLE,
+        openai_compatible_url=OPENAI_COMPATIBLE_URL,
+        openai_compatible_api_key=OPENAI_COMPATIBLE_API_KEY,
+        openai_compatible_provider=OPENAI_COMPATIBLE_PROVIDER,
+    )
+    
+    try:
+        mermaid_code = diagram_agent.generate(req.type, req.plan)
+        return {"status": "ok", "mermaid": mermaid_code}
+    except Exception as e:
+        logger.error(f"Failed to generate diagram: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/build")

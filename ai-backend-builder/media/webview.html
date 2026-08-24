@@ -661,6 +661,10 @@
         function renderPlanApprovalActions() {
             $("plan-approval-container").innerHTML = `
               <div class="desc" style="color:var(--cyan); font-weight: 500; font-size: 11px; margin-bottom: 8px;">Review the architecture above. What would you like to do?</div>
+              <div class="br" style="margin-bottom: 8px;">
+                  <button class="btn bg" data-action="view-diagram" data-type="class"><i class="codicon codicon-type-hierarchy"></i> View Class Diagram</button>
+                  <button class="btn bg" data-action="view-diagram" data-type="usecase"><i class="codicon codicon-organization"></i> View Use Case Diagram</button>
+              </div>
               <div class="br">
                   <button class="btn bp" data-action="approve"><i class="codicon codicon-check"></i> Approve & Continue</button>
                   <button class="btn bg" data-action="reject"><i class="codicon codicon-edit"></i> Modify</button>
@@ -898,6 +902,15 @@
             renderPlanApprovalActions();
           } else if (action === "view-json") {
               showJsonModal(currentPlanData);
+          } else if (action === "view-diagram") {
+              const type = btn.getAttribute("data-type");
+              btn.innerHTML = '<i class="codicon codicon-sync codicon-modifier-spin"></i> Generating...';
+              btn.disabled = true;
+              vscode.postMessage({ command: "viewDiagram", type: type, plan: currentPlanData });
+              setTimeout(() => {
+                btn.innerHTML = type === "class" ? '<i class="codicon codicon-type-hierarchy"></i> View Class Diagram' : '<i class="codicon codicon-organization"></i> View Use Case Diagram';
+                btn.disabled = false;
+              }, 5000);
           } else if (action === "approve") {
             const title = "Project Plan Approved";
             const html = '<div class="desc" style="font-size:12px;color:var(--fg2);">Project: <b style="color:var(--fg);">' + projectRootName + '</b></div>';

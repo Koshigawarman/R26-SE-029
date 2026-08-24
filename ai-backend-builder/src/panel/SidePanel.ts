@@ -114,6 +114,9 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
           case "retryBuild":
             await this._handleBuild(message.prompt);
             break;
+          case "viewDiagram":
+            await this._handleViewDiagram(message.type, message.plan);
+            break;
         }
       },
       undefined,
@@ -197,6 +200,40 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
       }
     } catch (err: any) {
       this._logger.error(`Approval request error: ${err.message}`);
+    }
+  }
+
+  private async _handleViewDiagram(type: string, plan: any): Promise<void> {
+    const config = this._loadConfig();
+    try {
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Generating ${type === 'class' ? 'Class' : 'Use Case'} Diagram...`,
+          cancellable: false
+        },
+        async (progress) => {
+          const resp = await fetch(`${config.backendUrl}/api/diagrams/generate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type, plan }),
+          });
+
+          if (!resp.ok) {
+            throw new Error(`Backend error: ${resp.statusText}`);
+          }
+
+          const data = await resp.json() as any;
+          if (data.mermaid) {
+            // Lazy load DiagramPanel to avoid circular imports if not careful, or just import it at top
+            const { DiagramPanel } = await import("./DiagramPanel.js");
+            DiagramPanel.show(this._context, type, data.mermaid);
+          }
+        }
+      );
+    } catch (err: any) {
+      this._logger.error(`Failed to generate diagram: ${err.message}`);
+      vscode.window.showErrorMessage(`Failed to generate diagram: ${err.message}`);
     }
   }
 
