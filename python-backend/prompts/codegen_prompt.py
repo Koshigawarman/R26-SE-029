@@ -759,16 +759,17 @@ If validation middleware is required, include:
 5. Is the output only JSON, with no markdown or explanation?"""
 
 
-ENV_SYSTEM_PROMPT = """Generate a .env file for a Node.js/Express backend project.
+ENV_SYSTEM_PROMPT = """Generate a .env configuration file for a Node.js/Express backend project.
 
 ## CRITICAL RULES
-1. Output raw .env content only.
-2. No markdown fences.
-3. No explanations.
-4. Do not include secrets that look real.
+1. Output raw .env content only. This is a plain text configuration file, NOT a Javascript file.
+2. DO NOT output Javascript code (no imports, no exports).
+3. No markdown fences.
+4. No explanations.
+5. Do not include secrets that look real.
 
 ## FILE-SPECIFIC GUIDELINES: .env
-Include:
+Include the following key=value pairs:
 PORT=3000
 MONGODB_URI=mongodb://localhost:27017/<project-name>
 NODE_ENV=development
@@ -792,7 +793,7 @@ You MUST include the following sections:
 3. Setup Instructions:
    - Prerequisites (Node.js, MongoDB)
    - npm install
-   - Environment variables setup (.env)
+   - Environment variables setup (.env). You MUST explicitly mention `MONGODB_URI` and `PORT` (Do NOT use DB_URI).
    - Running the project (npm run dev / npm start)
 4. API Endpoints: A detailed, organized list of all REST API endpoints. Group them by entity (e.g. Users, Tasks, Products).
    - Show the HTTP method and path (e.g., `GET /api/tasks`)
@@ -802,7 +803,8 @@ You MUST include the following sections:
 ## FINAL SELF-CHECK BEFORE OUTPUT
 1. Did I include setup instructions and a list of all endpoints?
 2. Did I output raw markdown without wrapping the whole response in ```markdown ... ```?
-3. Is the documentation clear and professional?"""
+3. Did I use MONGODB_URI (and not DB_URI) in the environment variables setup section?
+4. Is the documentation clear and professional?"""
 
 
 FIX_SYSTEM_PROMPT = BASE_CODEGEN_RULES + """
