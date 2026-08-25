@@ -10,6 +10,7 @@ from services.http_settings import get_ssl_verify_setting
 from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
 from services.architecture_profile_registry import get_architecture_profile, normalize_architecture
 from prompts.planner_prompt import PLANNER_SYSTEM_PROMPT, build_planner_prompt
+from services.plan_memory import PlanMemory
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ MANDATORY_FILES = [
     'package.json',
     'app.js',
     'config/db.js',
+    'README.md',
 ]
 
 class PlannerAgent:
@@ -38,16 +40,20 @@ class PlannerAgent:
         self.openai_compatible_url = openai_compatible_url
         self.openai_compatible_provider = openai_compatible_provider
         self.last_request_trace: Dict[str, Any] = {}
+        self.plan_memory = PlanMemory()
 
     def execute(self, user_prompt: str, cancel_token: Optional[Callable[[], bool]] = None) -> PlannerOutput:
         logger.info("Starting project planning...")
         plan = None
         last_error = None
+        
+        # RAG: Retrieve similar past approved plan
+        similar_plan_json = self.plan_memory.retrieve_similar_plan(user_prompt)
 
         for attempt in range(self.MAX_JSON_RETRIES + 1):
             try:
                 if attempt == 0:
-                    prompt = build_planner_prompt(user_prompt)
+                    prompt = build_planner_prompt(user_prompt, similar_plan_json)
                 else:
                     prompt = self._build_retry_prompt(user_prompt, str(last_error))
 
@@ -373,6 +379,7 @@ class PlannerAgent:
             'app.js': f"Main Express application entry point for {project_name}. Imports dotenv/config, sets up Express middleware (json, cors), connects to MongoDB, mounts all route files, adds error handling middleware, and starts the server on PORT from environment.",
             'package.json': f"NPM package manifest for {project_name}. Sets type to 'module' for ES modules, lists dependencies: express, mongoose, dotenv, cors, bcryptjs, jsonwebtoken. Includes start script.",
             'config/db.js': "MongoDB connection configuration. Exports an async connectDB function that uses mongoose.connect() with MONGODB_URI from process.env. Logs success/failure.",
+            'README.md': f"Official project documentation for {project_name}. MUST include: 1. Project overview and purpose. 2. List of all API endpoints with HTTP methods and descriptions. 3. Key functions and features. 4. How to setup the environment (.env variables). 5. How to install dependencies and run the project.",
         }
         return descriptions.get(path, f"Configuration file for {project_name}")
 

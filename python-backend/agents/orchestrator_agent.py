@@ -169,6 +169,16 @@ class OrchestratorAgent:
             max_attempts=2,
         )
 
+        # Seed initial approved plans for RAG
+        if hasattr(self, 'planner_agent') and hasattr(self.planner_agent, 'plan_memory'):
+            self._retry_operation(
+                operation_name="Seed plan memory dataset",
+                operation=lambda: self.planner_agent.plan_memory.seed_from_dataset(
+                    os.getenv("APPROVED_PLANS_DATASET_PATH", "datasets/approved_plans.json")
+                ),
+                max_attempts=2,
+            )
+
     # ─────────────────────────────────────────────────────────────────────
     # Legacy stream support
     # ─────────────────────────────────────────────────────────────────────
