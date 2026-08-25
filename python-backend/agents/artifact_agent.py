@@ -43,6 +43,7 @@ SWAGGER_PROMPT = """You are an expert software architect. Given the JSON represe
 3. The paths, methods, and schemas MUST strictly reflect the actual implementation provided in the Codebase Context.
 4. Include realistic tags, request bodies, and responses.
 5. DO NOT output any conversational text, explanations, or markdown outside the yaml block.
+6. DO NOT duplicate keys in the YAML (e.g., group all HTTP methods like `get` and `post` under a SINGLE path key like `/api/orders`).
 """
 
 MOCK_DATA_PROMPT = """You are an expert QA engineer. Given the JSON representation of a project plan and the ACTUAL generated source code of the backend, generate realistic mock JSON data for the entities.
