@@ -8,7 +8,9 @@ from typing import Optional, Callable, Dict, Any, List
 from schema import PlannerOutput, FileSpec
 from services.http_settings import get_ssl_verify_setting
 from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
+from services.architecture_profile_registry import get_architecture_profile, normalize_architecture
 from prompts.planner_prompt import PLANNER_SYSTEM_PROMPT, build_planner_prompt
+from services.plan_memory import PlanMemory
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +18,7 @@ MANDATORY_FILES = [
     'package.json',
     'app.js',
     'config/db.js',
+    'README.md',
 ]
 
 class PlannerAgent:
@@ -37,16 +40,20 @@ class PlannerAgent:
         self.openai_compatible_url = openai_compatible_url
         self.openai_compatible_provider = openai_compatible_provider
         self.last_request_trace: Dict[str, Any] = {}
+        self.plan_memory = PlanMemory()
 
     def execute(self, user_prompt: str, cancel_token: Optional[Callable[[], bool]] = None, http_session: Optional[requests.Session] = None) -> PlannerOutput:
         logger.info("Starting project planning...")
         plan = None
         last_error = None
+        
+        # RAG: Retrieve similar past approved plan
+        similar_plan_json = self.plan_memory.retrieve_similar_plan(user_prompt)
 
         for attempt in range(self.MAX_JSON_RETRIES + 1):
             try:
                 if attempt == 0:
-                    prompt = build_planner_prompt(user_prompt)
+                    prompt = build_planner_prompt(user_prompt, similar_plan_json)
                 else:
                     prompt = self._build_retry_prompt(user_prompt, str(last_error))
 
@@ -80,12 +87,14 @@ class PlannerAgent:
         if not plan:
             raise RuntimeError("Planner Agent produced no output")
 
-        plan = self._ensure_mandatory_files(plan)
+        plan = self._enforce_architecture_selection(plan, user_prompt)
+        plan = self._ensure_mandatory_files(plan, user_prompt)
 
         # ── Agentic Plan Sanitisation ──────────────────────────────────────────────
         plan = self._deduplicate_files(plan)
         plan = self._enforce_path_conventions(plan)
-        plan = self._enforce_mvc_pairing(plan)
+        plan = self._ensure_auth_files(plan, user_prompt)
+        plan = self._enforce_architecture_file_structure(plan)
         plan = self._prune_phantom_files(plan)
         # ────────────────────────────────────────────────────────────
 
@@ -190,8 +199,100 @@ class PlannerAgent:
 
         return parsed
 
-    def _ensure_mandatory_files(self, plan: PlannerOutput) -> PlannerOutput:
+    def _enforce_architecture_selection(self, plan: PlannerOutput, user_prompt: str) -> PlannerOutput:
+        """Use deterministic prompt signals to correct under-specified planner choices."""
+        plan.architecture = normalize_architecture(plan.architecture)
+        inferred_pattern = self._infer_architecture_pattern(user_prompt, plan)
+
+        if inferred_pattern and inferred_pattern != plan.architecture.pattern:
+            logger.info(
+                "[planner] Architecture pattern corrected from '%s' to '%s' based on requirement signals",
+                plan.architecture.pattern,
+                inferred_pattern,
+            )
+            plan.architecture.pattern = inferred_pattern
+
+        return plan
+
+    def _infer_architecture_pattern(self, user_prompt: str, plan: PlannerOutput) -> Optional[str]:
+        prompt = (user_prompt or "").lower()
+
+        clean_signals = {
+            "clean architecture",
+            "domain/application/infrastructure",
+            "domain, application, infrastructure",
+            "separate domain",
+            "use cases",
+            "use-cases",
+            "interface controllers",
+            "interface routes",
+            "persistence adapter",
+        }
+        if any(signal in prompt for signal in clean_signals):
+            return "clean-architecture"
+
+        modular_signals = {
+            "modular monolith",
+            "domain modules",
+            "business modules",
+            "module folder",
+            "modules",
+            "each module",
+        }
+        if any(signal in prompt for signal in modular_signals):
+            return "modular-monolith"
+
+        service_score = 0
+        weighted_signal_groups = [
+            (2, {"business rule", "business rules", "business logic", "domain operation", "domain operations"}),
+            (2, {"workflow", "workflows", "process", "processes"}),
+            (2, {"calculate", "calculation", "computed", "derived", "aggregate"}),
+            (2, {"report", "reports", "reporting", "analytics", "summary"}),
+            (2, {"validate rule", "constraint", "prevent", "limit", "threshold"}),
+            (2, {"state transition", "status change", "status update", "approve", "reject"}),
+            (2, {"audit", "history", "ledger", "transaction"}),
+            (1, {"payment", "permission", "role", "policy"}),
+        ]
+
+        for weight, signals in weighted_signal_groups:
+            if any(signal in prompt for signal in signals):
+                service_score += weight
+
+        operation_words = re.findall(r"\b(?:create|update|delete|get|list|search|filter|sort|assign|track|process|calculate|approve|reject|verify|send|receive|transfer|import|export|generate)\b", prompt)
+        if len(set(operation_words)) >= 4:
+            service_score += 1
+
+        if len(plan.entities or []) >= 4 and not self._looks_like_crud_only(prompt):
+            service_score += 1
+
+        if service_score >= 2:
+            return "service-repository"
+
+        return None
+
+    def _looks_like_crud_only(self, prompt: str) -> bool:
+        prompt = prompt.lower()
+        crud_terms = {"crud", "create", "read", "update", "delete", "get", "list"}
+        non_crud_terms = {
+            "rule",
+            "workflow",
+            "calculate",
+            "calculation",
+            "report",
+            "prevent",
+            "approve",
+            "reject",
+            "audit",
+            "transaction",
+            "payment",
+            "permission",
+            "role-based",
+        }
+        return any(term in prompt for term in crud_terms) and not any(term in prompt for term in non_crud_terms)
+
+    def _ensure_mandatory_files(self, plan: PlannerOutput, user_prompt: str = "") -> PlannerOutput:
         existing_paths = {f.path for f in plan.files}
+        auth_required = self._requires_auth(plan, user_prompt)
 
         for mandatory_path in MANDATORY_FILES:
             if mandatory_path not in existing_paths:
@@ -201,7 +302,7 @@ class PlannerAgent:
         if '.env' not in existing_paths:
             plan.files.append(FileSpec(
                 path='.env',
-                description=f"Environment variables: PORT, MONGODB_URI for {plan.projectName}, NODE_ENV, JWT_SECRET"
+                description=f"Environment variables: PORT, MONGODB_URI for {plan.projectName}, NODE_ENV" + (", JWT_SECRET" if auth_required else "")
             ))
 
         if 'middleware/errorHandler.js' not in existing_paths:
@@ -212,11 +313,75 @@ class PlannerAgent:
 
         return plan
 
+    def _requires_auth(self, plan: PlannerOutput, user_prompt: str) -> bool:
+        prompt = (user_prompt or "").lower()
+        auth_terms = [
+            "auth",
+            "authentication",
+            "authorization",
+            "login",
+            "register",
+            "registration",
+            "jwt",
+            "password",
+            "protected",
+            "role-based",
+            "rbac",
+        ]
+        feature_text = " ".join(
+            f"{getattr(feature, 'name', '')} {getattr(feature, 'description', '')}"
+            for feature in (plan.features or [])
+        ).lower()
+        return any(term in prompt or term in feature_text for term in auth_terms)
+
+    def _ensure_auth_files(self, plan: PlannerOutput, user_prompt: str) -> PlannerOutput:
+        """Authentication-critical files should be planned when auth is requested."""
+        if not self._requires_auth(plan, user_prompt):
+            return plan
+
+        existing_paths = {f.path for f in plan.files}
+        auth_files = [
+            (
+                "middleware/auth.js",
+                "JWT authentication middleware. Imports jsonwebtoken, verifies Bearer token using JWT_SECRET, attaches decoded user data to req.user, and exports named protect middleware.",
+            ),
+            (
+                "controllers/authController.js",
+                "Authentication controller. Imports bcryptjs, jsonwebtoken, and models/User.js. Exports named registerUser, loginUser, and getProfile async handlers.",
+            ),
+            (
+                "routes/authRoutes.js",
+                "Authentication routes. Imports express, auth controller functions, and protect middleware. Defines POST /register, POST /login, and GET /profile protected route. Exports default router.",
+            ),
+        ]
+
+        for path, description in auth_files:
+            if path not in existing_paths:
+                logger.info("[planner] Auth required: auto-adding '%s'", path)
+                plan.files.append(FileSpec(path=path, description=description))
+                existing_paths.add(path)
+
+        for f in plan.files:
+            if f.path == "package.json":
+                if "bcryptjs" not in f.description or "jsonwebtoken" not in f.description:
+                    f.description = (
+                        f.description.rstrip(".")
+                        + ". Includes dependencies express, mongoose, dotenv, cors, bcryptjs, and jsonwebtoken."
+                    )
+            elif f.path == "app.js" and "routes/authRoutes.js" not in f.description:
+                f.description = (
+                    f.description.rstrip(".")
+                    + ". Imports routes/authRoutes.js and mounts it under /api/auth."
+                )
+
+        return plan
+
     def _get_default_description(self, path: str, project_name: str) -> str:
         descriptions = {
             'app.js': f"Main Express application entry point for {project_name}. Imports dotenv/config, sets up Express middleware (json, cors), connects to MongoDB, mounts all route files, adds error handling middleware, and starts the server on PORT from environment.",
             'package.json': f"NPM package manifest for {project_name}. Sets type to 'module' for ES modules, lists dependencies: express, mongoose, dotenv, cors, bcryptjs, jsonwebtoken. Includes start script.",
             'config/db.js': "MongoDB connection configuration. Exports an async connectDB function that uses mongoose.connect() with MONGODB_URI from process.env. Logs success/failure.",
+            'README.md': f"Official project documentation for {project_name}. MUST include: 1. Project overview and purpose. 2. List of all API endpoints with HTTP methods and descriptions. 3. Key functions and features. 4. How to setup the environment (.env variables). 5. How to install dependencies and run the project.",
         }
         return descriptions.get(path, f"Configuration file for {project_name}")
 
@@ -227,6 +392,19 @@ Please try again. Analyze this requirement and output ONLY valid JSON matching t
 
 ## USER REQUIREMENT
 {user_prompt}
+
+## ARCHITECTURE REQUIREMENT
+Include an architecture object with fixed stack values:
+{{
+  "stack": "node-express-mongoose",
+  "pattern": "mvc",
+  "language": "javascript",
+  "moduleSystem": "esm",
+  "database": "mongodb",
+  "orm": "mongoose"
+}}
+
+Only pattern may change. Allowed pattern values are "mvc", "service-repository", "clean-architecture", and "modular-monolith". If unsure, use "mvc".
 
 Remember: Output ONLY the JSON object. No markdown fences, no explanations, no extra text."""
     # ─────────────────────────────────────────────────────────────────
@@ -269,59 +447,129 @@ Remember: Output ONLY the JSON object. No markdown fences, no explanations, no e
         plan.files = fixed
         return plan
 
-    def _enforce_mvc_pairing(self, plan: PlannerOutput) -> PlannerOutput:
-        """
-        For every route file routes/X.js, ensure controllers/XController.js exists.
-        For every controller file controllers/X.js, ensure models/X.js exists (with fuzzy match).
-        Auto-inserts missing paired files into the plan.
-        """
-        import difflib
+    def _enforce_architecture_file_structure(self, plan: PlannerOutput) -> PlannerOutput:
+        """Ensure every entity has the expected files for the selected architecture pattern."""
+        plan.architecture = normalize_architecture(plan.architecture)
+        profile = get_architecture_profile(plan.architecture)
         existing_paths = {f.path for f in plan.files}
+        entity_templates = profile.get("entity_files", [])
 
-        routes   = [f for f in plan.files if f.path.startswith("routes/") and f.path.endswith(".js")]
-        ctrls    = {f.path for f in plan.files if f.path.startswith("controllers/")}
-        models   = {f.path for f in plan.files if f.path.startswith("models/")}
+        for entity in plan.entities or []:
+            entity_name = entity.name
+            entity_var = entity_name[0].lower() + entity_name[1:] if entity_name else ""
 
-        for route_file in routes:
-            # Derive expected controller name: routes/menuRoutes.js → controllers/menuController.js
-            base = os.path.basename(route_file.path)  # menuRoutes.js
-            # Strip common suffixes to get entity stem
-            stem = re.sub(r'(routes|Routes)\.js$', '', base).strip()
-            expected_ctrl = f"controllers/{stem}Controller.js"
+            for template in entity_templates:
+                expected_path = template.format(Entity=entity_name, entity=entity_var)
+                if expected_path in existing_paths:
+                    continue
 
-            if expected_ctrl not in existing_paths:
-                # Try fuzzy match among existing controllers
-                close = difflib.get_close_matches(expected_ctrl, ctrls, n=1, cutoff=0.6)
-                if not close:
-                    logger.info(
-                        "[planner] MVC pairing: auto-adding missing controller '%s' for route '%s'",
-                        expected_ctrl, route_file.path
+                logger.info(
+                    "[planner] %s structure: auto-adding missing file '%s' for entity '%s'",
+                    plan.architecture.pattern,
+                    expected_path,
+                    entity_name,
+                )
+                plan.files.append(
+                    FileSpec(
+                        path=expected_path,
+                        description=self._architecture_file_description(
+                            path=expected_path,
+                            entity_name=entity_name,
+                            entity_var=entity_var,
+                            pattern=plan.architecture.pattern,
+                        ),
                     )
-                    plan.files.append(FileSpec(
-                        path=expected_ctrl,
-                        description=f"Express controller for {stem} entity. Exports named CRUD async functions."
-                    ))
-                    existing_paths.add(expected_ctrl)
+                )
+                existing_paths.add(expected_path)
 
         return plan
 
+    def _architecture_file_description(
+        self,
+        path: str,
+        entity_name: str,
+        entity_var: str,
+        pattern: str,
+    ) -> str:
+        if pattern == "service-repository":
+            if path.startswith("repositories/"):
+                return f"Repository layer for {entity_name}. Imports models/{entity_name}.js and exports database access functions. Must not use req/res."
+            if path.startswith("services/"):
+                return f"Service layer for {entity_name}. Imports repositories/{entity_var}Repository.js and exports business logic functions. Must not use req/res."
+            if path.startswith("controllers/"):
+                return f"HTTP controller for {entity_name}. Imports services/{entity_var}Service.js and exports named async handlers. Must not import models directly."
+
+        if pattern == "clean-architecture":
+            if path.startswith("domain/entities/"):
+                return f"Domain entity for {entity_name}. Contains domain representation and simple invariants without Express or Mongoose dependencies."
+            if path.startswith("application/use-cases/"):
+                return f"Application use cases for {entity_name}. Coordinates repository operations and business rules."
+            if path.startswith("infrastructure/database/"):
+                return f"Infrastructure Mongoose model for {entity_name}. Defines schema and exports default model."
+            if path.startswith("infrastructure/repositories/"):
+                return f"Infrastructure repository for {entity_name}. Imports infrastructure/database/{entity_name}Model.js and exports persistence functions."
+            if path.startswith("interfaces/controllers/"):
+                return f"Interface HTTP controller for {entity_name}. Imports application/use-cases/{entity_var}UseCases.js and exports named async handlers."
+            if path.startswith("interfaces/routes/"):
+                return f"Interface Express router for {entity_name}. Imports controller functions and exports default router."
+
+        if pattern == "modular-monolith":
+            module_prefix = f"modules/{entity_var}/"
+            if path == f"{module_prefix}model.js":
+                return f"Module-local Mongoose model for {entity_name}. Defines schema and exports default model."
+            if path == f"{module_prefix}repository.js":
+                return f"Module-local repository for {entity_name}. Imports ./model.js and exports database access functions. Must not use req/res."
+            if path == f"{module_prefix}service.js":
+                return f"Module-local service for {entity_name}. Imports ./repository.js and exports business logic functions. Must not use req/res."
+            if path == f"{module_prefix}controller.js":
+                return f"Module-local HTTP controller for {entity_name}. Imports ./service.js and exports named async handlers."
+            if path == f"{module_prefix}routes.js":
+                return f"Module-local Express router for {entity_name}. Imports ./controller.js functions and exports default router."
+
+        if path.startswith("models/"):
+            return f"Mongoose model for {entity_name}. Defines schema and exports default model."
+        if path.startswith("controllers/"):
+            return f"HTTP controller for {entity_name}. Imports models/{entity_name}.js and exports named CRUD async handlers."
+        if path.startswith("routes/"):
+            return f"Express routes for {entity_name}. Imports named controller functions from controllers/{entity_var}Controller.js and exports default router."
+
+        return f"Architecture-specific file for {entity_name} in {pattern} pattern."
+
     def _prune_phantom_files(self, plan: PlannerOutput) -> PlannerOutput:
         """
-        Remove files whose names reference entities (models/X, controllers/X, routes/X)
+        Remove files whose names reference entities
         that are NOT in the plan's entity list. This prevents hallucinated entity files.
         """
         entity_names_lower = {e.name.lower() for e in (plan.entities or [])}
         if not entity_names_lower:
             return plan  # No entity list to cross-check against
 
+        cross_cutting_files = {
+            "controllers/authController.js",
+            "routes/authRoutes.js",
+            "middleware/auth.js",
+            "middleware/errorHandler.js",
+        }
         pruned = []
         for f in plan.files:
+            if f.path in cross_cutting_files:
+                pruned.append(f)
+                continue
+
             path_lower = f.path.lower()
-            # Only check model/controller/route files
             is_entity_file = (
                 f.path.startswith("models/")
                 or f.path.startswith("controllers/")
                 or f.path.startswith("routes/")
+                or f.path.startswith("repositories/")
+                or f.path.startswith("services/")
+                or f.path.startswith("domain/entities/")
+                or f.path.startswith("application/use-cases/")
+                or f.path.startswith("infrastructure/database/")
+                or f.path.startswith("infrastructure/repositories/")
+                or f.path.startswith("interfaces/controllers/")
+                or f.path.startswith("interfaces/routes/")
+                or f.path.startswith("modules/")
             )
             if not is_entity_file:
                 pruned.append(f)
@@ -330,7 +578,15 @@ Remember: Output ONLY the JSON object. No markdown fences, no explanations, no e
             # Extract the entity stem from the filename
             base = os.path.basename(path_lower).replace(".js", "")
             # Strip common suffixes
-            stem = re.sub(r"(controller|controllers|route|routes|model|models)$", "", base).strip()
+            if f.path.startswith("modules/"):
+                parts = f.path.split("/")
+                stem = parts[1].lower() if len(parts) > 2 else ""
+            else:
+                stem = re.sub(
+                    r"(controller|controllers|route|routes|model|models|repository|repositories|service|services|usecases|usecase)$",
+                    "",
+                    base,
+                ).strip()
 
             if not stem:
                 pruned.append(f)

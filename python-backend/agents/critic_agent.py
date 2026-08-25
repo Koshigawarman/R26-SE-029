@@ -116,6 +116,57 @@ class CriticAgent:
 
         return strategy
 
+    def generate_debug_readme(
+        self,
+        errors: List[RuntimeErrorInfo],
+        stderr: str,
+        stdout: str,
+        file_list: List[str],
+        file_contents: Optional[Dict[str, str]] = None,
+    ) -> str:
+        logger.info("Critic Agent generating DEBUG_README.md for remaining errors...")
+
+        system_prompt = (
+            "You are an expert Senior Software Engineer. The automated debugging system has exhausted all its retries, "
+            "and there are still unresolved errors in the project. Your task is to write a comprehensive DEBUG_README.md "
+            "for the human developer, explaining how to fix ALL of the remaining errors so the user can fix them manually.\n"
+            "Do not just fix one error; address all of them. Detail exactly which files to change and what code to write.\n"
+            "Output the response in Markdown format."
+        )
+
+        error_details = []
+        for err in errors:
+            error_details.append(f"File: {err.file}\nMessage: {err.message}\nStack: {err.stack}")
+
+        prompt = (
+            f"Here is the list of files in the project:\n{json.dumps(file_list, indent=2)}\n\n"
+            f"Here are the remaining errors:\n"
+            f"{chr(10).join(error_details)}\n\n"
+            f"Stderr:\n{stderr}\n\n"
+            f"Please generate the complete DEBUG_README.md content. Just output the markdown text."
+        )
+
+        try:
+            if self.use_openai_compatible:
+                raw_response = self._query_openai_compatible(prompt, system_prompt)
+            else:
+                raw_response = self._query_ollama(prompt, system_prompt)
+            
+            # Optionally strip triple backticks if the model wraps it in ```markdown ... ```
+            text = raw_response.strip()
+            if text.startswith("```markdown"):
+                text = text[11:]
+            if text.startswith("```"):
+                text = text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+                
+            return text.strip()
+        except Exception as exc:
+            logger.error("Failed to generate debug readme: %s", exc)
+            return f"# Debugging Guide\n\nFailed to generate automated debugging instructions. Please check the raw errors.\n\nError: {exc}"
+
+
     def _fallback_strategy_from_errors(
         self,
         errors: List[RuntimeErrorInfo],

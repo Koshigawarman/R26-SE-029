@@ -37,8 +37,18 @@ class FileSpec(BaseModel):
     description: str
 
 
+class Architecture(BaseModel):
+    stack: str = "node-express-mongoose"
+    pattern: str = "mvc"
+    language: str = "javascript"
+    moduleSystem: str = "esm"
+    database: str = "mongodb"
+    orm: str = "mongoose"
+
+
 class PlannerOutput(BaseModel):
     projectName: str
+    architecture: Architecture = Field(default_factory=Architecture)
     entities: List[Entity]
     features: List[Feature]
     files: List[FileSpec]
@@ -57,6 +67,7 @@ class GeneratedFile(BaseModel):
 
 class CodeGenContext(BaseModel):
     projectName: str
+    architecture: Architecture = Field(default_factory=Architecture)
     entities: List[Entity]
     features: List[Feature]
     allFiles: List[FileSpec]

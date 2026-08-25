@@ -261,6 +261,7 @@ class DebugAgent:
     # ─────────────────────────────────────────────────────────────────────
 
     def _static_safety_scan(self, project_path: Path) -> Tuple[bool, List[RuntimeErrorInfo]]:
+        logger.info("Initiating Static Safety Scan on project_path: %s", project_path)
         errors: List[RuntimeErrorInfo] = []
         scan_extensions = {".js", ".json", ".env", ".sh"}
 
@@ -278,6 +279,7 @@ class DebugAgent:
                 continue
 
             relative_path = str(file_path.relative_to(project_path)).replace("\\", "/")
+            logger.debug("Static Safety Scan progressing: analyzing file %s", relative_path)
 
             for pattern, reason in DANGEROUS_PATTERNS:
                 if pattern.search(content):
@@ -291,10 +293,10 @@ class DebugAgent:
                     )
 
         if errors:
-            logger.warning("Static safety scan failed with %d issue(s)", len(errors))
+            logger.warning("Static Safety Scan completed with failures. Found %d issue(s)", len(errors))
             return False, errors
 
-        logger.info("Static safety scan passed")
+        logger.info("Static Safety Scan completed successfully. Passed with 0 issues.")
         return True, []
 
     # ─────────────────────────────────────────────────────────────────────
@@ -302,6 +304,7 @@ class DebugAgent:
     # ─────────────────────────────────────────────────────────────────────
 
     def _copy_project_to_sandbox(self, source: Path, target: Path) -> None:
+        logger.info("Initiating Ephemeral Sandbox Execution: copying from %s to %s", source, target)
         ignore = shutil.ignore_patterns(
             "node_modules",
             ".git",
@@ -371,6 +374,7 @@ class DebugAgent:
         return True, None
 
     def _detect_routes(self, project_path: Path) -> List[Dict[str, str]]:
+        logger.info("Initiating Dynamic Route Detection for project path: %s", project_path)
         detected_routes: List[Dict[str, str]] = []
 
         route_patterns = [
@@ -391,6 +395,7 @@ class DebugAgent:
 
             for pattern in route_patterns:
                 for method, route_path in pattern.findall(content):
+                    logger.debug("Dynamic Route Detection progressing: found route %s %s in %s", method.upper(), route_path, relative_path)
                     detected_routes.append(
                         {
                             "method": method.upper(),
@@ -400,6 +405,7 @@ class DebugAgent:
                     )
 
         if not detected_routes:
+            logger.debug("Dynamic Route Detection progressing: no routes found, appending fallback root route")
             detected_routes.append(
                 {
                     "method": "GET",
@@ -408,7 +414,7 @@ class DebugAgent:
                 }
             )
 
-        logger.info("Detected %d route(s)", len(detected_routes))
+        logger.info("Dynamic Route Detection completed. Detected %d route(s)", len(detected_routes))
         return detected_routes
 
     def _read_project_source_files(self, project_path: Path) -> Dict[str, str]:
@@ -456,6 +462,7 @@ class DebugAgent:
         detected_routes: List[Dict[str, str]],
         http_session: Optional[requests.Session] = None,
     ) -> str:
+        logger.info("Initiating Test Generation using model")
         max_attempts = int(os.getenv("MODEL_MAX_RETRIES", "3"))
 
         prompt = build_model_testcase_prompt(
@@ -474,15 +481,20 @@ class DebugAgent:
                 )
 
                 if self.use_openai_compatible:
-                    raw = self._query_openai_compatible(prompt, TESTING_AGENT_SYSTEM_PROMPT, http_session)
+                    logger.debug("Test Generation progressing: querying OpenAI compatible API")
+                    raw = self._query_openai_compatible(prompt, TESTING_AGENT_SYSTEM_PROMPT)
                 else:
-                    raw = self._query_ollama(prompt, TESTING_AGENT_SYSTEM_PROMPT, http_session)
+                    logger.debug("Test Generation progressing: querying Ollama API")
+                    raw = self._query_ollama(prompt, TESTING_AGENT_SYSTEM_PROMPT)
 
+                logger.debug("Test Generation progressing: extracting code from model response")
                 test_code = self._extract_code(raw)
 
                 if not test_code or "supertest" not in test_code.lower():
+                    logger.warning("Test Generation validation failed: Supertest missing from generated code")
                     raise ValueError("Generated test code does not contain Supertest")
 
+                logger.info("Test Generation completed successfully on attempt %s", attempt)
                 return test_code
 
             except Exception as exc:
@@ -497,7 +509,7 @@ class DebugAgent:
                 if attempt < max_attempts:
                     time.sleep(2)
 
-        logger.warning("Model-based test generation failed after all retries: %s", last_error)
+        logger.warning("Test Generation completed with failure after all retries: %s", last_error)
         return ""
 
     def _query_ollama(self, prompt: str, system_prompt: str, http_session: Optional[requests.Session] = None) -> str:
@@ -639,8 +651,10 @@ describe('Generated API validation tests', () => {{
         If it crashes immediately, returns the error result to fail early.
         If it times out, we assume the server booted successfully and is running.
         """
+        logger.info("Initiating Ephemeral Sandbox Execution: project startup at %s", sandbox_project_path)
         if self.use_docker:
             # Install packages first
+            logger.debug("Ephemeral Sandbox Execution progressing: installing packages in Docker sandbox")
             install_result = self._run_command(
                 command=[
                     "docker", "run", "--rm", "--memory=512m", "--cpus=1",
@@ -668,6 +682,7 @@ describe('Generated API validation tests', () => {{
                 timeout=5,
             )
         else:
+            logger.debug("Ephemeral Sandbox Execution progressing: installing packages locally")
             install_result = self._run_command(
                 command=["npm", "install"],
                 cwd=sandbox_project_path,
@@ -684,13 +699,16 @@ describe('Generated API validation tests', () => {{
 
         # If it timed out, the server is running successfully in the foreground!
         if run_result.get("timedOut", False):
+            logger.info("Ephemeral Sandbox Execution completed: project startup successful (running in foreground)")
             return {"success": True}
 
         # If it exited quickly with an error, it crashed
         if run_result.get("exitCode", 0) != 0:
+            logger.warning("Ephemeral Sandbox Execution completed: project startup crashed with exit code %s", run_result.get("exitCode", 0))
             return run_result
 
         # Exited quickly with 0 (maybe it's not a server script, but still successful)
+        logger.info("Ephemeral Sandbox Execution completed: project startup exited with 0")
         return {"success": True}
 
     def _run_tests_in_docker(self, sandbox_project_path: Path) -> Dict[str, object]:
@@ -702,7 +720,7 @@ describe('Generated API validation tests', () => {{
         are not created as root-owned files. This prevents TemporaryDirectory cleanup
         PermissionError after Docker finishes.
         """
-
+        logger.info("Initiating Ephemeral Sandbox Execution: running tests in Docker sandbox at %s", sandbox_project_path)
         uid = os.getuid()
         gid = os.getgid()
 
@@ -734,13 +752,18 @@ describe('Generated API validation tests', () => {{
             "npm install && npm test -- --runInBand --forceExit",
         ]
 
-        return self._run_command(
+        logger.debug("Ephemeral Sandbox Execution progressing: executing Docker run for tests")
+        result = self._run_command(
             command=command,
             cwd=sandbox_project_path,
             timeout=self.install_timeout + self.test_timeout,
         )
+        logger.info("Ephemeral Sandbox Execution completed: Docker test run finished with exit code %s", result.get("exitCode", 0))
+        return result
 
     def _run_tests_locally(self, sandbox_project_path: Path) -> Dict[str, object]:
+        logger.info("Initiating Ephemeral Sandbox Execution: running tests locally at %s", sandbox_project_path)
+        logger.debug("Ephemeral Sandbox Execution progressing: installing packages locally")
         install_result = self._run_command(
             command=["npm", "install"],
             cwd=sandbox_project_path,
@@ -748,13 +771,17 @@ describe('Generated API validation tests', () => {{
         )
 
         if install_result["exitCode"] != 0:
+            logger.warning("Ephemeral Sandbox Execution completed: local package install failed with exit code %s", install_result["exitCode"])
             return install_result
 
-        return self._run_command(
+        logger.debug("Ephemeral Sandbox Execution progressing: executing npm test locally")
+        result = self._run_command(
             command=["npm", "test", "--", "--runInBand", "--forceExit"],
             cwd=sandbox_project_path,
             timeout=self.test_timeout,
         )
+        logger.info("Ephemeral Sandbox Execution completed: local test run finished with exit code %s", result.get("exitCode", 0))
+        return result
 
     def _run_command(self, command: List[str], cwd: Path, timeout: int) -> Dict[str, object]:
         logger.info("Running command: %s", " ".join(command))
@@ -809,6 +836,7 @@ describe('Generated API validation tests', () => {{
     # ─────────────────────────────────────────────────────────────────────
 
     def _parse_errors(self, result: Dict[str, object]) -> List[RuntimeErrorInfo]:
+        logger.info("Initiating Error Parsing for execution results")
         raw_stderr = result.get("stderr", "") or ""
         raw_stdout = result.get("stdout", "") or ""
 
@@ -820,8 +848,11 @@ describe('Generated API validation tests', () => {{
         errors: List[RuntimeErrorInfo] = []
 
         if not output:
+            logger.debug("Error Parsing progressing: no output to parse")
+            logger.info("Error Parsing completed. Total errors parsed: 0")
             return errors
-
+        
+        logger.debug("Error Parsing progressing: applying error patterns to test output")
         syntax_match = ERROR_PATTERNS["SYNTAX_ERROR"].search(output)
         if syntax_match:
             errors.append(self._build_error("syntax", f"SyntaxError: {syntax_match.group(1)}", output))
@@ -935,9 +966,11 @@ describe('Generated API validation tests', () => {{
             )
 
         # \u2500\u2500 Agentic: Enrich errors with file/line from stack trace \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        logger.debug("Error Parsing progressing: enriching %d errors with location data", len(errors))
         errors = self._enrich_errors_with_location(errors, raw_stderr + "\n" + raw_stdout)
         # \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
+        logger.info("Error Parsing completed. Total errors parsed: %d", len(errors))
         return errors
 
     # ─────────────────────────────────────────────────────────────────────

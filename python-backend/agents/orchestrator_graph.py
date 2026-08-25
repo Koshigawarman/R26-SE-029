@@ -108,6 +108,7 @@ def node_await_plan_approval(state: OrchestrationState) -> dict:
         {
             "message": msg,
             "projectName": plan.projectName,
+            "architecture": plan.architecture.model_dump(),
             "entities": [entity.model_dump() for entity in plan.entities],
             "features": [feature.model_dump() for feature in plan.features],
             "files": [file_spec.model_dump() for file_spec in plan.files],
@@ -151,6 +152,13 @@ def node_create_structure(state: OrchestrationState) -> dict:
     session = state["session"]
     agent = state["agent"]
     plan = state["plan"]
+    request = state["request"]
+    
+    try:
+        if hasattr(agent, 'planner_agent') and hasattr(agent.planner_agent, 'plan_memory'):
+            agent.planner_agent.plan_memory.store_approved_plan(request.prompt, plan.model_dump_json())
+    except Exception as e:
+        logger.error(f"Failed to store approved plan in memory: {e}")
     
     status(session, "📁 STATE → CREATING_STRUCTURE: Creating project structure...", 15, "CREATING_STRUCTURE")
     
@@ -184,6 +192,7 @@ def node_generate_files(state: OrchestrationState) -> dict:
     
     context = CodeGenContext(
         projectName=plan.projectName,
+        architecture=plan.architecture,
         entities=plan.entities,
         features=plan.features,
         allFiles=plan.files,
@@ -220,7 +229,17 @@ def node_generate_files(state: OrchestrationState) -> dict:
                 files_generated += 1
                 file_generation_success = True
                 
-                session.emit("file_generated", {"path": generated.path, "full_path": f"{plan.projectName}/{generated.path}", "status": "success", "chars": len(generated.content), "index": i + 1, "total": total_files, "content": generated.content})
+                session.emit(
+                    "file_generated",
+                    {
+                        "path": generated.path,
+                        "status": "success",
+                        "chars": len(generated.content),
+                        "index": i + 1,
+                        "total": total_files,
+                        "architecture": plan.architecture.model_dump(),
+                    },
+                )
                 status(session, f"✅ Generated file: {generated.path}", progress_pct, "FILE_GENERATED")
                 break
             if file_attempt < 3: time.sleep(2)
@@ -360,7 +379,8 @@ def node_apply_fixes(state: OrchestrationState) -> dict:
             critic_strategy=state["critic_strategy"].fixing_strategy, instructions_for_code_agent=state["critic_strategy"].instructions_for_code_agent,
             file_list=list(existing_contents.keys()),
             cancel_token=lambda: not session.active,
-            http_session=session.http_session
+            http_session=session.http_session,
+            architecture=state["plan"].architecture.model_dump()
         )
         if fixed and fixed.status == "fixed" and fixed.content:
             agent._write_project_file(state["project_path"], fixed.path, fixed.content)
@@ -371,22 +391,37 @@ def node_apply_fixes(state: OrchestrationState) -> dict:
     return {"existing_contents": existing_contents}
 
 def node_cancelled(state: OrchestrationState) -> dict:
-    state["agent"]._emit_complete(state["session"], False, state["plan"].projectName if state.get("plan") else "Project", state["project_path"], state["files_generated"], state["debug_attempt_count"], ["Build Cancelled"], state["start_time"])
+    architecture = state["plan"].architecture.model_dump() if state.get("plan") else None
+    state["agent"]._emit_complete(state["session"], False, state["plan"].projectName if state.get("plan") else "Project", state["project_path"], state["files_generated"], state["debug_attempt_count"], ["Build Cancelled"], state["start_time"], architecture=architecture)
     return {}
 
 def node_success(state: OrchestrationState) -> dict:
-    state["agent"]._emit_complete(state["session"], True, state["plan"].projectName, state["project_path"], state["files_generated"], state["debug_attempt_count"], [], state["start_time"])
+    state["agent"]._emit_complete(state["session"], True, state["plan"].projectName, state["project_path"], state["files_generated"], state["debug_attempt_count"], [], state["start_time"], architecture=state["plan"].architecture.model_dump())
     return {}
 
 def node_exhausted(state: OrchestrationState) -> dict:
     session = state["session"]
+    agent = state["agent"]
+    
     action = session.wait_for_approval("debug_exhausted", {
-        "message": f"Testing failed after {state['debug_attempt_count']} retries.",
+        "message": f"Testing failed after {state['debug_attempt_count']} retries. Do you want to generate a DEBUG_README.md and exit, or extend retries?",
         "errors": [e.message for e in state["latest_errors"]]
     })
     
     if action == "retry":
         state["agent"].max_retries += 2
+    else:
+        status(session, "📝 STATE → DEBUG_EXHAUSTED: Generating DEBUG_README.md...", 95, "DEBUG_EXHAUSTED")
+        readme_content = agent.critic_agent.generate_debug_readme(
+            errors=state["latest_errors"],
+            stderr=state["latest_stderr"],
+            stdout=state["latest_stdout"],
+            file_list=list(state["existing_contents"].keys()),
+            file_contents=state["existing_contents"]
+        )
+        readme_path = os.path.join(state["project_path"], "DEBUG_README.md")
+        agent._write_project_file(state["project_path"], "DEBUG_README.md", readme_content)
+        logger.info(f"Generated DEBUG_README.md at {readme_path}")
         
     return {"exhausted_action": action}
 

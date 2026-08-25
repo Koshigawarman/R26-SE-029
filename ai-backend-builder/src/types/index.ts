@@ -43,8 +43,18 @@ export interface FileSpec {
 }
 
 /** The structured output of the Planner Agent */
+export interface Architecture {
+  stack: 'node-express-mongoose';
+  pattern: 'mvc' | 'service-repository' | 'clean-architecture' | 'modular-monolith';
+  language: 'javascript';
+  moduleSystem: 'esm';
+  database: 'mongodb';
+  orm: 'mongoose';
+}
+
 export interface PlannerOutput {
   projectName: string;
+  architecture: Architecture;
   entities: Entity[];
   features: Feature[];
   files: FileSpec[];
@@ -68,6 +78,7 @@ export interface GeneratedFile {
 /** Context passed to the Code Generator for a single file */
 export interface CodeGenContext {
   projectName: string;
+  architecture: Architecture;
   entities: Entity[];
   features: Feature[];
   allFiles: FileSpec[];
@@ -201,6 +212,7 @@ export type ProgressCallback = (message: string, increment?: number) => void;
 export interface OrchestratorResult {
   success: boolean;
   projectName: string;
+  architecture?: Architecture;
   projectRoot: string;
   filesGenerated: number;
   debugAttempts: number;

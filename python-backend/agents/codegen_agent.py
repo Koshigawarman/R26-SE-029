@@ -12,8 +12,8 @@ from services.openai_compatible_http import build_provider_headers, raise_for_pr
 from prompts.codegen_prompt import (
     build_codegen_prompt,
     build_code_fix_prompt,
-    get_codegen_system_prompt,
 )
+from prompts.codegen_prompt_factory import get_architecture_codegen_system_prompt
 from services.code_validator import validate_and_fix
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ class CodeGenAgent:
 
         try:
             # Handle special files deterministically
-            if file_spec.path == '.env':
+            if file_spec.path in ['.env', 'env', '.env.example', 'env.example']:
                 return self._generate_env_file(file_spec, context)
             if file_spec.path == 'package.json':
                 return self._generate_package_json(file_spec, context)
@@ -54,9 +54,13 @@ class CodeGenAgent:
                 features=context.features,
                 all_files=context.allFiles,
                 existing_contents=context.existingFileContents,
-                existing_file_content=existing_content
+                existing_file_content=existing_content,
+                architecture=context.architecture.model_dump(),
             )
-            system_prompt = get_codegen_system_prompt(file_spec.path)
+            system_prompt = get_architecture_codegen_system_prompt(
+                file_spec.path,
+                context.architecture,
+            )
 
             if self.use_openai_compatible:
                 raw_response = self._query_openai_compatible(prompt, system_prompt, cancel_token, http_session)
@@ -71,12 +75,13 @@ class CodeGenAgent:
                 "provider": provider,
                 "model": self.model,
                 "target_file": file_spec.path,
+                "architecture": context.architecture.model_dump(),
                 "system_prompt": system_prompt,
                 "built_prompt": prompt,
                 "raw_output": raw_response,
             }
 
-            code = self._extract_code(raw_response)
+            code = self._extract_code(raw_response, file_spec.path)
 
             if not code or len(code.strip()) < 10:
                 raise ValueError(f"Generated code is too short ({len(code)} chars)")
@@ -100,7 +105,11 @@ class CodeGenAgent:
             code = result.final_code
             # ─────────────────────────────────────────────────────────────────
             self._validate_code(file_spec.path, code)
-            validation_result = self.output_validator.validate(file_spec.path, code)
+            validation_result = self.output_validator.validate(
+                file_spec.path,
+                code,
+                context.architecture.model_dump(),
+            )
             self.last_request_trace["output_validation"] = validation_result
 
             logger.info(f"✓ Generated: {file_spec.path} ({len(code)} chars)")
@@ -127,7 +136,8 @@ class CodeGenAgent:
         error_log: str,
         critic_strategy: str,
         instructions_for_code_agent: str,
-        file_list: Optional[List[str]] = None,
+        file_list: list = None,
+        architecture: Dict[str, Any] = None,
         cancel_token: Optional[Callable[[], bool]] = None,
         http_session: Optional[requests.Session] = None
     ) -> GeneratedFile:
@@ -154,7 +164,11 @@ class CodeGenAgent:
                     critic_strategy=critic_strategy,
                     instructions_for_code_agent=instructions_for_code_agent,
                 )
-                system_prompt = get_codegen_system_prompt(file_path, mode="fix")
+                system_prompt = get_architecture_codegen_system_prompt(
+                    file_path,
+                    architecture,
+                    mode="fix",
+                )
 
                 if self.use_openai_compatible:
                     raw_response = self._query_openai_compatible(prompt, system_prompt, cancel_token, http_session)
@@ -169,15 +183,16 @@ class CodeGenAgent:
                     "provider": provider,
                     "model": self.model,
                     "target_file": file_path,
+                    "architecture": architecture or {"pattern": "mvc"},
                     "system_prompt": system_prompt,
                     "built_prompt": prompt,
                     "raw_output": raw_response,
                 }
 
-                fixed_code = self._extract_code(raw_response)
+                fixed_code = self._extract_code(raw_response, file_path)
 
                 self._validate_code(file_path, fixed_code)
-                validation_result = self.output_validator.validate(file_path, fixed_code)
+                validation_result = self.output_validator.validate(file_path, fixed_code, architecture)
                 self.last_request_trace["output_validation"] = validation_result
 
                 if not fixed_code or len(fixed_code.strip()) < 10:
@@ -329,12 +344,29 @@ class CodeGenAgent:
 
         return response_text
 
-    def _extract_code(self, raw_response: str) -> str:
+    def _extract_code(self, raw_response: str, file_path: str = "") -> str:
         """Extracts code block from markdown if present."""
-        code_match = re.search(r'```(?:javascript|js)?\s*(.*?)\s*```', raw_response, re.DOTALL | re.IGNORECASE)
+        raw_response = raw_response.strip()
+        
+        if file_path.endswith('.md'):
+            # For markdown files, only unwrap if the *entire* output is inside a single markdown code fence
+            if raw_response.startswith('```'):
+                lines = raw_response.split('\n')
+                if lines[-1].strip() == '```':
+                    return '\n'.join(lines[1:-1]).strip()
+            return raw_response
+
+        # For other files, find the first code block if it exists
+        code_match = re.search(r'```[a-zA-Z0-9]*\s*\n(.*?)\n\s*```', raw_response, re.DOTALL)
         if code_match:
             return code_match.group(1).strip()
-        return raw_response.strip()
+            
+        # Fallback if the LLM used backticks without newlines (rare for multi-line code)
+        code_match_fallback = re.search(r'```[a-zA-Z0-9]*\s*(.*?)\s*```', raw_response, re.DOTALL)
+        if code_match_fallback:
+            return code_match_fallback.group(1).strip()
+            
+        return raw_response
 
     def _generate_env_file(self, file_spec: FileSpec, context: CodeGenContext) -> GeneratedFile:
         db_name = re.sub(r'[^a-z0-9]', '-', context.projectName.lower()).strip('-')
@@ -359,10 +391,11 @@ class CodeGenAgent:
             "provider": "local-template",
             "model": None,
             "target_file": file_spec.path,
-            "system_prompt": get_codegen_system_prompt(file_spec.path),
+            "architecture": context.architecture.model_dump(),
+            "system_prompt": get_architecture_codegen_system_prompt(file_spec.path, context.architecture),
             "built_prompt": "Deterministic .env template generated from project name and features.",
             "raw_output": content,
-            "output_validation": self.output_validator.validate(file_spec.path, content),
+            "output_validation": self.output_validator.validate(file_spec.path, content, context.architecture.model_dump()),
         }
 
         logger.info(f"✓ Generated: {file_spec.path} (env file — deterministic)")
@@ -403,10 +436,11 @@ class CodeGenAgent:
             "provider": "local-template",
             "model": None,
             "target_file": file_spec.path,
-            "system_prompt": get_codegen_system_prompt(file_spec.path),
+            "architecture": context.architecture.model_dump(),
+            "system_prompt": get_architecture_codegen_system_prompt(file_spec.path, context.architecture),
             "built_prompt": "Deterministic package.json template generated from project name and features.",
             "raw_output": content,
-            "output_validation": self.output_validator.validate(file_spec.path, content),
+            "output_validation": self.output_validator.validate(file_spec.path, content, context.architecture.model_dump()),
         }
 
         logger.info(f"✓ Generated: {file_spec.path} (package.json — deterministic)")

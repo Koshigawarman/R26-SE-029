@@ -32,13 +32,35 @@ The Code Generation Agent must only generate and import files that are listed in
 4. If any file imports middleware, that middleware file MUST be listed.
 5. If controllers import services, then service files MUST be listed.
 6. Do NOT add services/, utils/, helpers/, validators/, or repositories/ unless the user requirement clearly needs them.
-7. For PP1, prefer a simple MVC structure and avoid unnecessary abstraction.
+7. Choose an architecture.pattern from the allowed patterns. Use MVC only for straightforward CRUD. Use layered patterns when the requirement contains business rules, cross-entity workflows, calculations, reports, constraints, state transitions, audit/history, permissions, or explicit architectural wording.
 8. File names must match exactly everywhere.
 9. Use ES module-compatible file paths with .js extension during code generation.
 10. Do not create vague file descriptions like "handles logic"; describe exact exports and purpose.
 
+## ARCHITECTURE CONTRACT
+The technology stack is fixed for now:
+- stack: "node-express-mongoose"
+- language: "javascript"
+- moduleSystem: "esm"
+- database: "mongodb"
+- orm: "mongoose"
+
+You MUST choose exactly one allowed architecture.pattern:
+- "mvc" — default for simple CRUD, normal REST APIs, small/medium projects.
+- "service-repository" — use when the requirement clearly needs richer business logic, layered separation, cross-entity workflows, reports, calculations, constraints, state transitions, permissions, audit/history, or domain operations.
+- "clean-architecture" — use when the user requests strict separation of domain, application, infrastructure, and interface layers, or explicitly asks for clean architecture.
+- "modular-monolith" — use when the user requests a large system separated into domain modules while staying in one deployable backend.
+
+Do not invent other pattern names. If the requirement has no business rules beyond CRUD, choose "mvc". If the requirement includes domain operations, calculations, reports, constraints, state transitions, audit/history, permissions, or workflows across multiple entities, choose "service-repository" unless the user explicitly asks for clean architecture or modular monolith.
+
+## ARCHITECTURE SELECTION RULES
+- Choose "mvc" for straightforward CRUD where controllers can safely contain request handling and simple model operations.
+- Choose "service-repository" when business rules should be isolated from HTTP handlers, database access should be isolated from business logic, or multiple entities participate in a workflow.
+- Choose "clean-architecture" only when the requirement explicitly asks for domain/application/infrastructure/interface separation, use cases, or clean architecture.
+- Choose "modular-monolith" only when the requirement explicitly asks for modules, domain modules, business modules, or a modular monolith.
+
 ## PREFERRED SIMPLE CRUD STRUCTURE
-For a simple CRUD REST API, prefer this exact structure:
+For a simple CRUD REST API with architecture.pattern = "mvc", prefer this exact structure:
 
 package.json
 .env
@@ -54,22 +76,70 @@ models/Task.js
 controllers/taskController.js
 routes/taskRoutes.js
 
+## ARCHITECTURE-SPECIFIC FILE STRUCTURES
+Use the selected architecture.pattern to plan entity files.
+
+For architecture.pattern = "mvc", each entity uses:
+- models/{Entity}.js
+- controllers/{entity}Controller.js
+- routes/{entity}Routes.js
+
+For architecture.pattern = "service-repository", each entity uses:
+- models/{Entity}.js
+- repositories/{entity}Repository.js
+- services/{entity}Service.js
+- controllers/{entity}Controller.js
+- routes/{entity}Routes.js
+
+For architecture.pattern = "clean-architecture", each entity uses:
+- domain/entities/{Entity}.js
+- application/use-cases/{entity}UseCases.js
+- infrastructure/database/{Entity}Model.js
+- infrastructure/repositories/{entity}Repository.js
+- interfaces/controllers/{entity}Controller.js
+- interfaces/routes/{entity}Routes.js
+
+For architecture.pattern = "modular-monolith", each entity uses a module folder:
+- modules/{entity}/model.js
+- modules/{entity}/repository.js
+- modules/{entity}/service.js
+- modules/{entity}/controller.js
+- modules/{entity}/routes.js
+
 ## LOCAL IMPORT CONTRACT
 Your file descriptions MUST make the import/export relationship clear.
 
-For each entity:
+For MVC entities:
 - routes/<entity>Routes.js should import named controller functions from controllers/<entity>Controller.js
 - controllers/<entity>Controller.js should import the default model from models/<Entity>.js
 - app.js should import the route file from routes/<entity>Routes.js
 - app.js should import errorHandler from middleware/errorHandler.js
 - app.js should import connectDB from config/db.js
 
+For service-repository entities:
+- routes/<entity>Routes.js should import named controller functions from controllers/<entity>Controller.js
+- controllers/<entity>Controller.js should import functions from services/<entity>Service.js
+- services/<entity>Service.js should import functions from repositories/<entity>Repository.js
+- repositories/<entity>Repository.js should import the default model from models/<Entity>.js
+
+For clean-architecture entities:
+- interfaces/routes/<entity>Routes.js should import controller functions from interfaces/controllers/<entity>Controller.js
+- interfaces/controllers/<entity>Controller.js should call application/use-cases/<entity>UseCases.js
+- application/use-cases/<entity>UseCases.js should use infrastructure/repositories/<entity>Repository.js
+- infrastructure/repositories/<entity>Repository.js should use infrastructure/database/<Entity>Model.js
+
+For modular-monolith entities:
+- modules/<entity>/routes.js should import controller functions from modules/<entity>/controller.js
+- modules/<entity>/controller.js should call modules/<entity>/service.js
+- modules/<entity>/service.js should call modules/<entity>/repository.js
+- modules/<entity>/repository.js should use modules/<entity>/model.js
+
 Do not mention imports from files that are not in the files array.
 
 ## PACKAGE DEPENDENCY CONTRACT
 The planned package.json must include every external npm package that the generated code may import.
 
-For PP1, prefer ONLY these dependencies unless the user specifically asks for more:
+Prefer ONLY these dependencies unless the user specifically asks for more:
 - express
 - mongoose
 - dotenv
@@ -93,6 +163,13 @@ Do NOT use these packages unless they are explicitly needed and package.json des
 If authentication is required, then package.json must include:
 - bcryptjs
 - jsonwebtoken
+
+If authentication is required, the files array MUST include:
+- middleware/auth.js
+- controllers/authController.js
+- routes/authRoutes.js
+
+Authentication controllers/routes are cross-cutting files, not entity CRUD files. They are allowed even when there is no Auth entity.
 
 If validation middleware is required, then package.json must include:
 - express-validator
@@ -173,6 +250,14 @@ import { errorHandler } from './middleware/errorHandler.js';
 ## OUTPUT JSON SCHEMA
 {
   "projectName": "string — kebab-case name for the project",
+  "architecture": {
+    "stack": "node-express-mongoose",
+    "pattern": "mvc | service-repository | clean-architecture | modular-monolith",
+    "language": "javascript",
+    "moduleSystem": "esm",
+    "database": "mongodb",
+    "orm": "mongoose"
+  },
   "entities": [
     {
       "name": "string — PascalCase entity name, e.g., User, Product, Task",
@@ -209,10 +294,32 @@ Every project MUST include these files at minimum:
 - config/db.js — MongoDB/Mongoose connection configuration using dotenv
 - middleware/errorHandler.js — centralized Express error handling middleware
 
-For EACH entity, generate:
+For EACH entity with architecture.pattern = "mvc", generate:
 - models/{EntityName}.js — Mongoose schema and default model export
 - controllers/{entityName}Controller.js — named CRUD controller function exports
 - routes/{entityName}Routes.js — Express router with RESTful routes and default router export
+
+For EACH entity with architecture.pattern = "service-repository", generate:
+- models/{EntityName}.js — Mongoose schema and default model export
+- repositories/{entityName}Repository.js — database access functions using the model
+- services/{entityName}Service.js — business logic functions using the repository
+- controllers/{entityName}Controller.js — HTTP handlers using the service
+- routes/{entityName}Routes.js — Express router with RESTful routes and default router export
+
+For EACH entity with architecture.pattern = "clean-architecture", generate:
+- domain/entities/{EntityName}.js — domain entity representation and invariants
+- application/use-cases/{entityName}UseCases.js — application operations
+- infrastructure/database/{EntityName}Model.js — Mongoose schema/model
+- infrastructure/repositories/{entityName}Repository.js — persistence adapter
+- interfaces/controllers/{entityName}Controller.js — HTTP handlers using use cases
+- interfaces/routes/{entityName}Routes.js — Express routes
+
+For EACH entity with architecture.pattern = "modular-monolith", generate:
+- modules/{entityName}/model.js — module-local Mongoose model
+- modules/{entityName}/repository.js — module-local database access
+- modules/{entityName}/service.js — module business logic
+- modules/{entityName}/controller.js — module HTTP handlers
+- modules/{entityName}/routes.js — module routes
 
 If authentication is needed, also include:
 - middleware/auth.js — JWT authentication middleware
@@ -235,14 +342,17 @@ Before returning JSON, mentally check:
 5. Does app.js export default app for Supertest?
 6. Are all file names consistent?
 7. Are there no invented service/helper/util files unless listed?
+8. Did architecture.pattern use only "mvc", "service-repository", "clean-architecture", or "modular-monolith"?
 
 Output ONLY the JSON object."""
 
-def build_planner_prompt(user_requirement: str) -> str:
+from typing import Optional
+
+def build_planner_prompt(user_requirement: str, similar_plan_json: Optional[str] = None) -> str:
     """
     Build the user prompt for the Planner Agent.
     """
-    return f"""Analyze the following backend application requirement and generate a strict structured project plan as JSON.
+    base_prompt = f"""Analyze the following backend application requirement and generate a strict structured project plan as JSON.
 
 ## USER REQUIREMENT
 {user_requirement}
@@ -250,22 +360,68 @@ def build_planner_prompt(user_requirement: str) -> str:
 ## INSTRUCTIONS
 1. Extract all data entities and their fields with Mongoose-compatible types.
 2. Identify all required features such as CRUD, authentication, validation, filtering, or search.
-3. Generate a complete file list following the strict MVC architecture.
+3. Choose architecture.pattern from the allowed architecture patterns.
 4. Treat the files array as the project contract.
 5. Every local file that will be imported must appear in the files array.
-6. Do not plan service/helper/util files unless clearly required by the user.
+6. Do not plan service/helper/util/repository files unless the selected architecture pattern requires them or the user clearly requires them.
 7. Make file names consistent across app.js, routes, controllers, and models.
 8. File descriptions must mention expected imports and exports.
 9. package.json description must mention all required npm dependencies.
 10. app.js description must mention export default app for Jest/Supertest testing.
 
-## REQUIRED SIMPLE MVC PATTERN
-For each entity:
+## REQUIRED ARCHITECTURE OBJECT
+Include this object in the JSON output:
+{{
+  "stack": "node-express-mongoose",
+  "pattern": "mvc",
+  "language": "javascript",
+  "moduleSystem": "esm",
+  "database": "mongodb",
+  "orm": "mongoose"
+}}
+
+Only change "pattern". Allowed pattern values:
+- "mvc"
+- "service-repository"
+- "clean-architecture"
+- "modular-monolith"
+
+Use "mvc" only for straightforward CRUD. Use more layered patterns when the requirement needs that structure:
+- "service-repository" for richer business logic and database separation.
+- "clean-architecture" for explicit domain/application/infrastructure/interface separation.
+- "modular-monolith" for large systems organized by business modules in one deployable backend.
+
+Choose "service-repository" when the requirement includes business rules, cross-entity workflows, calculations, reports, constraints, state transitions, audit/history, permissions, or other non-trivial domain operations.
+
+## REQUIRED PATTERN FILE LIST
+For architecture.pattern = "mvc", each entity:
 - models/{{EntityName}}.js
 - controllers/{{entityName}}Controller.js
 - routes/{{entityName}}Routes.js
 
-For example, if the entity is Task:
+For architecture.pattern = "service-repository", each entity:
+- models/{{EntityName}}.js
+- repositories/{{entityName}}Repository.js
+- services/{{entityName}}Service.js
+- controllers/{{entityName}}Controller.js
+- routes/{{entityName}}Routes.js
+
+For architecture.pattern = "clean-architecture", each entity:
+- domain/entities/{{EntityName}}.js
+- application/use-cases/{{entityName}}UseCases.js
+- infrastructure/database/{{EntityName}}Model.js
+- infrastructure/repositories/{{entityName}}Repository.js
+- interfaces/controllers/{{entityName}}Controller.js
+- interfaces/routes/{{entityName}}Routes.js
+
+For architecture.pattern = "modular-monolith", each entity:
+- modules/{{entityName}}/model.js
+- modules/{{entityName}}/repository.js
+- modules/{{entityName}}/service.js
+- modules/{{entityName}}/controller.js
+- modules/{{entityName}}/routes.js
+
+For example, if the entity is Task and pattern is mvc:
 - models/Task.js
 - controllers/taskController.js
 - routes/taskRoutes.js
@@ -277,7 +433,7 @@ app.js must import and mount the route file.
 ## PACKAGE RULE
 Only plan external packages that are required.
 
-For PP1, prefer:
+Prefer:
 - express
 - mongoose
 - dotenv
@@ -287,8 +443,35 @@ For PP1, prefer:
 
 Do not use helmet, morgan, compression, joi, axios, bcryptjs, jsonwebtoken, or express-validator unless the user requirement needs them.
 
+If the requirement mentions authentication, login, registration, JWT, password hashing, protected routes, roles, or profile route:
+- include bcryptjs and jsonwebtoken in package.json
+- include middleware/auth.js
+- include controllers/authController.js
+- include routes/authRoutes.js
+- app.js must mount routes/authRoutes.js under /api/auth
+
 ## OUTPUT
 Output ONLY the JSON object.
 No markdown.
 No explanations.
 No code fences."""
+    if similar_plan_json:
+        import json
+        try:
+            parsed = json.loads(similar_plan_json)
+            pretty_json = json.dumps(parsed, indent=2)
+        except Exception:
+            pretty_json = similar_plan_json
+            
+        base_prompt += f"""
+
+## SIMILAR APPROVED PROJECT REFERENCE
+Here is a JSON plan from a previously approved similar project. Use this ONLY as structural inspiration:
+```json
+{pretty_json}
+```
+
+You must generate a NEW plan that fully addresses the CURRENT USER REQUIREMENT. Do NOT output the reference plan.
+"""
+
+    return base_prompt

@@ -32,7 +32,17 @@ import threading
 from agents.orchestrator_agent import BuildSession
 
 from schema import BuildRequest, GenerateRequest, ApprovalRequest
+from pydantic import BaseModel
+from typing import Dict, Any, Optional
+
+class ArtifactRequest(BaseModel):
+    type: str
+    plan: Dict[str, Any]
+    count: int = 5
+    codebase: Optional[str] = None
+
 from agents.orchestrator_agent import OrchestratorAgent
+from agents.artifact_agent import ArtifactAgent
 from services.http_settings import get_ssl_verify_setting
 from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
 
@@ -252,6 +262,28 @@ async def generate(req: GenerateRequest):
     except requests.exceptions.RequestException as e:
         logger.error(f"Ollama request failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Request failed: {str(e)}")
+
+
+@app.post("/api/artifacts/generate")
+async def generate_artifact(req: ArtifactRequest):
+    """Generate an artifact (class, usecase, swagger, mock_data) based on the plan."""
+    logger.info(f"Generating artifact: {req.type}")
+    
+    artifact_agent = ArtifactAgent(
+        ollama_url=OLLAMA_URL,
+        model=DEFAULT_MODELS["planner"],
+        use_openai_compatible=USE_OPENAI_COMPATIBLE,
+        openai_compatible_url=OPENAI_COMPATIBLE_URL,
+        openai_compatible_api_key=OPENAI_COMPATIBLE_API_KEY,
+        openai_compatible_provider=OPENAI_COMPATIBLE_PROVIDER,
+    )
+    
+    try:
+        content = artifact_agent.generate(req.type, req.plan, req.count, req.codebase)
+        return {"status": "ok", "content": content}
+    except Exception as e:
+        logger.error(f"Failed to generate artifact: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/build")

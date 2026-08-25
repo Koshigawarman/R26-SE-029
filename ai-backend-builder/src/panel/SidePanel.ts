@@ -116,6 +116,12 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
           case "retryBuild":
             await this._handleBuild(message.prompt);
             break;
+          case "viewArtifact":
+            await this._handleViewArtifact(message.type, message.plan, message.projectName);
+            break;
+          case "generateMockData":
+            await this._handleGenerateMockData(message.plan, message.projectName);
+            break;
         }
       },
       undefined,
@@ -199,6 +205,169 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
       }
     } catch (err: any) {
       this._logger.error(`Approval request error: ${err.message}`);
+    }
+  }
+
+  private async _handleViewArtifact(type: string, plan: any, projectName?: string): Promise<void> {
+    const config = this._loadConfig();
+    try {
+      let titleName = "Diagram";
+      if (type === "class") titleName = "Class Diagram";
+      if (type === "usecase") titleName = "Use Case Diagram";
+      if (type === "swagger") titleName = "API Contract";
+      
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Generating ${titleName}...`,
+          cancellable: false
+        },
+        async (progress) => {
+          let codebase = undefined;
+          if (type === "swagger") {
+            codebase = await this._getCodebaseContext(projectName);
+          }
+
+          const resp = await fetch(`${config.backendUrl}/api/artifacts/generate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type, plan, codebase }),
+          });
+
+          if (!resp.ok) {
+             let errText = resp.statusText;
+             try {
+                const errBody = await resp.json() as any;
+                if (errBody.detail) errText = errBody.detail;
+             } catch(e) {}
+             throw new Error(errText);
+          }
+
+          const data = await resp.json() as any;
+          if (data.content) {
+            const { ArtifactPanel } = await import("./ArtifactPanel.js");
+            ArtifactPanel.show(this._context, type, data.content);
+          }
+        }
+      );
+    } catch (err: any) {
+      this._logger.error(`Failed to generate ${type}: ${err.message}`);
+      vscode.window.showErrorMessage(`Failed to generate ${type}: ${err.message}`);
+    }
+  }
+
+  private async _handleGenerateMockData(plan: any, projectName?: string): Promise<void> {
+    const config = this._loadConfig();
+    try {
+      const countInput = await vscode.window.showInputBox({
+        prompt: "How many dummy records do you want to generate per entity?",
+        value: "10",
+        validateInput: (value) => {
+          const n = parseInt(value, 10);
+          if (isNaN(n) || n <= 0) return "Please enter a positive number";
+          if (n > 100) return "Please enter a number less than or equal to 100 to avoid timeouts";
+          return null;
+        }
+      });
+      
+      if (!countInput) return; // cancelled
+      
+      const count = parseInt(countInput, 10);
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Generating ${count} mock records per entity...`,
+          cancellable: false
+        },
+        async (progress) => {
+          const codebase = await this._getCodebaseContext(projectName);
+          const resp = await fetch(`${config.backendUrl}/api/artifacts/generate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "mock_data", plan, count, codebase }),
+          });
+
+          if (!resp.ok) {
+             let errText = resp.statusText;
+             try {
+                const errBody = await resp.json() as any;
+                if (errBody.detail) errText = errBody.detail;
+             } catch(e) {}
+             throw new Error(errText);
+          }
+
+          const data = await resp.json() as any;
+          if (data.content) {
+            // Write to workspace
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders || workspaceFolders.length === 0) {
+              throw new Error("No open workspace folder to save mock data to.");
+            }
+            
+            const wsPath = workspaceFolders[0].uri;
+            const projectDir = projectName ? vscode.Uri.joinPath(wsPath, projectName) : wsPath;
+            const mockDataDir = vscode.Uri.joinPath(projectDir, "mock_data");
+            
+            try {
+              await vscode.workspace.fs.createDirectory(mockDataDir);
+            } catch(e) { /* ignore if exists */ }
+
+            let parsedContent;
+            try {
+               parsedContent = JSON.parse(data.content);
+            } catch (e) {
+               throw new Error("Failed to parse mock data JSON from AI.");
+            }
+
+            for (const entityName of Object.keys(parsedContent)) {
+              const entityData = parsedContent[entityName];
+              const fileUri = vscode.Uri.joinPath(mockDataDir, `${entityName}.json`);
+              const buffer = Buffer.from(JSON.stringify(entityData, null, 2), "utf8");
+              await vscode.workspace.fs.writeFile(fileUri, new Uint8Array(buffer));
+            }
+
+            vscode.window.showInformationMessage(`Mock data generated successfully in ${projectName ? projectName + '/mock_data' : 'mock_data'}/`);
+          }
+        }
+      );
+    } catch (err: any) {
+      this._logger.error(`Failed to generate mock data: ${err.message}`);
+      vscode.window.showErrorMessage(`Failed to generate mock data: ${err.message}`);
+    }
+  }
+
+  private async _getCodebaseContext(projectName?: string): Promise<string | undefined> {
+    try {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) return undefined;
+      const wsUri = workspaceFolders[0].uri;
+      
+      const projectDir = projectName ? vscode.Uri.joinPath(wsUri, projectName) : wsUri;
+      let codebase = "";
+      const dirsToRead = ["models", "controllers", "routes"];
+      
+      for (const dir of dirsToRead) {
+        try {
+          const dirUri = vscode.Uri.joinPath(projectDir, dir);
+          const entries = await vscode.workspace.fs.readDirectory(dirUri);
+          for (const [name, type] of entries) {
+            if (type === vscode.FileType.File && (name.endsWith(".js") || name.endsWith(".ts"))) {
+              const fileUri = vscode.Uri.joinPath(dirUri, name);
+              const content = await vscode.workspace.fs.readFile(fileUri);
+              codebase += `\n// File: ${dir}/${name}\n`;
+              codebase += Buffer.from(content).toString("utf8");
+              codebase += `\n`;
+            }
+          }
+        } catch(e) {
+          // directory might not exist, ignore
+        }
+      }
+      
+      return codebase.length > 0 ? codebase : undefined;
+    } catch (err) {
+      return undefined;
     }
   }
 
