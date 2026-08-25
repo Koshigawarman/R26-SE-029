@@ -233,11 +233,13 @@ def node_generate_files(state: OrchestrationState) -> dict:
                     "file_generated",
                     {
                         "path": generated.path,
+                        "full_path": f"{plan.projectName}/{generated.path}",
                         "status": "success",
                         "chars": len(generated.content),
                         "index": i + 1,
                         "total": total_files,
                         "architecture": plan.architecture.model_dump(),
+                        "content": generated.content,
                     },
                 )
                 status(session, f"✅ Generated file: {generated.path}", progress_pct, "FILE_GENERATED")
@@ -422,6 +424,16 @@ def node_exhausted(state: OrchestrationState) -> dict:
         readme_path = os.path.join(state["project_path"], "DEBUG_README.md")
         agent._write_project_file(state["project_path"], "DEBUG_README.md", readme_content)
         logger.info(f"Generated DEBUG_README.md at {readme_path}")
+        
+        session.emit("file_generated", {
+            "path": "DEBUG_README.md",
+            "full_path": f"{state['plan'].projectName}/DEBUG_README.md",
+            "status": "success",
+            "chars": len(readme_content),
+            "index": 0,
+            "total": 0,
+            "content": readme_content
+        })
         
     return {"exhausted_action": action}
 

@@ -1343,7 +1343,7 @@
 
                 const archName = currentArchitecture ? titleCase(currentArchitecture.pattern) : "Architecture";
                 rc.innerHTML = '<div style="display:flex;align-items:center;gap:6px;color:var(--ok)"><i class="codicon codicon-pass ri"></i><span class="rt">' + r.projectName + '</span></div><div style="font-size:11px;color:var(--fg2);margin-top:-6px;">' + esc(archName) + '</div><div class="rs"><div class="stat"><div class="sv">' + r.filesGenerated + '</div><div class="sl">Files</div></div><div class="stat"><div class="sv">' + r.debugAttempts + '</div><div class="sl">Cycles</div></div><div class="stat"><div class="sv">' + (r.duration / 1000).toFixed(1) + 's</div><div class="sl">Time</div></div><div class="stat"><div class="sv" style="color:var(--ok)"><i class="codicon codicon-check"></i></div><div class="sl">Status</div></div></div>' +
-                               '<div class="br"><button class="btn bp" data-cmd="openFolder" data-path="' + r.projectRoot.replace(/\\/g, "\\\\") + '"><i class="codicon codicon-folder-opened"></i> Open Project</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>';
+                               '<div class="br"><button class="btn bp" data-cmd="openFolder" data-path="' + (workspaceRoot + "/" + r.projectName).replace(/\\/g, "\\\\") + '"><i class="codicon codicon-folder-opened"></i> Open Project</button><button class="btn bg" data-cmd="showLogs"><i class="codicon codicon-output"></i> Logs</button></div>';
                 log("Build succeeded!", "ok");
                 
                 // Ensure post-build artifacts are enabled in case we skipped debug
