@@ -2,7 +2,7 @@
   "name": "ai-backend-builder",
   "displayName": "AI Backend Builder",
   "description": "Autonomous multi-agent system that plans, generates, and debugs production-ready Node.js/Express backend applications using AI",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "publisher": "R26-SE-029",
   "repository": {
     "type": "git",
