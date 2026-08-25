@@ -78,6 +78,8 @@ class PlannerAgent:
                 plan = self._parse_and_validate(raw_response)
                 break
             except Exception as e:
+                if "cancel" in str(e).lower() or isinstance(e, requests.exceptions.RequestException):
+                    raise
                 last_error = e
                 logger.warning(f"Attempt {attempt + 1} failed: {e}")
                 if attempt == self.MAX_JSON_RETRIES:
