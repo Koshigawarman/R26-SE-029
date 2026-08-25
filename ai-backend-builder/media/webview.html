@@ -747,6 +747,10 @@
           stopTimer();
           $("lf").innerHTML = "";
           $("hist").innerHTML = "";
+          $("btn-art-class").disabled = true;
+          $("btn-art-usecase").disabled = true;
+          $("btn-art-swagger").disabled = true;
+          $("btn-art-mock").disabled = true;
           buildLastUpdate = Date.now();
           if (buildTimeoutTimer) clearInterval(buildTimeoutTimer);
           buildTimeoutTimer = setInterval(checkTimeout, 1000);
