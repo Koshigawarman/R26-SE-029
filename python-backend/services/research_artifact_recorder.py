@@ -118,6 +118,32 @@ class ResearchArtifactRecorder:
             },
         )
 
+    def record_validation(self, name: str, validation_result: Dict[str, Any]) -> None:
+        safe_name = self._safe_name(name)
+        payload = {
+            "name": name,
+            "validation_result": validation_result,
+            "recorded_at": time.time(),
+        }
+        self.write_json(f"validation/{safe_name}.json", payload)
+        self.write_markdown(
+            f"validation/{safe_name}.md",
+            f"Validation: {name}",
+            {"Validation Result": validation_result},
+        )
+
+    def read_validation_operations(self) -> list:
+        path = self.root / "validation" / "planner_contract.json"
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            result = data.get("validation_result", {})
+            operations = result.get("operations", [])
+            return operations if isinstance(operations, list) else []
+        except Exception:
+            return []
+
     @staticmethod
     def _safe_name(value: str) -> str:
         cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", value).strip("-")

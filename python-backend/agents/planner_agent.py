@@ -81,6 +81,7 @@ class PlannerAgent:
         if not plan:
             raise RuntimeError("Planner Agent produced no output")
 
+        plan = self._sanitize_entity_fields(plan, user_prompt)
         plan = self._enforce_architecture_selection(plan, user_prompt)
         plan = self._ensure_mandatory_files(plan, user_prompt)
 
@@ -234,30 +235,53 @@ class PlannerAgent:
         if any(signal in prompt for signal in modular_signals):
             return "modular-monolith"
 
-        service_score = 0
-        weighted_signal_groups = [
-            (2, {"business rule", "business rules", "business logic", "domain operation", "domain operations"}),
-            (2, {"workflow", "workflows", "process", "processes"}),
-            (2, {"calculate", "calculation", "computed", "derived", "aggregate"}),
-            (2, {"report", "reports", "reporting", "analytics", "summary"}),
-            (2, {"validate rule", "constraint", "prevent", "limit", "threshold"}),
-            (2, {"state transition", "status change", "status update", "approve", "reject"}),
-            (2, {"audit", "history", "ledger", "transaction"}),
-            (1, {"payment", "permission", "role", "policy"}),
-        ]
+        explicit_layering_signals = {
+            "service repository",
+            "service-repository",
+            "repository layer",
+            "service layer",
+            "layered architecture",
+            "separate business logic",
+            "separate database access",
+        }
+        if any(signal in prompt for signal in explicit_layering_signals):
+            return "service-repository"
 
-        for weight, signals in weighted_signal_groups:
-            if any(signal in prompt for signal in signals):
-                service_score += weight
+        strong_domain_signals = {
+            "business rule",
+            "business rules",
+            "business logic",
+            "workflow",
+            "workflows",
+            "multi-step",
+            "approval workflow",
+            "eligibility",
+            "risk score",
+            "audit trail",
+            "audit history",
+            "state transition",
+            "state transitions",
+            "prevent",
+            "constraint",
+            "constraints",
+            "ledger",
+            "transactional",
+            "consistency",
+            "rollback",
+            "reconciliation",
+        }
+        strong_signal_count = sum(1 for signal in strong_domain_signals if signal in prompt)
 
-        operation_words = re.findall(r"\b(?:create|update|delete|get|list|search|filter|sort|assign|track|process|calculate|approve|reject|verify|send|receive|transfer|import|export|generate)\b", prompt)
-        if len(set(operation_words)) >= 4:
-            service_score += 1
+        calculation_or_reporting = any(
+            signal in prompt
+            for signal in {"calculate", "calculation", "computed", "derived", "aggregate", "analytics", "reporting", "report"}
+        )
+        has_guard_rule = any(signal in prompt for signal in {"prevent", "constraint", "must not", "cannot", "no negative", "threshold"})
+        has_approval = any(signal in prompt for signal in {"approve", "reject", "approval", "rejection", "eligibility", "risk score"})
 
-        if len(plan.entities or []) >= 4 and not self._looks_like_crud_only(prompt):
-            service_score += 1
-
-        if service_score >= 2:
+        if strong_signal_count >= 2:
+            return "service-repository"
+        if calculation_or_reporting and (has_guard_rule or has_approval):
             return "service-repository"
 
         return None
@@ -281,6 +305,26 @@ class PlannerAgent:
             "role-based",
         }
         return any(term in prompt for term in crud_terms) and not any(term in prompt for term in non_crud_terms)
+
+    def _sanitize_entity_fields(self, plan: PlannerOutput, user_prompt: str) -> PlannerOutput:
+        """Remove fields that commonly break generated Mongo/Mongoose CRUD contracts."""
+        auth_required = self._requires_auth(plan, user_prompt)
+
+        for entity in plan.entities or []:
+            sanitized_fields = []
+            for field in entity.fields or []:
+                field_name = (field.name or "").strip()
+                field_lower = field_name.lower()
+                if field_lower in {"id", "_id"}:
+                    logger.info("[planner] Removing custom Mongo identity field '%s.%s'; MongoDB provides _id.", entity.name, field_name)
+                    continue
+                if field_lower == "password" and not auth_required:
+                    logger.info("[planner] Removing password field from '%s' because authentication was not requested.", entity.name)
+                    continue
+                sanitized_fields.append(field)
+            entity.fields = sanitized_fields
+
+        return plan
 
     def _ensure_mandatory_files(self, plan: PlannerOutput, user_prompt: str = "") -> PlannerOutput:
         existing_paths = {f.path for f in plan.files}
@@ -371,7 +415,7 @@ class PlannerAgent:
     def _get_default_description(self, path: str, project_name: str) -> str:
         descriptions = {
             'app.js': f"Main Express application entry point for {project_name}. Imports dotenv/config, sets up Express middleware (json, cors), connects to MongoDB, mounts all route files, adds error handling middleware, and starts the server on PORT from environment.",
-            'package.json': f"NPM package manifest for {project_name}. Sets type to 'module' for ES modules, lists dependencies: express, mongoose, dotenv, cors, bcryptjs, jsonwebtoken. Includes start script.",
+            'package.json': f"NPM package manifest for {project_name}. Sets type to 'module' for ES modules, lists runtime dependencies, and includes start, dev, and test scripts. Uses nodemon as a devDependency for the dev script.",
             'config/db.js': "MongoDB connection configuration. Exports an async connectDB function that uses mongoose.connect() with MONGODB_URI from process.env. Logs success/failure.",
         }
         return descriptions.get(path, f"Configuration file for {project_name}")
@@ -427,16 +471,47 @@ Remember: Output ONLY the JSON object. No markdown fences, no explanations, no e
             original = f.path
             # Normalise slashes and strip leading ./
             f.path = f.path.replace("\\", "/").lstrip("./").lstrip("/")
-            # Lowercase the filename (not directory) part for JS files
-            parts = f.path.rsplit("/", 1)
-            if len(parts) == 2 and f.path.endswith(".js"):
-                # Keep directory casing, only check base is reasonable
-                pass
+            f.path = self._canonicalize_entity_layer_path(f.path, plan)
             if f.path != original:
                 logger.info("[planner] Path normalised: '%s' → '%s'", original, f.path)
             fixed.append(f)
         plan.files = fixed
         return plan
+
+    def _canonicalize_entity_layer_path(self, path: str, plan: PlannerOutput) -> str:
+        """Canonicalize generated layer filenames so imports work on case-sensitive systems."""
+        if not path.endswith(".js"):
+            return path
+
+        entity_names = {entity.name.lower(): entity.name for entity in (plan.entities or [])}
+        for entity_lower, entity_name in entity_names.items():
+            entity_var = entity_name[0].lower() + entity_name[1:] if entity_name else ""
+            base_map = {
+                f"{entity_lower}controller.js": f"{entity_var}Controller.js",
+                f"{entity_lower}routes.js": f"{entity_var}Routes.js",
+                f"{entity_lower}service.js": f"{entity_var}Service.js",
+                f"{entity_lower}repository.js": f"{entity_var}Repository.js",
+                f"{entity_lower}usecases.js": f"{entity_var}UseCases.js",
+                f"{entity_lower}model.js": f"{entity_name}Model.js",
+                f"{entity_lower}.js": f"{entity_name}.js",
+            }
+            directory, filename = path.rsplit("/", 1) if "/" in path else ("", path)
+            canonical_filename = base_map.get(filename.lower())
+            if not canonical_filename:
+                continue
+            if directory in {"controllers", "routes", "services", "repositories", "models"}:
+                return f"{directory}/{canonical_filename}"
+            if directory in {
+                "interfaces/controllers",
+                "interfaces/routes",
+                "application/use-cases",
+                "infrastructure/repositories",
+                "infrastructure/database",
+                "domain/entities",
+            }:
+                return f"{directory}/{canonical_filename}"
+
+        return path
 
     def _enforce_architecture_file_structure(self, plan: PlannerOutput) -> PlannerOutput:
         """Ensure every entity has the expected files for the selected architecture pattern."""

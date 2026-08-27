@@ -144,10 +144,10 @@ Must include:
 - type: "module"
 - scripts:
   - start: "node app.js"
-  - dev: "node app.js"
+  - dev: "nodemon app.js"
   - test: "NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js"
 - dependencies for runtime imports
-- devDependencies with jest and supertest
+- devDependencies with jest, supertest, and nodemon
 
 For simple CRUD:
 dependencies should normally include:
@@ -731,10 +731,10 @@ Must include:
 - main: "app.js"
 - scripts:
   - start: "node app.js"
-  - dev: "node app.js"
+  - dev: "nodemon app.js"
   - test: "NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js"
 - dependencies for runtime imports
-- devDependencies with jest and supertest
+- devDependencies with jest, supertest, and nodemon
 
 For simple CRUD, dependencies should normally include:
 - express

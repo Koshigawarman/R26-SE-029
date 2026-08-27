@@ -351,6 +351,7 @@ class DebugAgent:
 
         scripts = package_data.setdefault("scripts", {})
         scripts.setdefault("start", "node app.js")
+        scripts["dev"] = "nodemon app.js"
         scripts["test"] = "NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js"
 
         dependencies = package_data.setdefault("dependencies", {})
@@ -359,10 +360,11 @@ class DebugAgent:
         dev_dependencies = package_data.setdefault("devDependencies", {})
         dev_dependencies.setdefault("jest", "^29.7.0")
         dev_dependencies.setdefault("supertest", "^7.1.3")
+        dev_dependencies.setdefault("nodemon", "^3.1.0")
 
         package_path.write_text(json.dumps(package_data, indent=2), encoding="utf-8")
 
-        logger.info("Prepared package.json for Jest/Supertest")
+        logger.info("Prepared package.json for Jest/Supertest/Nodemon")
         return True, None
 
     def _detect_routes(self, project_path: Path) -> List[Dict[str, str]]:

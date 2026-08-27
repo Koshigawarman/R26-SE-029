@@ -67,6 +67,14 @@ class CodeGenOutputValidator:
                 "bcryptjs appears in a non-auth target file. This may be authentication logic leakage.",
             )
 
+        if re.search(r"from\s+['\"]next['\"]", code) or re.search(r"import\s+next\s+from\s+['\"]next['\"]", code):
+            self._add(
+                issues,
+                "error",
+                "imports_next_package",
+                "Express handlers must not import the Next.js package. Use next as the (req, res, next) callback parameter.",
+            )
+
     def _validate_model(self, path: str, code: str, issues: List[Dict[str, Any]]) -> None:
         if "mongoose.Schema" not in code and "new Schema" not in code:
             self._add(issues, "warning", "model_missing_schema", "Model file does not appear to define a schema.")
@@ -80,6 +88,9 @@ class CodeGenOutputValidator:
     def _validate_controller(self, path: str, code: str, issues: List[Dict[str, Any]]) -> None:
         if "mongoose.Schema" in code or "mongoose.model(" in code or "new Schema" in code:
             self._add(issues, "error", "controller_contains_schema", "Controller contains model schema/model definition.")
+
+        if re.search(r"\b[A-Za-z_][A-Za-z0-9_]*Schema\.pre\s*\(", code):
+            self._add(issues, "error", "controller_contains_schema_hook", "Controller contains Mongoose schema middleware hook; hooks belong in model files and timestamp hooks are unnecessary with timestamps: true.")
 
         if "express.Router" in code or re.search(r"\brouter\.(get|post|put|patch|delete)\s*\(", code):
             self._add(issues, "error", "controller_contains_routes", "Controller contains Express route definitions.")
@@ -124,6 +135,9 @@ class CodeGenOutputValidator:
         if "next(error)" in code and not re.search(r"\(\s*req\s*,\s*res\s*,\s*next\s*\)", code):
             self._add(issues, "warning", "next_without_parameter", "Code calls next(error), but a route handler may not accept next.")
 
+        if re.search(r"\bprotect\b", code) and not re.search(r"import\s+(?:\{\s*protect\s*\}|\w+\s*,?\s*\{\s*protect\s*\}|\w+)\s+from\s+['\"][^'\"]*auth\.js['\"]", code):
+            self._add(issues, "error", "route_uses_protect_without_import", "Route uses protect middleware but does not import it from auth middleware.")
+
     def _validate_repository(self, path: str, code: str, issues: List[Dict[str, Any]]) -> None:
         if "express" in code:
             self._add(issues, "error", "repository_imports_express", "Repository imports Express; repositories must be framework-independent.")
@@ -133,6 +147,9 @@ class CodeGenOutputValidator:
 
         if "express.Router" in code or re.search(r"\brouter\.(get|post|put|patch|delete)\s*\(", code):
             self._add(issues, "error", "repository_contains_routes", "Repository contains route definitions.")
+
+        if "mongoose.Schema" in code or "new Schema" in code or "mongoose.model(" in code:
+            self._add(issues, "error", "repository_contains_schema", "Repository defines a Mongoose schema/model; it should import the planned model file.")
 
         if not re.search(r"export\s+(const|async\s+function|function)\s+\w+", code):
             self._add(issues, "warning", "repository_missing_named_exports", "Repository may be missing named exports.")

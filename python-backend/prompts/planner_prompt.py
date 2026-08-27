@@ -32,7 +32,7 @@ The Code Generation Agent must only generate and import files that are listed in
 4. If any file imports middleware, that middleware file MUST be listed.
 5. If controllers import services, then service files MUST be listed.
 6. Do NOT add services/, utils/, helpers/, validators/, or repositories/ unless the user requirement clearly needs them.
-7. Choose an architecture.pattern from the allowed patterns. Use MVC only for straightforward CRUD. Use layered patterns when the requirement contains business rules, cross-entity workflows, calculations, reports, constraints, state transitions, audit/history, permissions, or explicit architectural wording.
+7. Choose an architecture.pattern from the allowed patterns. Use MVC by default for CRUD, search, filtering, history views, simple status updates, and normal REST API actions. Use layered patterns only for explicit architectural wording or genuinely complex domain rules.
 8. File names must match exactly everywhere.
 9. Use ES module-compatible file paths with .js extension during code generation.
 10. Do not create vague file descriptions like "handles logic"; describe exact exports and purpose.
@@ -46,16 +46,16 @@ The technology stack is fixed for now:
 - orm: "mongoose"
 
 You MUST choose exactly one allowed architecture.pattern:
-- "mvc" — default for simple CRUD, normal REST APIs, small/medium projects.
-- "service-repository" — use when the requirement clearly needs richer business logic, layered separation, cross-entity workflows, reports, calculations, constraints, state transitions, permissions, audit/history, or domain operations.
+- "mvc" — default for CRUD, normal REST APIs, search/filtering, history views, simple booking/cancellation, simple status updates, and small/medium projects.
+- "service-repository" — use when the requirement explicitly asks for service/repository layers, or clearly needs isolated business rules, multi-step workflows, approval/risk/audit logic, transactional consistency, calculations combined with guard rules, or database access separated from business logic.
 - "clean-architecture" — use when the user requests strict separation of domain, application, infrastructure, and interface layers, or explicitly asks for clean architecture.
 - "modular-monolith" — use when the user requests a large system separated into domain modules while staying in one deployable backend.
 
-Do not invent other pattern names. If the requirement has no business rules beyond CRUD, choose "mvc". If the requirement includes domain operations, calculations, reports, constraints, state transitions, audit/history, permissions, or workflows across multiple entities, choose "service-repository" unless the user explicitly asks for clean architecture or modular monolith.
+Do not invent other pattern names. If unsure, choose "mvc". Do not choose service-repository just because the project has many entities, payments, history, search, filtering, booking, cancellation, or simple status updates.
 
 ## ARCHITECTURE SELECTION RULES
-- Choose "mvc" for straightforward CRUD where controllers can safely contain request handling and simple model operations.
-- Choose "service-repository" when business rules should be isolated from HTTP handlers, database access should be isolated from business logic, or multiple entities participate in a workflow.
+- Choose "mvc" when controllers can safely contain request handling plus simple model operations.
+- Choose "service-repository" when the user explicitly requests service/repository layering, or when business rules are complex enough that they should be isolated from HTTP handlers.
 - Choose "clean-architecture" only when the requirement explicitly asks for domain/application/infrastructure/interface separation, use cases, or clean architecture.
 - Choose "modular-monolith" only when the requirement explicitly asks for modules, domain modules, business modules, or a modular monolith.
 
@@ -148,6 +148,7 @@ Prefer ONLY these dependencies unless the user specifically asks for more:
 For testing support, devDependencies can include:
 - jest
 - supertest
+- nodemon
 
 Do NOT use these packages unless they are explicitly needed and package.json description mentions them:
 - helmet
@@ -384,12 +385,12 @@ Only change "pattern". Allowed pattern values:
 - "clean-architecture"
 - "modular-monolith"
 
-Use "mvc" only for straightforward CRUD. Use more layered patterns when the requirement needs that structure:
+Use "mvc" by default for CRUD, search, filtering, history views, simple booking/cancellation, simple status updates, and normal REST API actions. Use more layered patterns only when the requirement needs that structure:
 - "service-repository" for richer business logic and database separation.
 - "clean-architecture" for explicit domain/application/infrastructure/interface separation.
 - "modular-monolith" for large systems organized by business modules in one deployable backend.
 
-Choose "service-repository" when the requirement includes business rules, cross-entity workflows, calculations, reports, constraints, state transitions, audit/history, permissions, or other non-trivial domain operations.
+Choose "service-repository" only when the requirement explicitly asks for service/repository layering, or includes complex business rules such as multi-step workflows, approval/risk/audit logic, transactional consistency, calculations combined with guard rules, or database access separated from business logic.
 
 ## REQUIRED PATTERN FILE LIST
 For architecture.pattern = "mvc", each entity:

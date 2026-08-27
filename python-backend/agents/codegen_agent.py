@@ -393,13 +393,19 @@ class CodeGenAgent:
             "main": "app.js",
             "scripts": {
                 "start": "node app.js",
-                "dev": "node --watch app.js"
+                "dev": "nodemon app.js",
+                "test": "NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js"
             },
             "dependencies": {
                 "express": "^4.18.2",
                 "mongoose": "^8.0.0",
                 "dotenv": "^16.3.1",
                 "cors": "^2.8.5"
+            },
+            "devDependencies": {
+                "jest": "^29.7.0",
+                "supertest": "^7.1.3",
+                "nodemon": "^3.1.0"
             }
         }
 
