@@ -42,99 +42,19 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+CURRENT_DIR = Path(__file__).resolve().parent
+BACKEND_ROOT = CURRENT_DIR.parent
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from prompts.planner_prompt import PLANNER_SYSTEM_PROMPT, build_planner_prompt
+
 try:
     from google import genai
     from google.genai import types
 except ImportError:
     genai = None
     types = None
-
-
-PLANNER_SYSTEM_PROMPT = """You are the Planner Agent for an AI backend generator.
-Your task is to convert a natural-language backend request into a strict project contract JSON object.
-
-Return ONLY valid JSON. No markdown fences. No explanation.
-
-Required JSON shape:
-{
-  "projectName": "kebab-case-project-name",
-  "architecture": {
-    "stack": "node-express-mongoose",
-    "pattern": "mvc | service-repository | clean-architecture | modular-monolith",
-    "language": "javascript",
-    "moduleSystem": "esm",
-    "database": "mongodb",
-    "orm": "mongoose"
-  },
-  "entities": [
-    {
-      "name": "PascalCaseEntity",
-      "fields": [
-        {
-          "name": "camelCaseField",
-          "type": "String | Number | Boolean | Date | ObjectId | [String] | [ObjectId]",
-          "required": true,
-          "unique": false
-        }
-      ],
-      "description": "Short entity purpose."
-    }
-  ],
-  "features": [
-    {
-      "name": "Feature Name",
-      "description": "Short implementation-oriented feature description."
-    }
-  ],
-  "files": [
-    {
-      "path": "package.json",
-      "description": "Defines dependencies and scripts."
-    }
-  ]
-}
-
-Planning rules:
-1. Always include package.json, .env, app.js, config/db.js, and middleware/errorHandler.js.
-2. Choose exactly one architecture.pattern:
-   - mvc: default for simple CRUD and normal REST APIs.
-   - service-repository: richer business logic and database separation.
-   - clean-architecture: explicit domain/application/infrastructure/interface separation.
-   - modular-monolith: large systems organized by business modules in one deployable backend.
-3. For every entity, include files according to architecture.pattern:
-   mvc:
-   - models/<Entity>.js
-   - controllers/<entity>Controller.js
-   - routes/<entity>Routes.js
-   service-repository:
-   - models/<Entity>.js
-   - repositories/<entity>Repository.js
-   - services/<entity>Service.js
-   - controllers/<entity>Controller.js
-   - routes/<entity>Routes.js
-   clean-architecture:
-   - domain/entities/<Entity>.js
-   - application/use-cases/<entity>UseCases.js
-   - infrastructure/database/<Entity>Model.js
-   - infrastructure/repositories/<entity>Repository.js
-   - interfaces/controllers/<entity>Controller.js
-   - interfaces/routes/<entity>Routes.js
-   modular-monolith:
-   - modules/<entity>/model.js
-   - modules/<entity>/repository.js
-   - modules/<entity>/service.js
-   - modules/<entity>/controller.js
-   - modules/<entity>/routes.js
-4. If authentication, login, registration, JWT, roles, or protected routes are requested, include:
-   - middleware/auth.js
-   - controllers/authController.js
-   - routes/authRoutes.js
-5. Use Express.js, MongoDB, Mongoose, and ES modules.
-6. Do not include frontend files.
-7. Keep the plan implementable by a code generation agent. Do not over-plan huge enterprise systems unless requested.
-8. Use MONGODB_URI, not MONGO_URI.
-9. Use clear file descriptions that tell the CodeGen Agent what belongs in the file.
-10. Do not duplicate schema definitions across controllers or routes."""
 
 
 DOMAINS = [
@@ -221,10 +141,11 @@ def main() -> int:
                 "id": record_id,
                 "messages": [
                     {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
+                    {"role": "user", "content": build_planner_prompt(user_prompt)},
                     {"role": "assistant", "content": json.dumps(planner_output, ensure_ascii=False)},
                 ],
                 "metadata": {
+                    "original_user_prompt": user_prompt,
                     "validation": validation,
                     "gemini_model": args.model,
                     "gemini_usage": usage,
@@ -256,7 +177,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=0.6)
     parser.add_argument("--max-output-tokens", type=int, default=4096)
     parser.add_argument("--retries", type=int, default=3)
-    parser.add_argument("--sleep", type=float, default=0.5)
+    parser.add_argument("--sleep", type=float, default=15.0, help="Delay between Gemini calls. Gemini free tier for some models is 5 RPM, so 15s is a safe default.")
     parser.add_argument("--resume", action="store_true", default=True)
     parser.add_argument("--no-resume", action="store_false", dest="resume")
     parser.add_argument("--skip-invalid", action="store_true", default=True)
@@ -312,7 +233,7 @@ def generate_plan_with_retry(
         try:
             response = client.models.generate_content(
                 model=model,
-                contents=user_prompt,
+                contents=build_planner_prompt(user_prompt),
                 config=types.GenerateContentConfig(
                     system_instruction=PLANNER_SYSTEM_PROMPT,
                     temperature=temperature,
@@ -329,9 +250,27 @@ def generate_plan_with_retry(
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             print(f"[retry] Gemini planner attempt {attempt}/{retries} failed: {exc}", file=sys.stderr)
-            time.sleep(min(30, 2**attempt))
+            wait_seconds = retry_delay_seconds(exc, attempt)
+            print(f"[retry] Waiting {wait_seconds:.1f}s before retrying.", file=sys.stderr)
+            time.sleep(wait_seconds)
 
     raise RuntimeError(f"Planner generation failed after {retries} attempt(s): {last_error}")
+
+
+def retry_delay_seconds(exc: Exception, attempt: int) -> float:
+    message = str(exc)
+    match = re.search(r"retryDelay['\"]?:\s*['\"]?(\d+(?:\.\d+)?)s", message)
+    if match:
+        return float(match.group(1)) + 3.0
+
+    match = re.search(r"Please retry in\s+(\d+(?:\.\d+)?)s", message, re.IGNORECASE)
+    if match:
+        return float(match.group(1)) + 3.0
+
+    if "RESOURCE_EXHAUSTED" in message or "quota" in message.lower() or "rate" in message.lower():
+        return 65.0
+
+    return float(min(60, 2**attempt))
 
 
 def validate_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
@@ -349,7 +288,7 @@ def validate_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
     if pattern not in {"mvc", "service-repository", "clean-architecture", "modular-monolith"}:
         issues.append({"severity": "error", "code": "unsupported_architecture_pattern", "message": f"Unsupported architecture pattern: {pattern}."})
 
-    for required_path in ["package.json", ".env", "app.js", "config/db.js", "middleware/errorHandler.js"]:
+    for required_path in ["package.json", "README.md", ".env", "app.js", "config/db.js", "middleware/errorHandler.js"]:
         if required_path not in paths:
             issues.append({"severity": "error", "code": "missing_required_file", "message": f"Missing {required_path}."})
 
@@ -474,6 +413,7 @@ def dry_run_plan(user_prompt: str) -> Dict[str, Any]:
         "features": [{"name": "CRUD APIs", "description": "Create, read, update, and delete core resources."}],
         "files": [
             {"path": "package.json", "description": "Defines dependencies and scripts."},
+            {"path": "README.md", "description": "Project documentation with setup, architecture, env vars, scripts, and API route summary."},
             {"path": ".env", "description": "Contains PORT and MONGODB_URI."},
             {"path": "app.js", "description": "Initializes Express app and mounts routes."},
             {"path": "config/db.js", "description": "Connects to MongoDB using Mongoose."},

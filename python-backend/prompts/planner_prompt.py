@@ -290,6 +290,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 ## MANDATORY PROJECT STRUCTURE
 Every project MUST include these files at minimum:
 - package.json — project metadata, type module, scripts, dependencies, devDependencies for tests
+- README.md — project documentation with overview, architecture, setup, env vars, scripts, and API route summary
 - .env — PORT and MONGODB_URI, plus JWT_SECRET only if authentication is needed
 - app.js — Express app entry point, middleware setup, route mounting, error handler, conditional server start, export default app
 - config/db.js — MongoDB/Mongoose connection configuration using dotenv

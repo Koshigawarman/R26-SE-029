@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 MANDATORY_FILES = [
     'package.json',
+    'README.md',
     'app.js',
     'config/db.js',
 ]
@@ -416,6 +417,7 @@ class PlannerAgent:
         descriptions = {
             'app.js': f"Main Express application entry point for {project_name}. Imports dotenv/config, sets up Express middleware (json, cors), connects to MongoDB, mounts all route files, adds error handling middleware, and starts the server on PORT from environment.",
             'package.json': f"NPM package manifest for {project_name}. Sets type to 'module' for ES modules, lists runtime dependencies, and includes start, dev, and test scripts. Uses nodemon as a devDependency for the dev script.",
+            'README.md': f"Project documentation for {project_name}. Describes the generated backend, architecture, setup commands, environment variables, folder structure, and main API routes.",
             'config/db.js': "MongoDB connection configuration. Exports an async connectDB function that uses mongoose.connect() with MONGODB_URI from process.env. Logs success/failure.",
         }
         return descriptions.get(path, f"Configuration file for {project_name}")

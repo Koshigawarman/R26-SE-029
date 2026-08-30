@@ -50,6 +50,16 @@ ENV_PROMPT = """Generate a .env file for a Node.js/Express backend project.
 4. Use PORT, MONGODB_URI, NODE_ENV, and JWT_SECRET only when authentication is required."""
 
 
+README_PROMPT = """You are an expert technical writer for Node.js/Express backend projects. Generate README.md only.
+
+## CRITICAL RULES
+1. Output raw Markdown only.
+2. No markdown fences. No explanations outside the README.
+3. Document the generated project based only on the Planner contract.
+4. Include setup commands, environment variables, scripts, architecture, project structure, and API route summary.
+5. Do not invent external services, deployment steps, or files that are not listed in ALL PROJECT FILES."""
+
+
 CONFIG_PROMPT = BASE_PROFILE_RULES + """
 
 ## FILE TYPE: Database Config: config/db.js

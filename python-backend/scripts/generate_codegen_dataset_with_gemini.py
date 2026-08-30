@@ -35,7 +35,7 @@ Setup:
 Example:
   python scripts/generate_codegen_dataset_with_gemini.py \
     --input datasets/planner_outputs \
-    --output datasets/codegen_synthetic.jsonl \
+    --record-dir datasets/codegen_dataset \
     --model gemini-3.6-flash \
     --sleep 1.0
 """
@@ -48,6 +48,7 @@ import json
 import os
 import random
 import re
+import requests
 import sys
 import time
 from pathlib import Path
@@ -58,6 +59,9 @@ BACKEND_ROOT = CURRENT_DIR.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from agents.codegen_agent import CodeGenAgent
+from schema import CodeGenContext, FileSpec, PlannerOutput
+from prompts.codegen_prompt import build_codegen_prompt as build_runtime_codegen_prompt
 from prompts.codegen_prompt_factory import get_architecture_codegen_system_prompt
 from services.architecture_profile_registry import detect_file_type, normalize_architecture
 
@@ -71,40 +75,59 @@ except ImportError:
 
 FILE_PRIORITY = {
     "package.json": 0,
-    ".env": 1,
-    "config/": 2,
-    "models/": 3,
-    "domain/": 3,
-    "infrastructure/database/": 3,
-    "middleware/": 4,
-    "repositories/": 5,
-    "infrastructure/repositories/": 5,
-    "services/": 6,
-    "application/use-cases/": 6,
-    "controllers/": 7,
-    "interfaces/controllers/": 7,
-    "routes/": 8,
-    "interfaces/routes/": 8,
-    "modules/": 5,
-    "app.js": 7,
+    "README.md": 1,
+    ".env": 2,
+    "config/": 3,
+    "models/": 4,
+    "domain/": 4,
+    "infrastructure/database/": 4,
+    "middleware/": 5,
+    "repositories/": 6,
+    "infrastructure/repositories/": 6,
+    "services/": 7,
+    "application/use-cases/": 7,
+    "controllers/": 8,
+    "interfaces/controllers/": 8,
+    "routes/": 9,
+    "interfaces/routes/": 9,
+    "modules/": 6,
+    "app.js": 10,
 }
+
+DETERMINISTIC_FILES = {"package.json", ".env", "README.md"}
 
 
 def main() -> int:
     args = parse_args()
     input_path = Path(args.input)
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path = Path(args.output) if args.output else None
+    record_dir = Path(args.record_dir)
+    record_dir.mkdir(parents=True, exist_ok=True)
+    if output_path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    provider = args.provider.strip().lower()
     api_key = args.api_key or os.getenv("GEMINI_API_KEY")
-    if not api_key and not args.dry_run:
+    if provider in {"modal", "openai-compatible"}:
+        api_key = args.api_key or os.getenv("OPENAI_COMPATIBLE_API_KEY", "")
+
+    if provider == "gemini" and not api_key and not args.dry_run:
         raise SystemExit("Missing Gemini API key. Set GEMINI_API_KEY or pass --api-key.")
 
-    if not args.dry_run and genai is None:
+    if provider == "gemini" and not args.dry_run and genai is None:
         raise SystemExit("Missing google-genai package. Install it with: pip install google-genai")
 
-    client = None if args.dry_run else genai.Client(api_key=api_key)
-    completed_ids = load_completed_ids(output_path) if args.resume else set()
+    if provider in {"modal", "openai-compatible"} and not args.openai_url and not args.dry_run:
+        raise SystemExit("Missing OpenAI-compatible URL. Pass --openai-url or set OPENAI_COMPATIBLE_URL.")
+
+    client = None
+    if not args.dry_run and provider == "gemini":
+        client = genai.Client(api_key=api_key)
+    completed_ids = set()
+    if args.resume:
+        completed_ids.update(load_completed_ids_from_dir(record_dir))
+        if output_path:
+            completed_ids.update(load_completed_ids(output_path))
 
     planner_records = list(load_planner_records(input_path))
     if args.shuffle:
@@ -113,9 +136,11 @@ def main() -> int:
     total_written = 0
     total_seen = 0
 
-    with output_path.open("a", encoding="utf-8") as out:
+    out = output_path.open("a", encoding="utf-8") if output_path else None
+    try:
         for source_path, record_index, planner_record in planner_records:
             plan, user_prompt = extract_plan_and_prompt(planner_record)
+            plan = ensure_current_plan_contract(plan, user_prompt)
 
             if not isinstance(plan, dict) or not isinstance(plan.get("files"), list):
                 print(f"[skip] {source_path}:{record_index} missing response.files", file=sys.stderr)
@@ -129,6 +154,9 @@ def main() -> int:
                 file_path = str(file_spec.get("path") or "").strip()
                 if not file_path:
                     continue
+                if file_path in DETERMINISTIC_FILES and not args.include_deterministic_files:
+                    existing_contents[file_path] = deterministic_code_for(file_path, plan, existing_contents)
+                    continue
 
                 total_seen += 1
                 example_id = make_example_id(source_path, record_index, project_name, file_path)
@@ -136,8 +164,8 @@ def main() -> int:
                     continue
 
                 system_prompt = get_architecture_codegen_system_prompt(file_path, architecture)
-                user_codegen_prompt = build_codegen_prompt(
-                    original_user_prompt=user_prompt,
+                user_codegen_prompt = build_current_codegen_prompt(
+                    user_prompt=user_prompt,
                     plan=plan,
                     target_file=file_spec,
                     existing_contents=existing_contents,
@@ -145,15 +173,21 @@ def main() -> int:
                     architecture=architecture,
                 )
 
-                if args.dry_run:
+                if file_path in DETERMINISTIC_FILES:
+                    code = deterministic_code_for(file_path, plan, existing_contents)
+                    usage = {}
+                elif args.dry_run:
                     code = dry_run_code_for(file_path)
                     usage = {}
                 else:
                     code, usage = generate_code_with_retry(
                         client=client,
+                        provider=provider,
                         model=args.model,
                         system_prompt=system_prompt,
                         user_prompt=user_codegen_prompt,
+                        openai_url=args.openai_url or os.getenv("OPENAI_COMPATIBLE_URL", ""),
+                        api_key=api_key,
                         max_output_tokens=args.max_output_tokens,
                         temperature=args.temperature,
                         retries=args.retries,
@@ -177,13 +211,16 @@ def main() -> int:
                         "target_file": file_path,
                         "planner_prompt": user_prompt,
                         "validation": validation,
-                        "gemini_model": args.model,
-                        "gemini_usage": usage,
+                        "provider": provider,
+                        "model": args.model,
+                        "usage": usage,
                     },
                 }
 
-                out.write(json.dumps(dataset_record, ensure_ascii=False) + "\n")
-                out.flush()
+                write_record_json(record_dir, dataset_record)
+                if out:
+                    out.write(json.dumps(dataset_record, ensure_ascii=False) + "\n")
+                    out.flush()
 
                 existing_contents[file_path] = code
                 completed_ids.add(example_id)
@@ -198,26 +235,39 @@ def main() -> int:
                 if args.sleep > 0 and not args.dry_run:
                     time.sleep(args.sleep)
 
-    print(f"Done. Seen={total_seen}, wrote_new={total_written}, output={output_path}")
+    finally:
+        if out:
+            out.close()
+
+    output_text = str(output_path) if output_path else "(json files only)"
+    print(f"Done. Seen={total_seen}, wrote_new={total_written}, record_dir={record_dir}, output={output_text}")
     return 0
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate synthetic CodeGen dataset records using Gemini.")
+    parser = argparse.ArgumentParser(description="Generate synthetic CodeGen dataset records using Gemini or an OpenAI-compatible endpoint.")
     parser.add_argument("--input", required=True, help="Planner dataset JSON/JSONL file or directory.")
-    parser.add_argument("--output", required=True, help="Output JSONL path.")
-    parser.add_argument("--api-key", default="", help="Gemini API key. Defaults to GEMINI_API_KEY.")
+    parser.add_argument("--output", default="", help="Optional output JSONL path. If omitted, only per-record JSON files are written.")
+    parser.add_argument("--record-dir", default="datasets/codegen_dataset", help="Directory where each dataset record is written as a separate JSON file.")
+    parser.add_argument("--provider", default="gemini", choices=["gemini", "modal", "openai-compatible"], help="Generation provider.")
+    parser.add_argument("--openai-url", default="", help="OpenAI-compatible /v1/chat/completions URL. Defaults to OPENAI_COMPATIBLE_URL.")
+    parser.add_argument("--api-key", default="", help="Gemini API key or OpenAI-compatible bearer token. Defaults to GEMINI_API_KEY or OPENAI_COMPATIBLE_API_KEY.")
     parser.add_argument("--model", default="gemini-2.5-flash", help="Gemini model name.")
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--max-output-tokens", type=int, default=4096)
     parser.add_argument("--max-related-chars", type=int, default=12000)
     parser.add_argument("--retries", type=int, default=3)
-    parser.add_argument("--sleep", type=float, default=0.5, help="Delay between Gemini calls.")
+    parser.add_argument("--sleep", type=float, default=15.0, help="Delay between Gemini calls. Gemini free tier for some models is 5 RPM, so 15s is a safe default.")
     parser.add_argument("--limit", type=int, default=0, help="Maximum new examples to write.")
     parser.add_argument("--resume", action="store_true", default=True, help="Skip IDs already in output file.")
     parser.add_argument("--no-resume", action="store_false", dest="resume")
     parser.add_argument("--shuffle", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="Write placeholder records without calling Gemini.")
+    parser.add_argument(
+        "--include-deterministic-files",
+        action="store_true",
+        help="Also write package.json, .env, and README.md records using the runtime deterministic templates.",
+    )
     return parser.parse_args()
 
 
@@ -294,6 +344,41 @@ def load_completed_ids(output_path: Path) -> set[str]:
             if item_id:
                 completed.add(str(item_id))
     return completed
+
+
+def load_completed_ids_from_dir(record_dir: Path) -> set[str]:
+    if not record_dir.exists():
+        return set()
+
+    completed = set()
+    for path in record_dir.rglob("*.json"):
+        try:
+            item = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        item_id = item.get("id")
+        if item_id:
+            completed.add(str(item_id))
+    return completed
+
+
+def write_record_json(record_dir: Path, record: Dict[str, Any]) -> Path:
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    project_name = safe_filename(str(metadata.get("project_name") or "unknown-project"))
+    target_file = safe_filename(str(metadata.get("target_file") or "unknown-file"))
+    record_id = safe_filename(str(record.get("id") or hashlib.sha256(json.dumps(record, sort_keys=True).encode("utf-8")).hexdigest()[:24]))
+
+    project_dir = record_dir / project_name
+    project_dir.mkdir(parents=True, exist_ok=True)
+    output_path = project_dir / f"{target_file}__{record_id}.json"
+    output_path.write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return output_path
+
+
+def safe_filename(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_.-]+", "_", value.strip())
+    cleaned = cleaned.strip("._")
+    return cleaned[:120] or "record"
 
 
 def build_codegen_prompt(
@@ -387,6 +472,119 @@ def build_codegen_prompt(
         ]
     )
     return "\n".join(parts)
+
+
+def build_current_codegen_prompt(
+    user_prompt: str,
+    plan: Dict[str, Any],
+    target_file: Dict[str, Any],
+    existing_contents: Dict[str, str],
+    max_related_chars: int,
+    architecture: Dict[str, Any],
+) -> str:
+    try:
+        planner_output = PlannerOutput.model_validate(plan)
+        file_spec = FileSpec.model_validate(target_file)
+        return build_runtime_codegen_prompt(
+            file_spec=file_spec,
+            project_name=planner_output.projectName,
+            entities=planner_output.entities,
+            features=planner_output.features,
+            all_files=planner_output.files,
+            existing_contents=existing_contents,
+            existing_file_content=None,
+            architecture=architecture,
+            style_profile={},
+        )
+    except Exception as exc:  # noqa: BLE001 - keep dataset generation resilient.
+        print(f"[warn] Falling back to legacy prompt builder for {target_file.get('path')}: {exc}", file=sys.stderr)
+        return build_codegen_prompt(
+            original_user_prompt=user_prompt,
+            plan=plan,
+            target_file=target_file,
+            existing_contents=existing_contents,
+            max_related_chars=max_related_chars,
+            architecture=architecture,
+        )
+
+
+def ensure_current_plan_contract(plan: Dict[str, Any], user_prompt: str = "") -> Dict[str, Any]:
+    if not isinstance(plan, dict):
+        return {}
+
+    normalized = dict(plan)
+    normalized["projectName"] = str(
+        normalized.get("projectName") or normalized.get("project_name") or project_name_from_prompt(user_prompt)
+    )
+    normalized["architecture"] = normalize_architecture(normalized.get("architecture")).model_dump()
+    normalized.setdefault("entities", [])
+    normalized.setdefault("features", [])
+
+    files = normalized.get("files")
+    if not isinstance(files, list):
+        files = []
+    normalized["files"] = [item for item in files if isinstance(item, dict) and item.get("path")]
+
+    required_descriptions = {
+        "package.json": "NPM package manifest with ES module metadata, start/dev/test scripts, runtime dependencies, and nodemon devDependency.",
+        "README.md": "Project documentation with overview, architecture, setup commands, environment variables, scripts, and API route summary.",
+        ".env": "Environment variables using PORT, MONGODB_URI, NODE_ENV, and JWT placeholders only when authentication is required.",
+        "app.js": "Express app entry point that loads dotenv, connects MongoDB, configures middleware, mounts routes, adds errorHandler last, conditionally starts server, and exports app.",
+        "config/db.js": "MongoDB connection configuration exporting default connectDB using mongoose.connect and process.env.MONGODB_URI.",
+        "middleware/errorHandler.js": "Centralized Express error handling middleware exporting default errorHandler.",
+    }
+
+    paths = {str(item.get("path")) for item in normalized["files"]}
+    for path, description in required_descriptions.items():
+        if path not in paths:
+            normalized["files"].append({"path": path, "description": description})
+            paths.add(path)
+
+    if requires_auth(normalized, user_prompt):
+        auth_files = {
+            "middleware/auth.js": "JWT authentication middleware. Verifies Bearer token with JWT_SECRET, attaches decoded payload to req.user, and exports named protect middleware.",
+            "controllers/authController.js": "Authentication controller exporting registerUser, loginUser, and getProfile. Uses bcryptjs, jsonwebtoken, and User model.",
+            "routes/authRoutes.js": "Authentication router mapping POST /register, POST /login, and protected GET /profile.",
+        }
+        for path, description in auth_files.items():
+            if path not in paths:
+                normalized["files"].append({"path": path, "description": description})
+                paths.add(path)
+
+    normalized["files"] = sorted(normalized["files"], key=lambda item: file_priority(str(item.get("path", ""))))
+    return normalized
+
+
+def deterministic_code_for(file_path: str, plan: Dict[str, Any], existing_contents: Dict[str, str]) -> str:
+    planner_output = PlannerOutput.model_validate(plan)
+    context = CodeGenContext(
+        projectName=planner_output.projectName,
+        architecture=planner_output.architecture,
+        entities=planner_output.entities,
+        features=planner_output.features,
+        allFiles=planner_output.files,
+        existingFileContents=existing_contents,
+        styleProfile={},
+    )
+    agent = CodeGenAgent("http://localhost:11434", "deterministic-template")
+    generated = agent.execute(FileSpec(path=file_path, description="Deterministic project support file."), context)
+    return generated.content
+
+
+def requires_auth(plan: Dict[str, Any], user_prompt: str = "") -> bool:
+    haystack = " ".join(
+        [
+            user_prompt,
+            json.dumps(plan.get("features", []), ensure_ascii=False),
+            json.dumps(plan.get("entities", []), ensure_ascii=False),
+        ]
+    ).lower()
+    return any(term in haystack for term in ["auth", "login", "register", "jwt", "password", "protected", "role-based", "rbac"])
+
+
+def project_name_from_prompt(user_prompt: str) -> str:
+    words = re.findall(r"[a-zA-Z0-9]+", user_prompt.lower())[:4]
+    return "-".join(words) if words else "generated-backend"
 
 
 def related_files_for(target_path: str, existing_contents: Dict[str, str], pattern: str = "mvc") -> List[Tuple[str, str]]:
@@ -509,10 +707,13 @@ def module_name(path: str) -> str:
 
 
 def generate_code_with_retry(
-    client: genai.Client,
+    client: Any,
+    provider: str,
     model: str,
     system_prompt: str,
     user_prompt: str,
+    openai_url: str,
+    api_key: str,
     max_output_tokens: int,
     temperature: float,
     retries: int,
@@ -521,27 +722,99 @@ def generate_code_with_retry(
 
     for attempt in range(1, retries + 1):
         try:
-            response = client.models.generate_content(
+            if provider == "gemini":
+                response = client.models.generate_content(
+                    model=model,
+                    contents=user_prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        temperature=temperature,
+                        max_output_tokens=max_output_tokens,
+                    ),
+                )
+                text = response.text or ""
+                usage = {}
+                if getattr(response, "usage_metadata", None):
+                    usage = response.usage_metadata.model_dump(exclude_none=True)
+                return text, usage
+
+            return generate_openai_compatible_code(
+                url=openai_url,
+                api_key=api_key,
                 model=model,
-                contents=user_prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=temperature,
-                    max_output_tokens=max_output_tokens,
-                ),
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_output_tokens=max_output_tokens,
+                temperature=temperature,
             )
-            text = response.text or ""
-            usage = {}
-            if getattr(response, "usage_metadata", None):
-                usage = response.usage_metadata.model_dump(exclude_none=True)
-            return text, usage
         except Exception as exc:  # noqa: BLE001 - dataset generation should keep running.
             last_error = exc
-            wait_seconds = min(30, 2**attempt)
-            print(f"[retry] Gemini call failed attempt {attempt}/{retries}: {exc}", file=sys.stderr)
+            wait_seconds = retry_delay_seconds(exc, attempt)
+            print(f"[retry] {provider} call failed attempt {attempt}/{retries}: {exc}", file=sys.stderr)
+            print(f"[retry] Waiting {wait_seconds:.1f}s before retrying.", file=sys.stderr)
             time.sleep(wait_seconds)
 
-    raise RuntimeError(f"Gemini generation failed after {retries} attempt(s): {last_error}")
+    raise RuntimeError(f"{provider} generation failed after {retries} attempt(s): {last_error}")
+
+
+def generate_openai_compatible_code(
+    url: str,
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    max_output_tokens: int,
+    temperature: float,
+) -> Tuple[str, Dict[str, Any]]:
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    response = requests.post(
+        url,
+        headers=headers,
+        json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_output_tokens,
+            "stream": False,
+        },
+        timeout=300,
+    )
+
+    if response.status_code >= 400:
+        body = response.text[:1000] if response.text else "(empty)"
+        raise RuntimeError(f"HTTP {response.status_code} from OpenAI-compatible endpoint. Body: {body}")
+
+    data = response.json()
+    choices = data.get("choices") or []
+    if not choices:
+        raise RuntimeError(f"OpenAI-compatible response had no choices: {data}")
+
+    message = choices[0].get("message") or {}
+    content = message.get("content") or choices[0].get("text") or ""
+    usage = data.get("usage") or {}
+    return str(content), usage
+
+
+def retry_delay_seconds(exc: Exception, attempt: int) -> float:
+    message = str(exc)
+    match = re.search(r"retryDelay['\"]?:\s*['\"]?(\d+(?:\.\d+)?)s", message)
+    if match:
+        return float(match.group(1)) + 3.0
+
+    match = re.search(r"Please retry in\s+(\d+(?:\.\d+)?)s", message, re.IGNORECASE)
+    if match:
+        return float(match.group(1)) + 3.0
+
+    if "RESOURCE_EXHAUSTED" in message or "quota" in message.lower() or "rate" in message.lower():
+        return 65.0
+
+    return float(min(60, 2**attempt))
 
 
 def validate_generated_code(file_path: str, code: str, architecture: Dict[str, Any]) -> Dict[str, Any]:

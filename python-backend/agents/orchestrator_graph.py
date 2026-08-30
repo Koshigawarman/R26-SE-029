@@ -13,6 +13,7 @@ from schema import (
     TestResults,
 )
 from services.research_artifact_recorder import ResearchArtifactRecorder
+from services.project_style_analyzer import ProjectStyleAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class OrchestrationState(TypedDict):
     session_project_path: Optional[str]
     plan: Optional[Any]  # PlannerOutput
     artifact_recorder: Optional[ResearchArtifactRecorder]
+    style_profile: Dict[str, Any]
     plan_rejection_count: int
     plan_action: Optional[str]
     
@@ -86,6 +88,11 @@ def node_plan_project(state: OrchestrationState) -> dict:
     )
     planner_validation = agent.planner_contract_validator.validate(request.prompt, plan)
     artifact_recorder.record_validation("planner_contract", planner_validation)
+
+    style_source = request.style_source_uri or request.workspace_uri
+    status(session, "🎨 STATE → STYLE_ANALYSIS: Extracting existing project style...", 9, "STYLE_ANALYSIS")
+    style_profile = ProjectStyleAnalyzer().analyze(style_source)
+    artifact_recorder.record_style_profile(style_profile)
     
     logger.info("📋 Plan generated: %s", plan.projectName)
     status(session, f"📋 STATE → PLAN_READY: Plan ready with {len(plan.files)} files", 10, "PLAN_READY")
@@ -93,7 +100,8 @@ def node_plan_project(state: OrchestrationState) -> dict:
     return {
         "plan": plan,
         "project_path": project_path,
-        "artifact_recorder": artifact_recorder
+        "artifact_recorder": artifact_recorder,
+        "style_profile": style_profile,
     }
 
 def node_await_plan_approval(state: OrchestrationState) -> dict:
@@ -191,6 +199,7 @@ def node_generate_files(state: OrchestrationState) -> dict:
         features=plan.features,
         allFiles=plan.files,
         existingFileContents=existing_contents,
+        styleProfile=state.get("style_profile") or {},
     )
     
     for i, file_spec in enumerate(sorted_files):

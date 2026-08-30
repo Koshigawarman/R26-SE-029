@@ -225,6 +225,7 @@ class OrchestratorAgent:
             session_project_path=None,
             plan=None,
             artifact_recorder=None,
+            style_profile={},
             plan_rejection_count=0,
             plan_action=None,
             existing_contents={},

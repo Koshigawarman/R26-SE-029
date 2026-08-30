@@ -8,6 +8,7 @@ from prompts.codegen_profiles.base import (
     ERROR_MIDDLEWARE_PROMPT,
     GENERIC_PROMPT,
     PACKAGE_PROMPT,
+    README_PROMPT,
 )
 
 
@@ -347,6 +348,7 @@ APP_PROMPT = BASE_PROFILE_RULES + ARCHITECTURE_RULES + MVC_IMPORT_EXPORT_CONTRAC
 
 PROMPTS = {
     "package": PACKAGE_PROMPT,
+    "readme": README_PROMPT,
     "env": ENV_PROMPT,
     "app": APP_PROMPT,
     "config": CONFIG_PROMPT,

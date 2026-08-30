@@ -30,6 +30,7 @@ ARCHITECTURE_PROFILES: Dict[str, Dict[str, Any]] = {
         "folders": ["models", "controllers", "routes", "middleware", "config"],
         "required_files": [
             "package.json",
+            "README.md",
             ".env",
             "app.js",
             "config/db.js",
@@ -55,7 +56,7 @@ ARCHITECTURE_PROFILES: Dict[str, Dict[str, Any]] = {
             "config": "Contains infrastructure configuration such as database connection.",
             "app": "Composes middleware, routes, database connection, and server startup.",
         },
-        "allowed_file_types": ["package", "env", "app", "config", "model", "controller", "route", "middleware"],
+        "allowed_file_types": ["package", "readme", "env", "app", "config", "model", "controller", "route", "middleware"],
     },
     "service-repository": {
         "id": "service-repository",
@@ -64,6 +65,7 @@ ARCHITECTURE_PROFILES: Dict[str, Dict[str, Any]] = {
         "folders": ["models", "repositories", "services", "controllers", "routes", "middleware", "config"],
         "required_files": [
             "package.json",
+            "README.md",
             ".env",
             "app.js",
             "config/db.js",
@@ -97,6 +99,7 @@ ARCHITECTURE_PROFILES: Dict[str, Dict[str, Any]] = {
         },
         "allowed_file_types": [
             "package",
+            "readme",
             "env",
             "app",
             "config",
@@ -115,6 +118,7 @@ ARCHITECTURE_PROFILES: Dict[str, Dict[str, Any]] = {
         "folders": ["domain", "application", "infrastructure", "interfaces", "middleware", "config"],
         "required_files": [
             "package.json",
+            "README.md",
             ".env",
             "app.js",
             "config/db.js",
@@ -148,6 +152,7 @@ ARCHITECTURE_PROFILES: Dict[str, Dict[str, Any]] = {
         },
         "allowed_file_types": [
             "package",
+            "readme",
             "env",
             "app",
             "config",
@@ -167,6 +172,7 @@ ARCHITECTURE_PROFILES: Dict[str, Dict[str, Any]] = {
         "folders": ["modules", "shared", "middleware", "config"],
         "required_files": [
             "package.json",
+            "README.md",
             ".env",
             "app.js",
             "config/db.js",
@@ -200,6 +206,7 @@ ARCHITECTURE_PROFILES: Dict[str, Dict[str, Any]] = {
         },
         "allowed_file_types": [
             "package",
+            "readme",
             "env",
             "app",
             "config",
@@ -260,6 +267,8 @@ def detect_file_type(path: str, pattern: str = "mvc") -> str:
     """Classify a planned file path into an architecture-aware file type."""
     if path == "package.json":
         return "package"
+    if path == "README.md":
+        return "readme"
     if path == ".env":
         return "env"
     if path == "app.js":
@@ -311,4 +320,3 @@ def detect_file_type(path: str, pattern: str = "mvc") -> str:
         return "route"
 
     return "unknown"
-

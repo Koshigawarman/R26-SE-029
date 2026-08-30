@@ -118,6 +118,25 @@ class ResearchArtifactRecorder:
             },
         )
 
+    def record_style_profile(self, style_profile: Dict[str, Any]) -> None:
+        payload = {
+            "style_profile": style_profile,
+            "recorded_at": time.time(),
+        }
+        self.write_json("style/profile.json", payload)
+        self.write_markdown(
+            "style/summary.md",
+            "Detected Project Style",
+            {
+                "Source Type": style_profile.get("source_type", ""),
+                "Source": style_profile.get("source", style_profile.get("source_path", "")),
+                "Source Path": style_profile.get("source_path", ""),
+                "Confidence": style_profile.get("confidence", 0),
+                "Summary": style_profile.get("summary", ""),
+                "Profile JSON": style_profile,
+            },
+        )
+
     def record_validation(self, name: str, validation_result: Dict[str, Any]) -> None:
         safe_name = self._safe_name(name)
         payload = {
