@@ -21,8 +21,14 @@ An autonomous multi-agent AI system that **plans**, **generates**, and **debugs*
 cd python-backend
 
 # 2. Set up environment
+# [Mac/Linux]
 python3 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
+
+# [Windows]
+python -m venv venv
+venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
 # 3. Ensure Ollama is running
@@ -33,7 +39,7 @@ ollama pull llama3.1:8b
 ollama pull qwen2.5-coder:7b
 
 # 5. Start the proxy server
-uvicorn main:app --host 0.0.0.0 --port 5001 --reload
+uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 ```
 
 ### 2. Install & Run the Extension

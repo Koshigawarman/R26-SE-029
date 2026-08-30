@@ -44,7 +44,7 @@ class CodeGenAgent:
 
         try:
             # Handle special files deterministically
-            if file_spec.path == '.env':
+            if file_spec.path in ['.env', 'env', '.env.example', 'env.example']:
                 return self._generate_env_file(file_spec, context)
             if file_spec.path == 'package.json':
                 return self._generate_package_json(file_spec, context)
@@ -88,7 +88,7 @@ class CodeGenAgent:
                 "raw_output": raw_response,
             }
 
-            code = self._extract_code(raw_response)
+            code = self._extract_code(raw_response, file_spec.path)
 
             if not code or len(code.strip()) < 10:
                 raise ValueError(f"Generated code is too short ({len(code)} chars)")
@@ -200,7 +200,7 @@ class CodeGenAgent:
                     "raw_output": raw_response,
                 }
 
-                fixed_code = self._extract_code(raw_response)
+                fixed_code = self._extract_code(raw_response, file_path)
 
                 self._validate_code(file_path, fixed_code)
                 validation_result = self.output_validator.validate(file_path, fixed_code, architecture)
@@ -353,12 +353,29 @@ class CodeGenAgent:
 
         return response_text
 
-    def _extract_code(self, raw_response: str) -> str:
+    def _extract_code(self, raw_response: str, file_path: str = "") -> str:
         """Extracts code block from markdown if present."""
-        code_match = re.search(r'```(?:javascript|js)?\s*(.*?)\s*```', raw_response, re.DOTALL | re.IGNORECASE)
+        raw_response = raw_response.strip()
+        
+        if file_path.endswith('.md'):
+            # For markdown files, only unwrap if the *entire* output is inside a single markdown code fence
+            if raw_response.startswith('```'):
+                lines = raw_response.split('\n')
+                if lines[-1].strip() == '```':
+                    return '\n'.join(lines[1:-1]).strip()
+            return raw_response
+
+        # For other files, find the first code block if it exists
+        code_match = re.search(r'```[a-zA-Z0-9]*\s*\n(.*?)\n\s*```', raw_response, re.DOTALL)
         if code_match:
             return code_match.group(1).strip()
-        return raw_response.strip()
+            
+        # Fallback if the LLM used backticks without newlines (rare for multi-line code)
+        code_match_fallback = re.search(r'```[a-zA-Z0-9]*\s*(.*?)\s*```', raw_response, re.DOTALL)
+        if code_match_fallback:
+            return code_match_fallback.group(1).strip()
+            
+        return raw_response
 
     def _generate_env_file(self, file_spec: FileSpec, context: CodeGenContext) -> GeneratedFile:
         db_name = re.sub(r'[^a-z0-9]', '-', context.projectName.lower()).strip('-')

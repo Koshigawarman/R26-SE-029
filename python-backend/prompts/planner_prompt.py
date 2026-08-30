@@ -348,11 +348,13 @@ Before returning JSON, mentally check:
 
 Output ONLY the JSON object."""
 
-def build_planner_prompt(user_requirement: str) -> str:
+from typing import Optional
+
+def build_planner_prompt(user_requirement: str, similar_plan_json: Optional[str] = None) -> str:
     """
     Build the user prompt for the Planner Agent.
     """
-    return f"""Analyze the following backend application requirement and generate a strict structured project plan as JSON.
+    base_prompt = f"""Analyze the following backend application requirement and generate a strict structured project plan as JSON.
 
 ## USER REQUIREMENT
 {user_requirement}
@@ -455,3 +457,23 @@ Output ONLY the JSON object.
 No markdown.
 No explanations.
 No code fences."""
+    if similar_plan_json:
+        import json
+        try:
+            parsed = json.loads(similar_plan_json)
+            pretty_json = json.dumps(parsed, indent=2)
+        except Exception:
+            pretty_json = similar_plan_json
+            
+        base_prompt += f"""
+
+## SIMILAR APPROVED PROJECT REFERENCE
+Here is a JSON plan from a previously approved similar project. Use this ONLY as structural inspiration:
+```json
+{pretty_json}
+```
+
+You must generate a NEW plan that fully addresses the CURRENT USER REQUIREMENT. Do NOT output the reference plan.
+"""
+
+    return base_prompt
