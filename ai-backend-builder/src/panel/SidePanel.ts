@@ -404,6 +404,11 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
 
     this._logger.section("NEW BUILD REQUEST (Interactive)");
     this._logger.info(`User prompt: "${prompt}"`);
+    if (config.styleSourceUri) {
+      this._logger.info(`Style source URI: ${config.styleSourceUri}`);
+    } else {
+      this._logger.info("Style source URI: current workspace");
+    }
 
     this._postMessage({ 
       command: "buildStarted",
@@ -417,6 +422,7 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
         body: JSON.stringify({
           prompt: prompt,
           workspace_uri: workspaceUri,
+          style_source_uri: config.styleSourceUri || undefined,
         }),
         signal: this._abortController.signal,
       });
@@ -545,6 +551,7 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
     const config = vscode.workspace.getConfiguration("aiBackendBuilder");
     return {
       backendUrl: config.get<string>("backendUrl", "http://localhost:5000"),
+      styleSourceUri: config.get<string>("styleSourceUri", "").trim(),
       openaiApiKey: config.get<string>("openaiApiKey", ""),
       openaiModel: config.get<string>("openaiModel", "gpt-4"),
       models: {

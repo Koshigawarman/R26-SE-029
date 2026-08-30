@@ -33,6 +33,7 @@ from agents.codegen_agent import CodeGenAgent
 from agents.debug_agent import DebugAgent
 from agents.critic_agent import CriticAgent
 from services.episodic_memory import EpisodicMemory
+from services.planner_contract_validator import PlannerContractValidator
 from services.project_consistency_validator import ProjectConsistencyValidator
 from services.research_artifact_recorder import ResearchArtifactRecorder
 
@@ -116,6 +117,7 @@ class OrchestratorAgent:
     ):
         self.ollama_url = ollama_url
         self.project_validator = ProjectConsistencyValidator()
+        self.planner_contract_validator = PlannerContractValidator()
 
         self.planner_agent = PlannerAgent(
             ollama_url,
@@ -233,6 +235,7 @@ class OrchestratorAgent:
             session_project_path=None,
             plan=None,
             artifact_recorder=None,
+            style_profile={},
             plan_rejection_count=0,
             plan_action=None,
             existing_contents={},

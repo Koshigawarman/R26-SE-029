@@ -10,8 +10,10 @@ Important:
 - The CodeGen Agent must not invent local files or external packages.
 """
 
+import json
 from typing import List, Dict
 from schema import Entity, Feature, FileSpec
+from services.project_style_analyzer import ProjectStyleAnalyzer
 
 MAX_CONTEXT_LENGTH = 16000
 
@@ -144,10 +146,10 @@ Must include:
 - type: "module"
 - scripts:
   - start: "node app.js"
-  - dev: "node app.js"
+  - dev: "nodemon app.js"
   - test: "NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js"
 - dependencies for runtime imports
-- devDependencies with jest and supertest
+- devDependencies with jest, supertest, and nodemon
 
 For simple CRUD:
 dependencies should normally include:
@@ -731,10 +733,10 @@ Must include:
 - main: "app.js"
 - scripts:
   - start: "node app.js"
-  - dev: "node app.js"
+  - dev: "nodemon app.js"
   - test: "NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js"
 - dependencies for runtime imports
-- devDependencies with jest and supertest
+- devDependencies with jest, supertest, and nodemon
 
 For simple CRUD, dependencies should normally include:
 - express
@@ -873,6 +875,7 @@ def build_codegen_prompt(
     existing_contents: Dict[str, str],
     existing_file_content: str = None,
     architecture: Dict = None,
+    style_profile: Dict = None,
 ) -> str:
     parts = []
 
@@ -927,6 +930,16 @@ def build_codegen_prompt(
         parts.append("## FEATURES")
         for feature in features:
             parts.append(f"- {feature.name}: {feature.description}")
+        parts.append("")
+
+    style_context = ProjectStyleAnalyzer().for_target_file(style_profile or {}, file_spec.path)
+    if style_context:
+        parts.append("## DETECTED PROJECT STYLE")
+        parts.append("Use this style only when it does not conflict with the Planner contract, architecture rules, file-type rules, or import/export correctness.")
+        parts.append("Style should influence naming, formatting, route shape, controller shape, and model conventions; it must not introduce unplanned files or dependencies.")
+        parts.append("```json")
+        parts.append(json.dumps(style_context, indent=2, ensure_ascii=False))
+        parts.append("```")
         parts.append("")
 
     parts.append("## ALL PROJECT FILES")

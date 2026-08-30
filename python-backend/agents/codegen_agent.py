@@ -9,6 +9,7 @@ from schema import FileSpec, CodeGenContext, GeneratedFile
 from services.codegen_output_validator import CodeGenOutputValidator
 from services.http_settings import get_ssl_verify_setting
 from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
+from services.project_style_analyzer import ProjectStyleAnalyzer
 from prompts.codegen_prompt import (
     build_codegen_prompt,
     build_code_fix_prompt,
@@ -36,6 +37,7 @@ class CodeGenAgent:
         self.openai_compatible_provider = openai_compatible_provider
         self.last_request_trace: Dict[str, Any] = {}
         self.output_validator = CodeGenOutputValidator()
+        self.style_analyzer = ProjectStyleAnalyzer()
 
     def execute(self, file_spec: FileSpec, context: CodeGenContext, existing_content: str = None, cancel_token: Optional[Callable[[], bool]] = None) -> GeneratedFile:
         logger.info(f"Generating: {file_spec.path}")
@@ -46,6 +48,8 @@ class CodeGenAgent:
                 return self._generate_env_file(file_spec, context)
             if file_spec.path == 'package.json':
                 return self._generate_package_json(file_spec, context)
+            if file_spec.path == 'README.md':
+                return self._generate_readme_file(file_spec, context)
 
             prompt = build_codegen_prompt(
                 file_spec=file_spec,
@@ -56,6 +60,7 @@ class CodeGenAgent:
                 existing_contents=context.existingFileContents,
                 existing_file_content=existing_content,
                 architecture=context.architecture.model_dump(),
+                style_profile=context.styleProfile,
             )
             system_prompt = get_architecture_codegen_system_prompt(
                 file_spec.path,
@@ -76,6 +81,8 @@ class CodeGenAgent:
                 "model": self.model,
                 "target_file": file_spec.path,
                 "architecture": context.architecture.model_dump(),
+                "style_profile": context.styleProfile,
+                "style_context": self.style_analyzer.for_target_file(context.styleProfile, file_spec.path),
                 "system_prompt": system_prompt,
                 "built_prompt": prompt,
                 "raw_output": raw_response,
@@ -109,6 +116,11 @@ class CodeGenAgent:
                 file_spec.path,
                 code,
                 context.architecture.model_dump(),
+            )
+            validation_result["style_validation"] = self.style_analyzer.validate_generated_style(
+                file_spec.path,
+                code,
+                context.styleProfile,
             )
             self.last_request_trace["output_validation"] = validation_result
 
@@ -389,6 +401,7 @@ class CodeGenAgent:
             "model": None,
             "target_file": file_spec.path,
             "architecture": context.architecture.model_dump(),
+            "style_profile": context.styleProfile,
             "system_prompt": get_architecture_codegen_system_prompt(file_spec.path, context.architecture),
             "built_prompt": "Deterministic .env template generated from project name and features.",
             "raw_output": content,
@@ -397,6 +410,152 @@ class CodeGenAgent:
 
         logger.info(f"✓ Generated: {file_spec.path} (env file — deterministic)")
         return GeneratedFile(path=file_spec.path, content=content, status='generated')
+
+    def _generate_readme_file(self, file_spec: FileSpec, context: CodeGenContext) -> GeneratedFile:
+        architecture = context.architecture
+        has_auth = any('auth' in f.name.lower() for f in context.features)
+        route_summaries = self._readme_route_summaries(context)
+        entity_lines = [
+            f"- {entity.name}: " + ", ".join(field.name for field in entity.fields)
+            for entity in context.entities
+        ]
+        feature_lines = [
+            f"- {feature.name}: {feature.description}"
+            for feature in context.features
+        ]
+        env_lines = [
+            "- `PORT` - HTTP server port.",
+            "- `MONGODB_URI` - MongoDB connection string.",
+            "- `NODE_ENV` - Runtime environment.",
+        ]
+
+        if has_auth:
+            env_lines.extend([
+                "- `JWT_SECRET` - Secret used to sign JWT access tokens.",
+                "- `JWT_EXPIRE` - JWT expiry duration.",
+            ])
+
+        content = "\n".join([
+            f"# {context.projectName}",
+            "",
+            f"{context.projectName} is a generated Node.js, Express, and MongoDB backend API.",
+            "",
+            "## Architecture",
+            "",
+            f"- Pattern: `{architecture.pattern}`",
+            f"- Stack: `{architecture.stack}`",
+            f"- Language: `{architecture.language}`",
+            f"- Module system: `{architecture.moduleSystem}`",
+            f"- Database: `{architecture.database}`",
+            f"- ORM: `{architecture.orm}`",
+            "",
+            "## Features",
+            "",
+            "\n".join(feature_lines) if feature_lines else "- CRUD API endpoints.",
+            "",
+            "## Entities",
+            "",
+            "\n".join(entity_lines) if entity_lines else "- No domain entities were planned.",
+            "",
+            "## Project Structure",
+            "",
+            "```text",
+            *self._readme_structure_lines(context),
+            "```",
+            "",
+            "## Environment Variables",
+            "",
+            "\n".join(env_lines),
+            "",
+            "Create a `.env` file using the generated `.env` template before running the app.",
+            "",
+            "## Scripts",
+            "",
+            "- `npm install` - Install dependencies.",
+            "- `npm run dev` - Start the API with nodemon.",
+            "- `npm start` - Start the API with Node.js.",
+            "- `npm test` - Run the test suite.",
+            "",
+            "## API Routes",
+            "",
+            "\n".join(route_summaries) if route_summaries else "- Routes are defined in the generated route files.",
+            "",
+            "## Notes",
+            "",
+            "- The project uses ES Modules, so local imports include `.js` extensions.",
+            "- Database connection is configured in `config/db.js`.",
+            "- Centralized error handling is configured in `middleware/errorHandler.js`.",
+            "",
+        ])
+
+        self.last_request_trace = {
+            "agent": "codegen",
+            "mode": "deterministic",
+            "provider": "local-template",
+            "model": None,
+            "target_file": file_spec.path,
+            "architecture": context.architecture.model_dump(),
+            "style_profile": context.styleProfile,
+            "system_prompt": get_architecture_codegen_system_prompt(file_spec.path, context.architecture),
+            "built_prompt": "Deterministic README.md generated from planner contract, architecture, entities, features, and planned route files.",
+            "raw_output": content,
+            "output_validation": self.output_validator.validate(file_spec.path, content, context.architecture.model_dump()),
+        }
+
+        logger.info(f"✓ Generated: {file_spec.path} (README — deterministic)")
+        return GeneratedFile(path=file_spec.path, content=content, status='generated')
+
+    def _readme_structure_lines(self, context: CodeGenContext) -> List[str]:
+        paths = sorted({file_spec.path for file_spec in context.allFiles})
+        return [f"- {path}" for path in paths]
+
+    def _readme_route_summaries(self, context: CodeGenContext) -> List[str]:
+        summaries = []
+        route_paths = sorted(
+            file_spec.path for file_spec in context.allFiles
+            if self._is_route_file(file_spec.path)
+        )
+
+        for route_path in route_paths:
+            resource = self._resource_from_route_path(route_path)
+            if resource == "auth":
+                summaries.append(f"- `/api/auth` - Authentication routes such as registration, login, and profile access.")
+            else:
+                summaries.append(f"- `/api/{resource}` - Routes defined in `{route_path}`.")
+
+        return summaries
+
+    def _is_route_file(self, path: str) -> bool:
+        lowered = path.lower()
+        return (
+            "/routes/" in lowered
+            or lowered.startswith("routes/")
+            or lowered.endswith("/routes.js")
+            or lowered.endswith("routes.js")
+        )
+
+    def _resource_from_route_path(self, path: str) -> str:
+        normalized = path.replace("\\", "/")
+        parts = normalized.split("/")
+
+        if len(parts) >= 3 and parts[0] == "modules" and parts[-1] == "routes.js":
+            return self._slugify(parts[1])
+
+        stem = os.path.splitext(parts[-1])[0]
+        stem = re.sub(r"Routes$", "", stem)
+        stem = re.sub(r"routes$", "", stem)
+        resource = self._slugify(stem)
+
+        if resource.endswith("y"):
+            return resource[:-1] + "ies"
+        if resource.endswith("s"):
+            return resource
+        return resource + "s"
+
+    def _slugify(self, value: str) -> str:
+        value = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", value)
+        value = re.sub(r"[^a-zA-Z0-9]+", "-", value)
+        return value.strip("-").lower() or "resources"
 
     def _generate_package_json(self, file_spec: FileSpec, context: CodeGenContext) -> GeneratedFile:
         has_auth = any('auth' in f.name.lower() for f in context.features)
@@ -410,13 +569,19 @@ class CodeGenAgent:
             "main": "app.js",
             "scripts": {
                 "start": "node app.js",
-                "dev": "node --watch app.js"
+                "dev": "nodemon app.js",
+                "test": "NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js"
             },
             "dependencies": {
                 "express": "^4.18.2",
                 "mongoose": "^8.0.0",
                 "dotenv": "^16.3.1",
                 "cors": "^2.8.5"
+            },
+            "devDependencies": {
+                "jest": "^29.7.0",
+                "supertest": "^7.1.3",
+                "nodemon": "^3.1.0"
             }
         }
 

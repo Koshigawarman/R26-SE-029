@@ -72,6 +72,7 @@ class CodeGenContext(BaseModel):
     features: List[Feature]
     allFiles: List[FileSpec]
     existingFileContents: Dict[str, str]
+    styleProfile: Dict[str, Any] = Field(default_factory=dict)
 
 
 
@@ -208,6 +209,7 @@ class OrchestrationAttempt(BaseModel):
 class BuildRequest(BaseModel):
     prompt: str
     workspace_uri: str
+    style_source_uri: Optional[str] = None
 
     planner_model: Optional[str] = None
     codegen_model: Optional[str] = None
