@@ -324,7 +324,7 @@ def node_consistency_check(state: OrchestrationState) -> dict:
                 architecture=state["plan"].architecture.model_dump() if state.get("plan") else {"pattern": "mvc"},
                 cancel_token=lambda: not session.active,
             )
-            if fixed and fixed.content:
+            if fixed and fixed.status == "fixed" and fixed.content:
                 agent._write_project_file(project_path, fixed.path, fixed.content)
                 existing_contents[fixed.path] = fixed.content
                 if state.get("artifact_recorder"):
@@ -334,6 +334,18 @@ def node_consistency_check(state: OrchestrationState) -> dict:
                         generated_content=fixed.content,
                         status=fixed.status,
                     )
+            else:
+                msg = fixed.errorMessage if fixed else "Unknown error"
+                action = session.wait_for_approval(
+                    "codegen_error",
+                    {
+                        "message": f"❌ Failed to repair {file_path}: {msg}",
+                        "file": file_path,
+                        "options": ["skip", "cancel"]
+                    }
+                )
+                if action == "cancel":
+                    raise Exception(f"Cancelled during validation repair for {file_path}")
 
         validation_result = agent.project_validator.validate(
             project_path,
@@ -463,6 +475,18 @@ def node_apply_fixes(state: OrchestrationState) -> dict:
         if fixed and fixed.status == "fixed" and fixed.content:
             agent._write_project_file(state["project_path"], fixed.path, fixed.content)
             existing_contents[fixed.path] = fixed.content
+        else:
+            msg = fixed.errorMessage if fixed else "Unknown error"
+            action = session.wait_for_approval(
+                "codegen_error",
+                {
+                    "message": f"❌ Failed to fix {f}: {msg}",
+                    "file": f,
+                    "options": ["skip", "cancel"]
+                }
+            )
+            if action == "cancel":
+                raise Exception(f"Cancelled during fix generation for {f}")
             
     return {"existing_contents": existing_contents}
 
