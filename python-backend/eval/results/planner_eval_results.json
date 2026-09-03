@@ -1,0 +1,311 @@
+{
+  "timestamp": "2026-09-03T16:57:50.757760",
+  "model": "planner_model",
+  "total_prompts": 25,
+  "rag_validity_rate": 100.0,
+  "zeroshot_validity_rate": 100.0,
+  "rag_results": [
+    {
+      "prompt": "Build a library management API to manage Books and Members with borrowing records using MVC.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"library-management-backend\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"mvc\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"},\"entitie"
+    },
+    {
+      "prompt": "Create a job board backend with Jobs and Applicants. Use service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"job-board-backend\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"service-repository\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"},\"e"
+    },
+    {
+      "prompt": "An event ticketing system for Events and Tickets. Standard MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"event-ticketing-system\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"mvc\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"},\"entities\":["
+    },
+    {
+      "prompt": "A social media backend with Posts, Users, and Likes. Use clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"social-media-backend\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"clean-architecture\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"}"
+    },
+    {
+      "prompt": "A school management API for Students, Teachers, and Grades. MVC pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"school-management-api\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"mvc\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"},\"entities\":[{"
+    },
+    {
+      "prompt": "An online marketplace for Products and Sellers. Use service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"online-marketplace-api\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"service-repository\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose"
+    },
+    {
+      "prompt": "A news aggregator backend with Articles and Categories. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"news-aggregator-backend\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"mvc\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"},\"entities\":"
+    },
+    {
+      "prompt": "A pet adoption platform API with Pets and Adopters. Use clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"pet-adoption-platform\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"clean-architecture\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\""
+    },
+    {
+      "prompt": "A gym membership system with Members and Subscriptions. Service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"gym-membership-system\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"service-repository\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\""
+    },
+    {
+      "prompt": "A hotel room booking API with Rooms and Reservations. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"hotel-booking-system\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"mvc\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"},\"entities\":[{\""
+    },
+    {
+      "prompt": "A project management backend with Projects and Tasks assigned to Team Members. Clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"project-management-backend\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"clean-architecture\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mong"
+    },
+    {
+      "prompt": "A courier delivery system tracking Packages and Couriers. Service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"courier-delivery-system\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"service-repository\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoos"
+    },
+    {
+      "prompt": "A vehicle fleet management API for Vehicles and Drivers. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"fleet-management-api\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"mvc\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"},\"entities\":[{\""
+    },
+    {
+      "prompt": "A music streaming backend with Songs and Playlists owned by Users. Clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"streaming-platform-api\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"clean-architecture\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose"
+    },
+    {
+      "prompt": "A forum discussion API with Threads, Posts, and Users. Service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"forum-discussion-api\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"service-repository\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"}"
+    },
+    {
+      "prompt": "An HR leave management system for Employees and Leave Requests. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"hr-leave-management-system\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"mvc\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"},\"entitie"
+    },
+    {
+      "prompt": "A recipe sharing platform with Recipes and Ingredients authored by Users. Clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"recipe-sharing-platform\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"clean-architecture\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoos"
+    },
+    {
+      "prompt": "A logistics tracking system for Shipments and Warehouses. Service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"logistics-warehouse-tracker\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"service-repository\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mon"
+    },
+    {
+      "prompt": "An auction platform backend with Items and Bids placed by Buyers. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"auction-platform-backend\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"mvc\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"},\"entities\""
+    },
+    {
+      "prompt": "A hospital bed management API for Beds and Admissions. Clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"hospital-bed-management-api\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"clean-architecture\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mon"
+    },
+    {
+      "prompt": "An expense tracker with Expenses and Budgets linked to Users. Service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"expense-tracker-backend\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"service-repository\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoos"
+    },
+    {
+      "prompt": "A ticketing support desk API for Tickets and Agents. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"ticketing-support-desk\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"mvc\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"},\"entities\":["
+    },
+    {
+      "prompt": "A research paper repository backend with Papers and Authors. Clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"research-paper-repository\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"clean-architecture\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongo"
+    },
+    {
+      "prompt": "An inventory reorder system for Products with automatic threshold alerts. Service-repository.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"inventory-reorder-engine\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"service-repository\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoo"
+    },
+    {
+      "prompt": "A volunteer coordination platform with Volunteers and Events they sign up for. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\":\"volunteer-coordination-platform\",\"architecture\":{\"stack\":\"node-express-mongoose\",\"pattern\":\"mvc\",\"language\":\"javascript\",\"moduleSystem\":\"esm\",\"database\":\"mongodb\",\"orm\":\"mongoose\"},\"en"
+    }
+  ],
+  "zeroshot_results": [
+    {
+      "prompt": "Build a library management API to manage Books and Members with borrowing records using MVC.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"library-management-api\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"mvc\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm\": \"mongoose\""
+    },
+    {
+      "prompt": "Create a job board backend with Jobs and Applicants. Use service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"job-board-backend\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"service-repository\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm\": "
+    },
+    {
+      "prompt": "An event ticketing system for Events and Tickets. Standard MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"event-ticketing-system\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"mvc\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm\": \"mongoose\""
+    },
+    {
+      "prompt": "A social media backend with Posts, Users, and Likes. Use clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"social-media-backend\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"clean-architecture\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm"
+    },
+    {
+      "prompt": "A school management API for Students, Teachers, and Grades. MVC pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"school-management-api\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"mvc\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm\": \"mongoose\"}"
+    },
+    {
+      "prompt": "An online marketplace for Products and Sellers. Use service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"marketplace-backend\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"service-repository\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm\""
+    },
+    {
+      "prompt": "A news aggregator backend with Articles and Categories. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"news-aggregator-backend\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"mvc\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm\": \"mongoose"
+    },
+    {
+      "prompt": "A pet adoption platform API with Pets and Adopters. Use clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"pet-adoption-platform\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"clean-architecture\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"or"
+    },
+    {
+      "prompt": "A gym membership system with Members and Subscriptions. Service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"gym-membership-system\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"service-repository\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"or"
+    },
+    {
+      "prompt": "A hotel room booking API with Rooms and Reservations. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"hotel-booking-api\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"mvc\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm\": \"mongoose\"}, \"e"
+    },
+    {
+      "prompt": "A project management backend with Projects and Tasks assigned to Team Members. Clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"project-management-backend\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"clean-architecture\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\""
+    },
+    {
+      "prompt": "A courier delivery system tracking Packages and Couriers. Service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"courier-delivery-system\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"service-repository\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \""
+    },
+    {
+      "prompt": "A vehicle fleet management API for Vehicles and Drivers. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"fleet-management-system\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"mvc\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm\": \"mongoose"
+    },
+    {
+      "prompt": "A music streaming backend with Songs and Playlists owned by Users. Clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"music-streaming-backend\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"clean-architecture\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \""
+    },
+    {
+      "prompt": "A forum discussion API with Threads, Posts, and Users. Service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"forum-discussion-api\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"service-repository\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm"
+    },
+    {
+      "prompt": "An HR leave management system for Employees and Leave Requests. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"hr-leave-management-system\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"mvc\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm\": \"mongo"
+    },
+    {
+      "prompt": "A recipe sharing platform with Recipes and Ingredients authored by Users. Clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"recipe-sharing-platform\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"clean-architecture\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \""
+    },
+    {
+      "prompt": "A logistics tracking system for Shipments and Warehouses. Service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"logistics-tracking-system\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"service-repository\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\","
+    },
+    {
+      "prompt": "An auction platform backend with Items and Bids placed by Buyers. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"auction-platform-backend\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"mvc\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm\": \"mongoos"
+    },
+    {
+      "prompt": "A hospital bed management API for Beds and Admissions. Clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"hospital-bed-management-api\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"clean-architecture\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb"
+    },
+    {
+      "prompt": "An expense tracker with Expenses and Budgets linked to Users. Service-repository pattern.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"expense-tracker-backend\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"service-repository\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \""
+    },
+    {
+      "prompt": "A ticketing support desk API for Tickets and Agents. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"ticket-support-desk\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"mvc\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm\": \"mongoose\"}, "
+    },
+    {
+      "prompt": "A research paper repository backend with Papers and Authors. Clean architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"research-paper-repository\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"clean-architecture\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\","
+    },
+    {
+      "prompt": "An inventory reorder system for Products with automatic threshold alerts. Service-repository.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"inventory-reorder-system\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"service-repository\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", "
+    },
+    {
+      "prompt": "A volunteer coordination platform with Volunteers and Events they sign up for. MVC architecture.",
+      "valid": true,
+      "reason": "OK",
+      "output": "{\"projectName\": \"volunteer-coordinator-backend\", \"architecture\": {\"stack\": \"node-express-mongoose\", \"pattern\": \"mvc\", \"language\": \"javascript\", \"moduleSystem\": \"esm\", \"database\": \"mongodb\", \"orm\": \"mo"
+    }
+  ]
+}

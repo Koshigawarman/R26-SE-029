@@ -1,0 +1,23 @@
+
+Coding Agent AST Compilation Rate Evaluation
+=============================================
+Date:              2026-09-03 17:12
+Model:             codegen_model
+Total Projects:    15
+
+File-Level AST Results:
+  JS files evaluated:   91
+  AST pass:             91
+  AST fail:             0
+  AST Pass Rate:        100.0%
+
+Project-Level (all files pass):
+  Fully passing:        15 / 15
+  Project Pass Rate:    100.0%
+
+--- For TABLE II (System Evaluation) ---
+Coding Agent | AST First-Pass Compilation Rate | 100.0%
+
+--- For TABLE III (Baseline Comparison) ---
+Proposed Framework | Code Compiles | 100.0%
+(For zero-shot baseline, re-run after disabling style_profile in CodeGenAgent)

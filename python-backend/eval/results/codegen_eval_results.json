@@ -1,0 +1,843 @@
+{
+  "timestamp": "2026-09-03T17:12:40.325800",
+  "model": "codegen_model",
+  "total_projects": 15,
+  "total_js_files": 91,
+  "total_ast_passed": 91,
+  "ast_pass_rate": 100.0,
+  "projects_fully_passing": 15,
+  "project_pass_rate": 100.0,
+  "project_results": [
+    {
+      "project": "blog-api",
+      "files": [
+        {
+          "file": "config/db.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        },
+        {
+          "file": ".env",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        },
+        {
+          "file": "domain/entities/Post.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "application/use-cases/postUseCases.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "infrastructure/database/PostModel.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "infrastructure/repositories/postRepository.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "interfaces/controllers/postController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "interfaces/routes/postRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "task-manager-api",
+      "files": [
+        {
+          "file": "models/User.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "models/Task.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "controllers/userController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "controllers/taskController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "routes/userRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "routes/taskRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "config/db.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        },
+        {
+          "file": ".env",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "ecommerce-inventory-api",
+      "files": [
+        {
+          "file": "models/Product.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "repositories/productRepository.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "services/productService.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "controllers/productController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "routes/productRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "config/db.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "chat-app-api",
+      "files": [
+        {
+          "file": "models/User.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "models/Room.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "models/Message.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "controllers/chatController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "routes/chatRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "config/db.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "fintech-wallet-api",
+      "files": [
+        {
+          "file": "config/db.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        },
+        {
+          "file": "domain/entities/Wallet.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "application/use-cases/walletUseCases.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "infrastructure/repositories/walletRepository.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "interfaces/controllers/walletController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "interfaces/routes/walletRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "iot-platform-api",
+      "files": [
+        {
+          "file": "models/Device.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "repositories/deviceRepository.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "services/deviceService.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "controllers/deviceController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "routes/deviceRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "healthcare-booking-api",
+      "files": [
+        {
+          "file": "models/Appointment.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "controllers/appointmentController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "routes/appointmentRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "edtech-lms-api",
+      "files": [
+        {
+          "file": "models/Course.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "repositories/courseRepository.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "services/courseService.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "controllers/courseController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "routes/courseRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "food-delivery-api",
+      "files": [
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        },
+        {
+          "file": "domain/entities/Order.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "application/use-cases/orderUseCases.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "infrastructure/repositories/orderRepository.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "interfaces/controllers/orderController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "interfaces/routes/orderRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "real-estate-api",
+      "files": [
+        {
+          "file": "models/Property.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "controllers/propertyController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "routes/propertyRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "travel-booking-api",
+      "files": [
+        {
+          "file": "models/Flight.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "repositories/flightRepository.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "services/flightService.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "controllers/flightController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "routes/flightRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "streaming-platform-api",
+      "files": [
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        },
+        {
+          "file": "domain/entities/Video.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "application/use-cases/videoUseCases.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "infrastructure/repositories/videoRepository.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "interfaces/controllers/videoController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "interfaces/routes/videoRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "crm-system-api",
+      "files": [
+        {
+          "file": "models/Lead.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "controllers/leadController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "routes/leadRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "hr-management-api",
+      "files": [
+        {
+          "file": "models/Employee.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "repositories/employeeRepository.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "services/employeeService.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "controllers/employeeController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "routes/employeeRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        }
+      ]
+    },
+    {
+      "project": "analytics-dashboard-api",
+      "files": [
+        {
+          "file": "app.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "package.json",
+          "generated": true,
+          "ast_checked": false,
+          "ast_passed": null,
+          "ast_error": ""
+        },
+        {
+          "file": "domain/entities/Event.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "application/use-cases/eventUseCases.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "infrastructure/repositories/eventRepository.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "interfaces/controllers/eventController.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        },
+        {
+          "file": "interfaces/routes/eventRoutes.js",
+          "generated": true,
+          "ast_checked": true,
+          "ast_passed": true,
+          "ast_error": ""
+        }
+      ]
+    }
+  ]
+}

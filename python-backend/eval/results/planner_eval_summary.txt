@@ -1,0 +1,23 @@
+
+Planning Agent Blueprint Validity Evaluation
+============================================
+Date:           2026-09-03 16:57
+Model:          planner_model
+Total Prompts:  25
+
+RAG-Augmented Mode:
+  Valid blueprints:   25 / 25
+  Validity Rate:      100.0%
+
+Zero-Shot Baseline:
+  Valid blueprints:   25 / 25
+  Validity Rate:      100.0%
+
+Improvement (RAG over Zero-Shot): +0.0%
+
+--- For TABLE II (System Evaluation) ---
+Planning Agent | Blueprint Validity Rate (RAG) | 100.0%
+
+--- For TABLE III (Baseline Comparison) ---
+Zero-Shot Single LLM | Blueprint Valid | 100.0%
+Proposed Framework   | Blueprint Valid | 100.0%

@@ -1,0 +1,276 @@
+{
+  "timestamp": "2026-09-03T18:50:51.267560",
+  "critic_model": "critic_model",
+  "method": "code_level_ast",
+  "total_trials": 15,
+  "healed_count": 12,
+  "recovery_rate": 80.0,
+  "retry_distribution": {
+    "1": 0,
+    "2": 10,
+    "3": 2,
+    "failed": 3
+  },
+  "trial_results": [
+    {
+      "healed": false,
+      "healed_on_attempt": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 3,
+          "outcome": "fault_present"
+        }
+      ],
+      "project": "blog-api",
+      "error_injected": "syntax_error"
+    },
+    {
+      "healed": true,
+      "healed_on_attempt": 2,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "healed"
+        }
+      ],
+      "project": "task-manager-api",
+      "error_injected": "syntax_error"
+    },
+    {
+      "healed": true,
+      "healed_on_attempt": 2,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "healed"
+        }
+      ],
+      "project": "ecommerce-inventory-api",
+      "error_injected": "missing_export"
+    },
+    {
+      "healed": true,
+      "healed_on_attempt": 2,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "healed"
+        }
+      ],
+      "project": "chat-app-api",
+      "error_injected": "wrong_import"
+    },
+    {
+      "healed": true,
+      "healed_on_attempt": 2,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "healed"
+        }
+      ],
+      "project": "fintech-wallet-api",
+      "error_injected": "wrong_import"
+    },
+    {
+      "healed": true,
+      "healed_on_attempt": 2,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "healed"
+        }
+      ],
+      "project": "iot-platform-api",
+      "error_injected": "wrong_import"
+    },
+    {
+      "healed": true,
+      "healed_on_attempt": 2,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "healed"
+        }
+      ],
+      "project": "healthcare-booking-api",
+      "error_injected": "syntax_error"
+    },
+    {
+      "healed": true,
+      "healed_on_attempt": 3,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 3,
+          "outcome": "healed"
+        }
+      ],
+      "project": "edtech-lms-api",
+      "error_injected": "module_type"
+    },
+    {
+      "healed": true,
+      "healed_on_attempt": 2,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "healed"
+        }
+      ],
+      "project": "food-delivery-api",
+      "error_injected": "syntax_error"
+    },
+    {
+      "healed": true,
+      "healed_on_attempt": 2,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "healed"
+        }
+      ],
+      "project": "real-estate-api",
+      "error_injected": "module_type"
+    },
+    {
+      "healed": true,
+      "healed_on_attempt": 2,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "healed"
+        }
+      ],
+      "project": "travel-booking-api",
+      "error_injected": "missing_import"
+    },
+    {
+      "healed": false,
+      "healed_on_attempt": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 3,
+          "outcome": "fault_present"
+        }
+      ],
+      "project": "streaming-platform-api",
+      "error_injected": "syntax_error"
+    },
+    {
+      "healed": true,
+      "healed_on_attempt": 3,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 3,
+          "outcome": "healed"
+        }
+      ],
+      "project": "crm-system-api",
+      "error_injected": "syntax_error"
+    },
+    {
+      "healed": false,
+      "healed_on_attempt": null,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 3,
+          "outcome": "fault_present"
+        }
+      ],
+      "project": "hr-management-api",
+      "error_injected": "syntax_error"
+    },
+    {
+      "healed": true,
+      "healed_on_attempt": 2,
+      "attempts": [
+        {
+          "attempt": 1,
+          "outcome": "fault_present"
+        },
+        {
+          "attempt": 2,
+          "outcome": "healed"
+        }
+      ],
+      "project": "analytics-dashboard-api",
+      "error_injected": "wrong_import"
+    }
+  ]
+}

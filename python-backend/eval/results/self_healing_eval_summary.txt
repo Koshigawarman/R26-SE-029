@@ -1,0 +1,31 @@
+
+Self-Healing Recovery Rate Evaluation (Code-Level)
+====================================================
+Date:              2026-09-03 18:50
+Critic Model:      critic_model
+Method:            Code-level AST validation (node --check)
+Total trials:      15
+Max retries (FSM): 3
+
+Results:
+  Healed:            12 / 15
+  Recovery Rate:     80.0%
+  Not Healed:        3
+
+Retry Distribution:
+  Healed on attempt 1: 0
+  Healed on attempt 2: 10
+  Healed on attempt 3: 2
+  Failed all attempts:  3
+
+--- For TABLE II (System Evaluation) ---
+Orchestration Engine | Autonomous Code-Level Self-Healing Rate | 80.0%
+
+--- For TABLE III (Baseline Comparison) ---
+Zero-Shot / Linear MAS  | Self-Heals | No
+Proposed Framework      | Self-Heals | 80.0%
+
+--- For Fig. 2 (Convergence Chart) ---
+Retry 1 cumulative: 0.0%
+Retry 2 cumulative: 66.7%
+Retry 3 cumulative: 80.0%
