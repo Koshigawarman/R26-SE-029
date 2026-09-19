@@ -475,11 +475,12 @@ Remember: Output ONLY the JSON object. No markdown fences, no explanations, no e
         - Convert backslashes to forward slashes
         - Warn about files that should be in subdirectories but aren't
         """
+        import re
         fixed = []
         for f in plan.files:
             original = f.path
-            # Normalise slashes and strip leading ./
-            f.path = f.path.replace("\\", "/").lstrip("./").lstrip("/")
+            # Normalise slashes and strip leading ./ or /
+            f.path = re.sub(r'^(?:\./|/)+', '', f.path.replace("\\", "/"))
             f.path = self._canonicalize_entity_layer_path(f.path, plan)
             if f.path != original:
                 logger.info("[planner] Path normalised: '%s' → '%s'", original, f.path)

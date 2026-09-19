@@ -414,16 +414,26 @@ def node_run_debug(state: OrchestrationState) -> dict:
     
     debug_result = agent.debug_agent.execute(project_path)
     
+    # Emit test file so the UI displays it in the project folder
+    import os
+    test_file_path = "tests/api.test.js"
+    full_test_path = os.path.join(project_path, test_file_path)
+    existing_contents = dict(state.get("existing_contents", {}))
+    if os.path.exists(full_test_path):
+        if test_file_path not in existing_contents:
+            session.emit("file_generated", {"path": test_file_path, "status": "success", "chars": os.path.getsize(full_test_path)})
+            existing_contents[test_file_path] = agent._read_project_file(project_path, test_file_path)
+            
     if debug_result.success:
         status(session, "✅ STATE → SUCCESS: Debug Agent verified the project successfully.", 100, "SUCCESS")
-        return {"debug_attempt_count": debug_attempt_count, "final_test_results": getattr(debug_result, 'testResults', None), "final_outcome": "success"}
+        return {"debug_attempt_count": debug_attempt_count, "final_test_results": getattr(debug_result, 'testResults', None), "final_outcome": "success", "existing_contents": existing_contents}
         
     status(session, f"🐞 STATE → DEBUG_FAILED: Tests failed. {len(debug_result.errors)} errors found.", 80, "DEBUG_FAILED")
     
     if debug_attempt_count >= agent.max_retries:
-        return {"debug_attempt_count": debug_attempt_count, "final_outcome": "exhausted", "latest_errors": debug_result.errors, "latest_stderr": debug_result.stderr}
+        return {"debug_attempt_count": debug_attempt_count, "final_outcome": "exhausted", "latest_errors": debug_result.errors, "latest_stderr": debug_result.stderr, "existing_contents": existing_contents}
         
-    return {"debug_attempt_count": debug_attempt_count, "latest_errors": debug_result.errors, "latest_stderr": debug_result.stderr, "latest_stdout": debug_result.stdout, "final_outcome": "needs_fix"}
+    return {"debug_attempt_count": debug_attempt_count, "latest_errors": debug_result.errors, "latest_stderr": debug_result.stderr, "latest_stdout": debug_result.stdout, "final_outcome": "needs_fix", "existing_contents": existing_contents}
 
 def node_retrieve_memory(state: OrchestrationState) -> dict:
     agent = state["agent"]
