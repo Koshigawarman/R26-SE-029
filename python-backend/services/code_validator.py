@@ -178,6 +178,9 @@ def _check_module_syntax(code: str, file_path: str) -> Tuple[List[str], List[str
     if has_mod_exp:
         errors.append("Uses module.exports instead of ES module export — convert to export default / export const.")
 
+    if not (has_import or has_export or has_require or has_mod_exp):
+        warnings.append("File does not contain any import or export statements. It might be incomplete or not a module.")
+
     if "// TODO" in code or "/* TODO" in code:
         warnings.append("Contains TODO placeholders that may indicate incomplete generation.")
 

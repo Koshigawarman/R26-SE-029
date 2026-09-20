@@ -387,7 +387,7 @@ class ProjectConsistencyValidator:
                 root / "models" / f"{entity_name}.js",
                 root / "infrastructure" / "database" / f"{entity_name}Model.js",
             ]
-            model_paths.extend(root.glob(f"modules/*/model.js"))
+            model_paths.extend(root.glob("modules/*/model.js"))
             model_path = next((path for path in model_paths if path.exists()), None)
             if not model_path:
                 continue

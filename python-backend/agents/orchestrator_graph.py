@@ -453,6 +453,8 @@ def node_run_critic(state: OrchestrationState) -> dict:
         file_list=list(state["existing_contents"].keys()),
         attempt=state["debug_attempt_count"],
         file_contents=state["existing_contents"],
+        previous_strategy=state.get("previous_critic_strategy"),
+        previous_errors=state.get("previous_failed_errors"),
     )
     
     action = session.wait_for_approval("debug_fix", {
@@ -464,7 +466,12 @@ def node_run_critic(state: OrchestrationState) -> dict:
         "options": ["approve", "skip", "cancel"]
     })
     
-    return {"critic_strategy": strategy, "fix_action": action}
+    return {
+        "critic_strategy": strategy,
+        "fix_action": action,
+        "previous_critic_strategy": strategy,
+        "previous_failed_errors": state["latest_errors"]
+    }
 
 def node_apply_fixes(state: OrchestrationState) -> dict:
     agent = state["agent"]

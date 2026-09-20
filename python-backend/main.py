@@ -129,7 +129,7 @@ async def server_info():
         "name": "AI Backend Builder",
         "version": "1.0.0",
         "uptime_seconds": round(time.time() - SERVER_START_TIME, 1),
-        "use_openrouter": USE_OPENROUTER,
+        "use_openai_compatible": USE_OPENAI_COMPATIBLE,
         "max_retries": MAX_RETRIES,
         "default_models": DEFAULT_MODELS,
         "active_sessions": len(_active_sessions),
@@ -298,6 +298,29 @@ async def build_project(req: BuildRequest, request: Request):
     if not req.debug_model: req.debug_model = DEFAULT_MODELS["debug"]
     if not req.critic_model: req.critic_model = DEFAULT_MODELS["critic"]
     if not req.max_retries: req.max_retries = MAX_RETRIES
+
+    if req.srs_file_path:
+        import os
+        if os.path.exists(req.srs_file_path):
+            try:
+                import pypdf
+                with open(req.srs_file_path, "rb") as f:
+                    reader = pypdf.PdfReader(f)
+                    text = ""
+                    for page in reader.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text += page_text + "\n"
+                    
+                    max_chars = 20000
+                    if len(text) > max_chars:
+                        logger.warning(f"SRS document is too large ({len(text)} chars). Truncating to {max_chars} chars.")
+                        text = text[:max_chars] + "\n...[TRUNCATED DUE TO SIZE]..."
+                    
+                    if text.strip():
+                        req.prompt += f"\n\n--- SRS Document Content ---\n{text.strip()}"
+            except Exception as e:
+                logger.error(f"Failed to read SRS document: {e}")
 
     orchestrator = OrchestratorAgent(
         ollama_url=OLLAMA_URL,

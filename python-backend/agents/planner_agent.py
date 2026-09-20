@@ -19,7 +19,6 @@ MANDATORY_FILES = [
     'README.md',
     'app.js',
     'config/db.js',
-    'README.md',
 ]
 
 class PlannerAgent:
@@ -89,15 +88,20 @@ class PlannerAgent:
             raise RuntimeError("Planner Agent produced no output")
 
         plan = self._sanitize_entity_fields(plan, user_prompt)
+        # Apply SRS overrides BEFORE generic inference so the SRS is the source of truth
+        plan = self._apply_srs_overrides(plan, user_prompt)
         plan = self._enforce_architecture_selection(plan, user_prompt)
         plan = self._ensure_mandatory_files(plan, user_prompt)
 
         # ── Agentic Plan Sanitisation ──────────────────────────────────────────────
-        plan = self._deduplicate_files(plan)
+        plan = self._deduplicate_files(plan)                          # remove AI duplicates first
         plan = self._enforce_path_conventions(plan)
         plan = self._ensure_auth_files(plan, user_prompt)
         plan = self._enforce_architecture_file_structure(plan)
+        plan = self._remove_virtual_entity_models(plan)
+        plan = self._remove_srs_shadowed_files(plan, user_prompt)
         plan = self._prune_phantom_files(plan)
+        plan = self._deduplicate_files(plan)                          # final pass: catch any late-added duplicates
         # ────────────────────────────────────────────────────────────
 
         logger.info(f"Planning complete: '{plan.projectName}' — {len(plan.files)} files")
@@ -199,9 +203,205 @@ class PlannerAgent:
 
         return parsed
 
+    def _apply_srs_overrides(self, plan: PlannerOutput, user_prompt: str) -> PlannerOutput:
+        """
+        When an SRS document is appended to the prompt, extract its explicitly declared
+        architecture, file list, and entity names, then override the AI plan accordingly.
+        Runs BEFORE generic inference so the SRS is always the source of truth.
+
+        Entity extraction uses multiple strategies (in priority order) to be robust against
+        different PDF-to-text conversion formats:
+          1. model file paths  (models/Cart.js → Cart)  ← most reliable
+          2. numbered section headers (2.1 User, 2.2 Product)
+          3. markdown headers (### User)
+          4. capitalized entity names in known table contexts
+        """
+        from schema import FileSpec, Entity, EntityField
+        srs_marker = "--- SRS Document Content ---"
+        if srs_marker not in user_prompt:
+            return plan
+
+        srs_section = user_prompt.split(srs_marker, 1)[1]
+        srs_lower = srs_section.lower()
+
+        # ── Step 1: Lock architecture from SRS ───────────────────────────────
+        srs_patterns = [
+            ("clean-architecture", ["clean architecture", "clean-architecture"]),
+            ("modular-monolith",   ["modular monolith", "modular-monolith"]),
+            ("service-repository", ["service-repository", "service repository"]),
+            ("mvc",                ["mvc", "model-view-controller",
+                                   "model, controller", "models, controllers, routes"]),
+        ]
+        for pattern, signals in srs_patterns:
+            if any(s in srs_lower for s in signals):
+                if plan.architecture.pattern != pattern:
+                    logger.info(
+                        "[planner] SRS override: architecture changed from '%s' to '%s'",
+                        plan.architecture.pattern, pattern,
+                    )
+                    plan.architecture.pattern = pattern
+                break  # First match wins
+
+        # ── Step 2: Extract all file paths from SRS ──────────────────────────
+        existing_paths = {f.path for f in plan.files}
+        allowed_prefixes = (
+            "models/", "controllers/", "routes/", "middleware/",
+            "config/", "services/", "repositories/", "utils/",
+            "helpers/", "interfaces/", "application/", "infrastructure/",
+            "domain/", "modules/",
+        )
+        file_pattern = re.compile(r"[\|\s\-]*([\w./]+\.(?:js|ts))")
+        srs_file_paths = []
+        for match in file_pattern.finditer(srs_section):
+            raw_path = match.group(1).strip()
+            if not any(raw_path.startswith(prefix) for prefix in allowed_prefixes):
+                continue
+            srs_file_paths.append(raw_path)
+            if raw_path not in existing_paths:
+                logger.info("[planner] SRS override: auto-adding SRS-specified file '%s'", raw_path)
+                plan.files.append(FileSpec(
+                    path=raw_path,
+                    description=f"File specified in the SRS document: {raw_path}.",
+                ))
+                existing_paths.add(raw_path)
+
+        # ── Step 3: Multi-strategy entity extraction ──────────────────────────
+        existing_entity_names_lower = {e.name.lower() for e in (plan.entities or [])}
+        plan.entities = list(plan.entities or [])
+
+        generic_words = {
+            "purpose", "scope", "technology", "stack", "authentication",
+            "authorization", "strategy", "project", "overview", "api",
+            "endpoints", "environment", "variables", "file", "structure",
+            "functional", "requirements", "section", "notes", "type",
+            "field", "required", "jwt", "role", "models", "controllers",
+            "routes", "middleware", "config", "services", "database",
+            "repositories", "description", "access", "document", "content",
+        }
+
+        def inject_entity(name: str) -> None:
+            if not name or name.lower() in generic_words:
+                return
+            if not name[0].isupper():
+                return
+            if name.lower() in existing_entity_names_lower:
+                return
+            logger.info("[planner] SRS override: injecting missing entity '%s'", name)
+            plan.entities.append(Entity(
+                name=name,
+                fields=[EntityField(name="id", type="ObjectId", required=False)],
+                description=f"Entity extracted from SRS document: {name}.",
+            ))
+            existing_entity_names_lower.add(name.lower())
+
+        # Strategy A: Derive entities from model file paths (most reliable)
+        # models/Cart.js → "Cart"
+        model_path_pattern = re.compile(r"models/([A-Z][a-zA-Z]+)\.js")
+        for m in model_path_pattern.finditer(srs_section):
+            inject_entity(m.group(1))
+
+        # Also extract from all collected SRS file paths (covers e.g. domain/entities/Cart.js)
+        entity_from_path_pattern = re.compile(
+            r"(?:models|domain/entities|infrastructure/database)/([A-Z][a-zA-Z]+)(?:Model)?\.js"
+        )
+        for path in srs_file_paths:
+            m = entity_from_path_pattern.match(path)
+            if m:
+                inject_entity(m.group(1))
+
+        # Strategy B: Numbered section headers — "2.1 User", "2.2 Cart"
+        numbered_header = re.compile(r"^\s*\d+\.\d+\s+([A-Z][a-zA-Z]+)\s*$", re.MULTILINE)
+        for m in numbered_header.finditer(srs_section):
+            inject_entity(m.group(1).strip())
+
+        # Strategy C: Markdown / text headers — "### User", "## Cart"
+        md_header = re.compile(r"^#{1,4}\s+([A-Z][a-zA-Z]+)\s*$", re.MULTILINE)
+        for m in md_header.finditer(srs_section):
+            inject_entity(m.group(1).strip())
+
+        # Strategy D: Table/section labels — "Model: Cart", "Entity: Review"
+        label_pattern = re.compile(r"(?:model|entity|schema|resource)\s*[:\-]\s*([A-Z][a-zA-Z]+)", re.IGNORECASE)
+        for m in label_pattern.finditer(srs_section):
+            inject_entity(m.group(1).strip())
+
+        # ── Step 4: Extract non-entity feature controller/route pairs from endpoints ──
+        # e.g. SRS has "/api/admin/users" → adminController.js + adminRoutes.js
+        # These are cross-cutting features (not Mongoose models) that get missed by
+        # entity-based logic above.
+        existing_paths = {f.path for f in plan.files}
+        entity_names_lower_set = {e.name.lower() for e in plan.entities}
+
+        # Routes to skip — already handled by dedicated methods
+        skip_routes = {"auth"}
+
+        def is_entity_route(name: str) -> bool:
+            """Return True if this route name maps to an already-known entity.
+            Handles both singular and plural forms: 'products' → 'product'.
+            """
+            if name in entity_names_lower_set:
+                return True
+            # Try stripping a trailing 's' (simple plural)
+            if name.endswith("s") and name[:-1] in entity_names_lower_set:
+                return True
+            return False
+
+        api_route_pattern = re.compile(r"/api/([a-z][a-z_-]+)(?:/|$)", re.MULTILINE)
+        added_non_entity_routes = set()
+
+        for m in api_route_pattern.finditer(srs_section):
+            route_name = m.group(1).lower().replace("-", "")
+            if route_name in skip_routes:
+                continue
+            if is_entity_route(route_name):
+                continue
+            if route_name in added_non_entity_routes:
+                continue
+            added_non_entity_routes.add(route_name)
+
+            ctrl_path = f"controllers/{route_name}Controller.js"
+            route_path = f"routes/{route_name}Routes.js"
+
+            if ctrl_path not in existing_paths:
+                logger.info("[planner] SRS override: auto-adding non-entity controller '%s'", ctrl_path)
+                plan.files.append(FileSpec(
+                    path=ctrl_path,
+                    description=f"Controller for /api/{route_name} endpoints as specified in the SRS.",
+                ))
+                existing_paths.add(ctrl_path)
+            if route_path not in existing_paths:
+                logger.info("[planner] SRS override: auto-adding non-entity routes '%s'", route_path)
+                plan.files.append(FileSpec(
+                    path=route_path,
+                    description=f"Express router for /api/{route_name} endpoints as specified in the SRS.",
+                ))
+                existing_paths.add(route_path)
+
+            # Inject a virtual entity for this route name so _prune_phantom_files
+            # does NOT prune the controller/routes we just added.
+            if route_name not in existing_entity_names_lower:
+                logger.info("[planner] SRS override: injecting virtual entity '%s' to protect routes from pruning", route_name)
+                plan.entities.append(Entity(
+                    name=route_name.capitalize(),
+                    fields=[EntityField(name="id", type="ObjectId", required=False)],
+                    description=f"Virtual entity for non-model API group '{route_name}' from SRS.",
+                ))
+                existing_entity_names_lower.add(route_name)
+
+        return plan
+
     def _enforce_architecture_selection(self, plan: PlannerOutput, user_prompt: str) -> PlannerOutput:
-        """Use deterministic prompt signals to correct under-specified planner choices."""
+        """Use deterministic prompt signals to correct under-specified planner choices.
+        NOTE: This runs AFTER _apply_srs_overrides, so SRS-declared architecture is
+        already locked in — we only change the pattern if NO SRS was attached.
+        """
         plan.architecture = normalize_architecture(plan.architecture)
+
+        # If SRS declared the architecture, don't override it with keyword inference
+        srs_marker = "--- SRS Document Content ---"
+        if srs_marker in user_prompt:
+            logger.info("[planner] Skipping architecture keyword inference — SRS is the source of truth.")
+            return plan
+
         inferred_pattern = self._infer_architecture_pattern(user_prompt, plan)
 
         if inferred_pattern and inferred_pattern != plan.architecture.pattern:
@@ -422,10 +622,9 @@ class PlannerAgent:
     def _get_default_description(self, path: str, project_name: str) -> str:
         descriptions = {
             'app.js': f"Main Express application entry point for {project_name}. Imports dotenv/config, sets up Express middleware (json, cors), connects to MongoDB, mounts all route files, adds error handling middleware, and starts the server on PORT from environment.",
-            'package.json': f"NPM package manifest for {project_name}. Sets type to 'module' for ES modules, lists runtime dependencies, and includes start, dev, and test scripts. Uses nodemon as a devDependency for the dev script.",
-            'README.md': f"Project documentation for {project_name}. Describes the generated backend, architecture, setup commands, environment variables, folder structure, and main API routes.",
-            'config/db.js': "MongoDB connection configuration. Exports an async connectDB function that uses mongoose.connect() with MONGODB_URI from process.env. Logs success/failure.",
+            'package.json': f"NPM package manifest for {project_name}. Sets type to 'module' for ES modules, lists runtime dependencies, and includes start, dev, and test scripts. Uses nodemon as a devDependency for the dev script. Includes dependencies express, mongoose, dotenv, cors, bcryptjs, and jsonwebtoken.",
             'README.md': f"Official project documentation for {project_name}. MUST include: 1. Project overview and purpose. 2. List of all API endpoints with HTTP methods and descriptions. 3. Key functions and features. 4. How to setup the environment (.env variables). 5. How to install dependencies and run the project.",
+            'config/db.js': "MongoDB connection configuration. Exports an async connectDB function that uses mongoose.connect() with MONGODB_URI from process.env. Logs success/failure.",
         }
         return descriptions.get(path, f"Configuration file for {project_name}")
 
@@ -523,19 +722,116 @@ Remember: Output ONLY the JSON object. No markdown fences, no explanations, no e
 
         return path
 
+    def _remove_srs_shadowed_files(self, plan: PlannerOutput, user_prompt: str) -> PlannerOutput:
+        """
+        When an SRS is attached, remove auto-generated controller/route files for entities
+        that the SRS intentionally covers via a differently-named controller.
+
+        Example:
+          - SRS specifies authController.js for the User entity (not userController.js)
+          - _enforce_architecture_file_structure still auto-generates userController.js
+          - This method detects that 'userController' is NOT in the SRS file list
+            and removes it to prevent duplicate code.
+        """
+        import re
+        srs_marker = "--- SRS Document Content ---"
+        if srs_marker not in user_prompt:
+            return plan
+
+        srs_section = user_prompt.split(srs_marker, 1)[1]
+
+        # Collect every controller stem the SRS explicitly names
+        # e.g. "authController.js" → "authController"
+        srs_controllers = set(
+            m.group(1) for m in re.finditer(r"controllers/(\w+Controller)\.js", srs_section)
+        )
+        if not srs_controllers:
+            return plan
+
+        paths_to_remove = set()
+
+        for entity in (plan.entities or []):
+            # Virtual entities are handled separately
+            if "Virtual entity for non-model" in (entity.description or ""):
+                continue
+
+            entity_name = entity.name
+            entity_var = entity_name[0].lower() + entity_name[1:] if entity_name else ""
+            standard_ctrl_stem = f"{entity_var}Controller"  # e.g. "userController"
+
+            # If SRS explicitly names this entity's standard controller → keep it
+            if standard_ctrl_stem in srs_controllers:
+                continue
+
+            # SRS does NOT mention this entity's standard controller.
+            # The entity is covered by a different SRS-named controller (e.g. authController).
+            # Remove the auto-generated pair to prevent duplicate code.
+            ctrl_path = f"controllers/{entity_var}Controller.js"
+            route_path = f"routes/{entity_var}Routes.js"
+            paths_to_remove.add(ctrl_path)
+            paths_to_remove.add(route_path)
+            logger.info(
+                "[planner] SRS shadow: removing auto-generated '%s' — '%s' covers this entity instead",
+                ctrl_path,
+                [c for c in srs_controllers if entity_var.lower() in c.lower() or c == "authController"],
+            )
+
+        if paths_to_remove:
+            plan.files = [f for f in plan.files if f.path not in paths_to_remove]
+
+        return plan
+
+    def _remove_virtual_entity_models(self, plan: PlannerOutput) -> PlannerOutput:
+        """
+        After _enforce_architecture_file_structure runs, remove any models/ files
+        that were generated for virtual (non-Mongoose) entities injected by Strategy E.
+        Virtual entities only need controller + route files, not Mongoose model files.
+        """
+        VIRTUAL_MARKER = "Virtual entity for non-model"
+        virtual_names = {
+            e.name.lower()
+            for e in (plan.entities or [])
+            if VIRTUAL_MARKER in (e.description or "")
+        }
+        if not virtual_names:
+            return plan
+
+        kept = []
+        for f in plan.files:
+            if f.path.startswith("models/"):
+                # e.g. models/Admin.js → stem = "admin"
+                stem = f.path[len("models/"):].replace(".js", "").lower()
+                if stem in virtual_names:
+                    logger.info("[planner] Removing virtual entity model file: %s", f.path)
+                    continue
+            kept.append(f)
+        plan.files = kept
+        return plan
+
     def _enforce_architecture_file_structure(self, plan: PlannerOutput) -> PlannerOutput:
-        """Ensure every entity has the expected files for the selected architecture pattern."""
+        """Ensure every entity has the expected files for the selected architecture pattern.
+        Skips model file generation for virtual (non-Mongoose) entities injected by Strategy E.
+        """
         plan.architecture = normalize_architecture(plan.architecture)
         profile = get_architecture_profile(plan.architecture)
         existing_paths = {f.path for f in plan.files}
         entity_templates = profile.get("entity_files", [])
 
+        # Virtual entities need controller/route files but NOT a Mongoose model
+        VIRTUAL_MARKER = "Virtual entity for non-model"
+
         for entity in plan.entities or []:
             entity_name = entity.name
             entity_var = entity_name[0].lower() + entity_name[1:] if entity_name else ""
+            is_virtual = VIRTUAL_MARKER in (entity.description or "")
 
             for template in entity_templates:
                 expected_path = template.format(Entity=entity_name, entity=entity_var)
+
+                # Virtual entities must not get a Mongoose model file
+                if is_virtual and expected_path.startswith("models/"):
+                    continue
+
                 if expected_path in existing_paths:
                     continue
 

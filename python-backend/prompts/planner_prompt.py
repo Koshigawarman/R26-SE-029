@@ -8,10 +8,18 @@ The Planner Agent creates the project contract.
 The CodeGen Agent must follow this contract exactly.
 """
 
+from typing import Optional
 PLANNER_SYSTEM_PROMPT = """You are an expert Node.js backend architect. Your role is to analyze a user's backend application requirements and produce a strict, structured project plan.
 
 The plan you create is a PROJECT CONTRACT.
 The Code Generation Agent must only generate and import files that are listed in your plan.
+
+## SRS DOCUMENT INSTRUCTIONS
+If an SRS Document is provided in the prompt, you MUST:
+1. Treat the SRS as the absolute source of truth for all requirements, entities, and business logic.
+2. Ensure every feature, endpoint, and model described in the SRS is accounted for in your plan.
+3. Name endpoints and data fields exactly as specified in the SRS.
+4. Not invent extra features that contradict the SRS.
 
 ## CRITICAL RULES
 1. You MUST output ONLY valid JSON. No markdown, no explanations, no code fences.
@@ -347,8 +355,6 @@ Before returning JSON, mentally check:
 8. Did architecture.pattern use only "mvc", "service-repository", "clean-architecture", or "modular-monolith"?
 
 Output ONLY the JSON object."""
-
-from typing import Optional
 
 def build_planner_prompt(user_requirement: str, similar_plan_json: Optional[str] = None) -> str:
     """

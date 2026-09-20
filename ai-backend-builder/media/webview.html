@@ -109,19 +109,45 @@
       #inp { padding: 16px; display: flex; flex-direction: column; gap: 12px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%); }
       .lbl { font-size: 12px; font-weight: 600; color: var(--fg); margin-bottom: 4px; }
       
+      /* Input box redesign */
+      .input-box {
+          border: 1px solid var(--border); border-radius: 14px;
+          background: var(--bg); transition: border-color 0.2s, box-shadow 0.2s;
+      }
+      .input-box:focus-within { border-color: var(--focus); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15); }
       .ta { 
-          display: block; width: 100%; min-height: 36px; padding: 8px 36px 8px 14px; 
-          background: var(--bg); border: 1px solid var(--border); border-radius: 18px;
+          display: block; width: 100%; min-height: 36px; padding: 10px 12px 10px 12px; 
+          background: transparent; border: none; outline: none;
           color: var(--fg); font-size: 13px; font-family: var(--font); 
           resize: none; overflow: hidden; white-space: pre-wrap; 
-          transition: border-color 0.2s, box-shadow 0.2s;
       }
-      .ta::placeholder { color: var(--fg3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .ta:focus { border-color: var(--focus); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
-
+      .ta::placeholder { color: var(--fg3); }
+      .input-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 6px 6px; }
+      .btn-attach-srs-inner {
+          display: inline-flex; align-items: center; justify-content: center;
+          width: 26px; height: 26px;
+          border: none; background: transparent;
+          border-radius: 50%;
+          cursor: pointer; color: var(--fg2); font-size: 15px;
+          transition: all 0.15s;
+      }
+      .btn-attach-srs-inner:hover { background: var(--bg3); color: var(--fg); }
+      .srs-chip {
+          display: none; align-items: center; gap: 6px;
+          padding: 3px 4px 3px 9px; border-radius: 20px;
+          background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3);
+          color: var(--focus); font-size: 11px; font-family: var(--font); max-width: 160px;
+      }
+      .srs-chip .srs-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .srs-chip-remove {
+          flex-shrink: 0; width: 16px; height: 16px; border-radius: 50%;
+          display: flex; align-items: center; justify-content: center;
+          background: rgba(59,130,246,0.2); cursor: pointer; font-size: 10px;
+          border: none; color: var(--focus); transition: background 0.15s;
+      }
+      .srs-chip-remove:hover { background: rgba(239,68,68,0.2); color: var(--err); }
       .btn-main-action {
-          position: absolute; right: 5px; bottom: 5px;
-          width: 26px; height: 26px; background: var(--accent); border: none; color: white;
+          flex-shrink: 0; width: 28px; height: 28px; background: var(--accent); border: none; color: white;
           border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center;
           transition: all 0.2s;
       }
@@ -314,7 +340,7 @@
       </div>
 
       <div id="inp">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
           <div class="lbl" style="margin: 0">Describe your backend</div>
           <div style="display: flex; gap: 2px">
             <button class="btn-icon" id="btn-prev-p" title="Previous Prompt">
@@ -325,17 +351,34 @@
             </button>
           </div>
         </div>
-        
-        <div style="position: relative; width: 100%;">
-          <textarea class="ta" id="pr" placeholder="e.g., E-commerce API with users, products, orders..." rows="1"></textarea>
-          <button class="btn-main-action" id="btn-main-action" title="Build Backend (Enter)">
-            <i class="codicon codicon-arrow-up" id="main-action-icon"></i>
-          </button>
-        </div>
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-          <div style="font-size: 10px; color: var(--fg3); font-family: var(--mono)">
-            <span id="char-cnt">0</span> chars • ~<span id="tok-cnt">0</span> tokens
+
+        <div class="input-box">
+          <textarea class="ta" id="pr" placeholder="e.g., E-commerce API with users, products, orders..." rows="2"></textarea>
+          <div class="input-toolbar">
+            <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+              <!-- Attach SRS button (paperclip icon only, like WhatsApp) -->
+              <button class="btn-attach-srs-inner" id="btn-attach-srs" title="Attach SRS Document (PDF)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                </svg>
+              </button>
+              <!-- SRS chip shown after attachment -->
+              <div class="srs-chip" id="srs-file-display">
+                <i class="codicon codicon-file-pdf" style="font-size: 12px; flex-shrink:0;"></i>
+                <span class="srs-name" id="srs-file-name"></span>
+                <button class="srs-chip-remove" id="btn-remove-srs" title="Remove SRS">
+                  <i class="codicon codicon-close"></i>
+                </button>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div style="font-size: 10px; color: var(--fg3); font-family: var(--mono); white-space: nowrap;">
+                <span id="char-cnt">0</span> • ~<span id="tok-cnt">0</span>t
+              </div>
+              <button class="btn-main-action" id="btn-main-action" title="Build Backend (Enter)" style="position:static;">
+                <i class="codicon codicon-arrow-up" id="main-action-icon"></i>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -632,6 +675,16 @@
             }
         }
 
+        let currentSrsPath = null;
+        $("btn-attach-srs").addEventListener("click", () => {
+            vscode.postMessage({ command: "selectSrsFile" });
+        });
+        $('btn-remove-srs').addEventListener('click', () => {
+            currentSrsPath = null;
+            $('srs-file-display').style.display = 'none';
+            $('btn-attach-srs').style.display = 'inline-flex';
+        });
+
         $("btn-main-action").addEventListener("click", () => {
             if (isBuilding) {
                 vscode.postMessage({ command: "cancelBuild" });
@@ -642,7 +695,7 @@
                     setTimeout(() => ($("pr").style.outline = ""), 1500);
                     return;
                 }
-                vscode.postMessage({ command: "startBuild", prompt: curPrompt });
+                vscode.postMessage({ command: "startBuild", prompt: curPrompt, srsFilePath: currentSrsPath });
                 vscode.postMessage({ command: "savePrompt", prompt: curPrompt });
             }
         });
@@ -1010,6 +1063,15 @@
                 return;
             }
 
+            // Deduplicate and normalise paths before building the tree
+            const seen = new Map();
+            planFiles.forEach(f => {
+                const norm = (f.path || "").replace(/^\.\//, "").replace(/\\/g, "/");
+                f.path = norm;
+                if (!seen.has(norm) || f.status !== "pending") seen.set(norm, f);
+            });
+            planFiles = Array.from(seen.values());
+
             const tree = {};
             planFiles.forEach(f => {
                 const parts = f.path.split('/');
@@ -1246,6 +1308,12 @@
               promptHistory = m.prompts || [];
               historyIdx = -1;
               break;
+            case "srsFileSelected":
+              currentSrsPath = m.path;
+              $("srs-file-name").innerText = m.name;
+              $("srs-file-display").style.display = "flex";
+              $("btn-attach-srs").style.display = "none";
+              break;
             case "healthStatus":
               if (m.status === "connected") {
                 $("sd").className = "sd on";
@@ -1310,17 +1378,23 @@
               }
               log("Waiting for approval: " + m.step, "fx");
               break;
-            case "fileGenerated":
+            case "fileGenerated": {
               if (m.architecture) renderArchitecture(m.architecture);
-              const file = planFiles.find(f => f.path === m.path);
-              if (file) file.status = m.status;
-              else planFiles.push({ path: m.path, status: m.status });
+              const normPath = (m.path || "").replace(/^\.\//, "").replace(/\\/g, "/");
+              const existingFile = planFiles.find(f => f.path === normPath || f.path === m.path);
+              if (existingFile) {
+                existingFile.status = m.status;
+                existingFile.path = normPath; // normalise in place
+              } else {
+                planFiles.push({ path: normPath, status: m.status });
+              }
               updateFileTree();
 
               if (m.status === "success") log(m.path + " (" + m.chars + " chars)", "ok");
               else if (m.status === "skipped") log("Skipped: " + m.path, "er");
               else log("Failed: " + m.path, "er");
               break;
+            }
             case "fixApplied":
               log("Fixed: " + m.file + " (" + (m.type || "critic_fix") + ")", "fx");
               break;

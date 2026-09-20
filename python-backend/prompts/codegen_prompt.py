@@ -888,7 +888,7 @@ def build_codegen_prompt(
     parts.append(f"- Description: {file_spec.description}")
     parts.append("")
 
-    parts.append(f"## PROJECT")
+    parts.append("## PROJECT")
     parts.append(project_name)
     parts.append("")
 

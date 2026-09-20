@@ -56,6 +56,8 @@ class CriticAgent:
         file_list: List[str],
         attempt: int,
         file_contents: Optional[Dict[str, str]] = None,
+        previous_strategy: Optional[CriticStrategy] = None,
+        previous_errors: Optional[List[RuntimeErrorInfo]] = None,
     ) -> CriticStrategy:
         logger.info("Critic Agent analyzing error logs...")
         logger.info(f"Using critic model: {self.model}")
@@ -68,6 +70,8 @@ class CriticAgent:
             file_list=file_list,
             attempt=attempt,
             file_contents=file_contents,
+            previous_strategy=previous_strategy,
+            previous_errors=previous_errors,
         )
 
         max_attempts = int(os.getenv("MODEL_MAX_RETRIES", "3"))
