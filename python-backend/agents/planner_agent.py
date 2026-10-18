@@ -9,7 +9,7 @@ from schema import PlannerOutput, FileSpec
 from services.http_settings import get_ssl_verify_setting
 from services.openai_compatible_http import build_provider_headers, raise_for_provider_error
 from services.architecture_profile_registry import get_architecture_profile, normalize_architecture
-from prompts.planner_prompt import PLANNER_SYSTEM_PROMPT, build_planner_prompt
+from prompts.planner_prompt import PLANNER_SYSTEM_PROMPT, build_planner_prompt, build_replanner_prompt
 from services.plan_memory import PlanMemory
 
 logger = logging.getLogger(__name__)
@@ -42,20 +42,42 @@ class PlannerAgent:
         self.last_request_trace: Dict[str, Any] = {}
         self.plan_memory = PlanMemory()
 
-    def execute(self, user_prompt: str, cancel_token: Optional[Callable[[], bool]] = None, http_session: Optional[requests.Session] = None) -> PlannerOutput:
-        logger.info("Starting project planning...")
+    def execute(
+        self,
+        user_prompt: str,
+        cancel_token: Optional[Callable[[], bool]] = None,
+        http_session: Optional[requests.Session] = None,
+        previous_plan: Optional[PlannerOutput] = None,
+        user_feedback: Optional[str] = None,
+    ) -> PlannerOutput:
+        is_replan = bool(previous_plan and user_feedback)
+        if is_replan:
+            logger.info("Starting project plan modification based on user feedback...")
+        else:
+            logger.info("Starting project planning...")
+
         plan = None
         last_error = None
-        
-        # RAG: Retrieve similar past approved plan
-        similar_plan_json = self.plan_memory.retrieve_similar_plan(user_prompt)
+
+        # RAG: Retrieve similar past approved plan ONLY if no SRS attached and not replanning
+        has_srs = "--- SRS Document Content ---" in user_prompt
+        similar_plan_json = None
+        if not has_srs and not is_replan:
+            similar_plan_json = self.plan_memory.retrieve_similar_plan(user_prompt)
 
         for attempt in range(self.MAX_JSON_RETRIES + 1):
             try:
                 if attempt == 0:
-                    prompt = build_planner_prompt(user_prompt, similar_plan_json)
+                    if is_replan and previous_plan:
+                        prompt = build_replanner_prompt(
+                            user_requirement=user_prompt,
+                            previous_plan_json=previous_plan.model_dump_json(indent=2),
+                            user_feedback=user_feedback or "",
+                        )
+                    else:
+                        prompt = build_planner_prompt(user_prompt, similar_plan_json)
                 else:
-                    prompt = self._build_retry_prompt(user_prompt, str(last_error))
+                    prompt = self._build_retry_prompt(prompt if is_replan else user_prompt, str(last_error))
 
                 logger.info(f"Querying AI (attempt {attempt + 1})...")
                 if self.use_openai_compatible:
@@ -89,22 +111,34 @@ class PlannerAgent:
         if not plan:
             raise RuntimeError("Planner Agent produced no output")
 
-        plan = self._sanitize_entity_fields(plan, user_prompt)
-        # Apply SRS overrides BEFORE generic inference so the SRS is the source of truth
-        plan = self._apply_srs_overrides(plan, user_prompt)
-        plan = self._enforce_architecture_selection(plan, user_prompt)
+        plan = self._sanitize_entity_fields(plan, user_prompt, user_feedback)
+
+        # ── Highest Priority: User Feedback Overrides ──
+        if user_feedback:
+            plan = self._apply_user_feedback_overrides(plan, user_feedback)
+
+        # ── SRS Overrides: Source of Truth for SRS ──
+        plan = self._apply_srs_overrides(plan, user_prompt, user_feedback)
+        plan = self._enforce_architecture_selection(plan, user_prompt, user_feedback)
         plan = self._ensure_mandatory_files(plan, user_prompt)
 
-        # ── Agentic Plan Sanitisation ──────────────────────────────────────────────
-        plan = self._deduplicate_files(plan)                          # remove AI duplicates first
+        # ── Agentic Plan Sanitisation ──
+        plan = self._deduplicate_files(plan)
         plan = self._enforce_path_conventions(plan)
-        plan = self._ensure_auth_files(plan, user_prompt)
+        plan = self._ensure_auth_files(plan, user_prompt, user_feedback)
         plan = self._enforce_architecture_file_structure(plan)
         plan = self._remove_virtual_entity_models(plan)
         plan = self._remove_srs_shadowed_files(plan, user_prompt)
         plan = self._prune_phantom_files(plan)
-        plan = self._deduplicate_files(plan)                          # final pass: catch any late-added duplicates
-        # ────────────────────────────────────────────────────────────
+
+        # ── Strict SRS Pruning: Remove any entities & files not in SRS ──
+        plan = self._prune_non_srs_entities_and_files(plan, user_prompt, user_feedback)
+
+        # Final pass: re-apply user feedback to guarantee requested changes hold
+        if user_feedback:
+            plan = self._apply_user_feedback_overrides(plan, user_feedback)
+
+        plan = self._deduplicate_files(plan)
 
         logger.info(f"Planning complete: '{plan.projectName}' — {len(plan.files)} files")
         return plan
@@ -207,18 +241,73 @@ class PlannerAgent:
 
         return parsed
 
-    def _apply_srs_overrides(self, plan: PlannerOutput, user_prompt: str) -> PlannerOutput:
+    def _apply_user_feedback_overrides(self, plan: PlannerOutput, user_feedback: Optional[str]) -> PlannerOutput:
+        """
+        When user feedback is provided during re-planning, give HIGHEST PRIORITY
+        to the requested change (pattern changes, entity additions/removals, auth removal).
+        """
+        if not user_feedback:
+            return plan
+
+        fb_lower = user_feedback.lower()
+
+        # 1. Architecture pattern override
+        if any(term in fb_lower for term in ["mvc", "model-view-controller", "model view controller"]):
+            if plan.architecture.pattern != "mvc":
+                logger.info("[planner] User feedback override: changing architecture to 'mvc'")
+                plan.architecture.pattern = "mvc"
+        elif any(term in fb_lower for term in ["service-repository", "service repository", "service repo"]):
+            if plan.architecture.pattern != "service-repository":
+                logger.info("[planner] User feedback override: changing architecture to 'service-repository'")
+                plan.architecture.pattern = "service-repository"
+        elif any(term in fb_lower for term in ["clean-architecture", "clean architecture"]):
+            if plan.architecture.pattern != "clean-architecture":
+                logger.info("[planner] User feedback override: changing architecture to 'clean-architecture'")
+                plan.architecture.pattern = "clean-architecture"
+        elif any(term in fb_lower for term in ["modular-monolith", "modular monolith"]):
+            if plan.architecture.pattern != "modular-monolith":
+                logger.info("[planner] User feedback override: changing architecture to 'modular-monolith'")
+                plan.architecture.pattern = "modular-monolith"
+
+        # 2. Auth removal override
+        if any(term in fb_lower for term in ["remove auth", "no auth", "without auth", "disable auth", "delete auth", "don't include auth", "do not include auth"]):
+            logger.info("[planner] User feedback override: removing authentication")
+            auth_paths = {"middleware/auth.js", "controllers/authController.js", "routes/authRoutes.js"}
+            plan.files = [f for f in plan.files if f.path not in auth_paths]
+            for f in plan.files:
+                if f.path == "package.json":
+                    f.description = re.sub(r",?\s*(?:bcryptjs|jsonwebtoken)\b", "", f.description)
+                elif f.path == "app.js":
+                    f.description = re.sub(r"\.?\s*Imports routes/authRoutes\.js.*?(?=\.|$)", "", f.description)
+
+        # 3. Entity removal override
+        for entity in list(plan.entities or []):
+            ename = entity.name.lower()
+            remove_patterns = [
+                rf"\b(?:remove|delete|drop|exclude|omit)\s+(?:entity\s+|model\s+)?{ename}\b",
+                rf"\bno\s+{ename}\b",
+                rf"\bdon'?t\s+(?:need|include|add)\s+(?:entity\s+|model\s+)?{ename}\b",
+            ]
+            if any(re.search(pat, fb_lower) for pat in remove_patterns):
+                logger.info("[planner] User feedback override: removing entity '%s'", entity.name)
+                plan.entities = [e for e in plan.entities if e.name.lower() != ename]
+                plan.files = [
+                    f for f in plan.files
+                    if not (ename in f.path.lower() and any(
+                        f.path.startswith(p) for p in [
+                            "models/", "controllers/", "routes/", "services/", "repositories/",
+                            "domain/entities/", "application/use-cases/", "infrastructure/", "interfaces/", "modules/"
+                        ]
+                    ))
+                ]
+
+        return plan
+
+    def _apply_srs_overrides(self, plan: PlannerOutput, user_prompt: str, user_feedback: Optional[str] = None) -> PlannerOutput:
         """
         When an SRS document is appended to the prompt, extract its explicitly declared
         architecture, file list, and entity names, then override the AI plan accordingly.
         Runs BEFORE generic inference so the SRS is always the source of truth.
-
-        Entity extraction uses multiple strategies (in priority order) to be robust against
-        different PDF-to-text conversion formats:
-          1. model file paths  (models/Cart.js → Cart)  ← most reliable
-          2. numbered section headers (2.1 User, 2.2 Product)
-          3. markdown headers (### User)
-          4. capitalized entity names in known table contexts
         """
         from schema import FileSpec, Entity, EntityField
         srs_marker = "--- SRS Document Content ---"
@@ -228,38 +317,33 @@ class PlannerAgent:
         srs_section = user_prompt.split(srs_marker, 1)[1]
         srs_lower = srs_section.lower()
 
-        # ── Step 1: Lock architecture from SRS ───────────────────────────────
-        srs_patterns = [
-            ("clean-architecture", ["clean architecture", "clean-architecture"]),
-            ("modular-monolith",   ["modular monolith", "modular-monolith"]),
-            ("service-repository", ["service-repository", "service repository"]),
-            ("mvc",                ["mvc", "model-view-controller",
-                                   "model, controller", "models, controllers, routes"]),
-        ]
-        for pattern, signals in srs_patterns:
-            if any(s in srs_lower for s in signals):
-                if plan.architecture.pattern != pattern:
-                    logger.info(
-                        "[planner] SRS override: architecture changed from '%s' to '%s'",
-                        plan.architecture.pattern, pattern,
-                    )
-                    plan.architecture.pattern = pattern
-                break  # First match wins
+        # ── Step 1: Lock architecture from SRS if feedback didn't override it ─
+        if not user_feedback or not any(term in user_feedback.lower() for term in ["mvc", "clean-architecture", "service-repository", "modular-monolith"]):
+            srs_patterns = [
+                ("clean-architecture", ["clean architecture", "clean-architecture"]),
+                ("modular-monolith",   ["modular monolith", "modular-monolith"]),
+                ("service-repository", ["service-repository", "service repository"]),
+                ("mvc",                ["mvc", "model-view-controller",
+                                       "model, controller", "models, controllers, routes"]),
+            ]
+            for pattern, signals in srs_patterns:
+                if any(s in srs_lower for s in signals):
+                    if plan.architecture.pattern != pattern:
+                        logger.info(
+                            "[planner] SRS override: architecture changed from '%s' to '%s'",
+                            plan.architecture.pattern, pattern,
+                        )
+                        plan.architecture.pattern = pattern
+                    break
 
-        # ── Step 2: Extract all file paths from SRS ──────────────────────────
+        # ── Step 2: Extract explicit file paths from SRS ──────────────────────
         existing_paths = {f.path for f in plan.files}
-        allowed_prefixes = (
-            "models/", "controllers/", "routes/", "middleware/",
-            "config/", "services/", "repositories/", "utils/",
-            "helpers/", "interfaces/", "application/", "infrastructure/",
-            "domain/", "modules/",
+        file_pattern = re.compile(
+            r"\b((?:models|controllers|routes|middleware|config|services|repositories|utils|helpers|interfaces|application|infrastructure|domain|modules)/[A-Za-z0-9_.-]+\.(?:js|ts))\b"
         )
-        file_pattern = re.compile(r"[\|\s\-]*([\w./]+\.(?:js|ts))")
         srs_file_paths = []
         for match in file_pattern.finditer(srs_section):
             raw_path = match.group(1).strip()
-            if not any(raw_path.startswith(prefix) for prefix in allowed_prefixes):
-                continue
             srs_file_paths.append(raw_path)
             if raw_path not in existing_paths:
                 logger.info("[planner] SRS override: auto-adding SRS-specified file '%s'", raw_path)
@@ -281,6 +365,14 @@ class PlannerAgent:
             "field", "required", "jwt", "role", "models", "controllers",
             "routes", "middleware", "config", "services", "database",
             "repositories", "description", "access", "document", "content",
+            "introduction", "background", "non-functional", "architecture",
+            "design", "security", "performance", "assumption", "assumptions",
+            "dependency", "dependencies", "constraint", "constraints",
+            "interface", "interfaces", "testing", "test", "tests",
+            "appendix", "revision", "author", "authors", "summary",
+            "system", "general", "specific", "diagram", "flow", "module",
+            "platform", "deployment", "maintenance", "acknowledgements",
+            "glossary", "references", "hardware", "software", "user",
         }
 
         def inject_entity(name: str) -> None:
@@ -299,106 +391,113 @@ class PlannerAgent:
             existing_entity_names_lower.add(name.lower())
 
         # Strategy A: Derive entities from model file paths (most reliable)
-        # models/Cart.js → "Cart"
-        model_path_pattern = re.compile(r"models/([A-Z][a-zA-Z]+)\.js")
+        model_path_pattern = re.compile(r"models/([A-Z][a-zA-Z0-9]+)\.js")
         for m in model_path_pattern.finditer(srs_section):
             inject_entity(m.group(1))
 
-        # Also extract from all collected SRS file paths (covers e.g. domain/entities/Cart.js)
         entity_from_path_pattern = re.compile(
-            r"(?:models|domain/entities|infrastructure/database)/([A-Z][a-zA-Z]+)(?:Model)?\.js"
+            r"(?:models|domain/entities|infrastructure/database)/([A-Z][a-zA-Z0-9]+)(?:Model)?\.js"
         )
         for path in srs_file_paths:
             m = entity_from_path_pattern.match(path)
             if m:
                 inject_entity(m.group(1))
 
-        # Strategy B: Numbered section headers — "2.1 User", "2.2 Cart"
-        numbered_header = re.compile(r"^\s*\d+\.\d+\s+([A-Z][a-zA-Z]+)\s*$", re.MULTILINE)
-        for m in numbered_header.finditer(srs_section):
-            inject_entity(m.group(1).strip())
-
-        # Strategy C: Markdown / text headers — "### User", "## Cart"
-        md_header = re.compile(r"^#{1,4}\s+([A-Z][a-zA-Z]+)\s*$", re.MULTILINE)
-        for m in md_header.finditer(srs_section):
-            inject_entity(m.group(1).strip())
-
-        # Strategy D: Table/section labels — "Model: Cart", "Entity: Review"
-        label_pattern = re.compile(r"(?:model|entity|schema|resource)\s*[:\-]\s*([A-Z][a-zA-Z]+)", re.IGNORECASE)
+        # Strategy B: Explicit section/table labels — "Model: Cart", "Entity: Review"
+        label_pattern = re.compile(r"(?:model|entity|schema|resource)\s*[:\-]\s*([A-Z][a-zA-Z0-9]+)", re.IGNORECASE)
         for m in label_pattern.finditer(srs_section):
             inject_entity(m.group(1).strip())
 
-        # ── Step 4: Extract non-entity feature controller/route pairs from endpoints ──
-        # e.g. SRS has "/api/admin/users" → adminController.js + adminRoutes.js
-        # These are cross-cutting features (not Mongoose models) that get missed by
-        # entity-based logic above.
-        existing_paths = {f.path for f in plan.files}
-        entity_names_lower_set = {e.name.lower() for e in plan.entities}
-
-        # Routes to skip — already handled by dedicated methods
-        skip_routes = {"auth"}
-
-        def is_entity_route(name: str) -> bool:
-            """Return True if this route name maps to an already-known entity.
-            Handles both singular and plural forms: 'products' → 'product'.
-            """
-            if name in entity_names_lower_set:
-                return True
-            # Try stripping a trailing 's' (simple plural)
-            if name.endswith("s") and name[:-1] in entity_names_lower_set:
-                return True
-            return False
-
-        api_route_pattern = re.compile(r"/api/([a-z][a-z_-]+)(?:/|$)", re.MULTILINE)
-        added_non_entity_routes = set()
-
-        for m in api_route_pattern.finditer(srs_section):
-            route_name = m.group(1).lower().replace("-", "")
-            if route_name in skip_routes:
-                continue
-            if is_entity_route(route_name):
-                continue
-            if route_name in added_non_entity_routes:
-                continue
-            added_non_entity_routes.add(route_name)
-
-            ctrl_path = f"controllers/{route_name}Controller.js"
-            route_path = f"routes/{route_name}Routes.js"
-
-            if ctrl_path not in existing_paths:
-                logger.info("[planner] SRS override: auto-adding non-entity controller '%s'", ctrl_path)
-                plan.files.append(FileSpec(
-                    path=ctrl_path,
-                    description=f"Controller for /api/{route_name} endpoints as specified in the SRS.",
-                ))
-                existing_paths.add(ctrl_path)
-            if route_path not in existing_paths:
-                logger.info("[planner] SRS override: auto-adding non-entity routes '%s'", route_path)
-                plan.files.append(FileSpec(
-                    path=route_path,
-                    description=f"Express router for /api/{route_name} endpoints as specified in the SRS.",
-                ))
-                existing_paths.add(route_path)
-
-            # Inject a virtual entity for this route name so _prune_phantom_files
-            # does NOT prune the controller/routes we just added.
-            if route_name not in existing_entity_names_lower:
-                logger.info("[planner] SRS override: injecting virtual entity '%s' to protect routes from pruning", route_name)
-                plan.entities.append(Entity(
-                    name=route_name.capitalize(),
-                    fields=[EntityField(name="id", type="ObjectId", required=False)],
-                    description=f"Virtual entity for non-model API group '{route_name}' from SRS.",
-                ))
-                existing_entity_names_lower.add(route_name)
+        # Strategy C: Headings under an explicit Entities / Data Models section
+        entities_section_match = re.search(
+            r"(?:entities|data models|schemas|database models)\b[\s\S]*?(?=\n#{1,3}\s+[A-Z]|\Z)",
+            srs_section,
+            re.IGNORECASE,
+        )
+        if entities_section_match:
+            sec_text = entities_section_match.group(0)
+            for m in re.finditer(r"^\s*(?:\d+\.\d+|\#{1,4})\s+([A-Z][a-zA-Z0-9]+)\s*$", sec_text, re.MULTILINE):
+                inject_entity(m.group(1).strip())
 
         return plan
 
-    def _enforce_architecture_selection(self, plan: PlannerOutput, user_prompt: str) -> PlannerOutput:
+    def _prune_non_srs_entities_and_files(
+        self,
+        plan: PlannerOutput,
+        user_prompt: str,
+        user_feedback: Optional[str] = None,
+    ) -> PlannerOutput:
+        """
+        When an SRS is attached, ensure that NO unwanted entities exist beyond what
+        the SRS (and user prompt/feedback) specifies. Prunes any hallucinated entities
+        and their files.
+        """
+        srs_marker = "--- SRS Document Content ---"
+        if srs_marker not in user_prompt:
+            return plan
+
+        user_section, _, srs_section = user_prompt.partition(srs_marker)
+        combined_ref = f"{user_section} {srs_section} {user_feedback or ''}".lower()
+
+        kept_entities = []
+        removed_entity_names = set()
+
+        for entity in plan.entities or []:
+            name = entity.name
+            name_lower = name.lower()
+            name_plural = name_lower + "s"
+
+            # Check if this entity was mentioned in SRS, user prompt, or feedback
+            is_present = (
+                re.search(rf"\b{re.escape(name_lower)}\b", combined_ref)
+                or re.search(rf"\b{re.escape(name_plural)}\b", combined_ref)
+                or f"models/{name}.js".lower() in combined_ref
+            )
+
+            if is_present:
+                kept_entities.append(entity)
+            else:
+                logger.info(
+                    "[planner] SRS strict pruning: removing entity '%s' because it is not in the SRS or prompt",
+                    name,
+                )
+                removed_entity_names.add(name_lower)
+
+        plan.entities = kept_entities
+
+        if removed_entity_names:
+            kept_files = []
+            for f in plan.files:
+                path_lower = f.path.lower()
+                is_entity_file = any(
+                    f.path.startswith(p) for p in [
+                        "models/", "controllers/", "routes/", "services/", "repositories/",
+                        "domain/entities/", "application/use-cases/", "infrastructure/", "interfaces/", "modules/"
+                    ]
+                )
+                is_removed = is_entity_file and any(ename in path_lower for ename in removed_entity_names)
+                if is_removed:
+                    logger.info("[planner] SRS strict pruning: removing unwanted file '%s'", f.path)
+                else:
+                    kept_files.append(f)
+            plan.files = kept_files
+
+        return plan
+
+    def _enforce_architecture_selection(self, plan: PlannerOutput, user_prompt: str, user_feedback: Optional[str] = None) -> PlannerOutput:
         """Use deterministic prompt signals to correct under-specified planner choices.
         NOTE: This runs AFTER _apply_srs_overrides, so SRS-declared architecture is
         already locked in — we only change the pattern if NO SRS was attached.
+        Also honors user feedback changes over default inferences.
         """
         plan.architecture = normalize_architecture(plan.architecture)
+
+        # If user feedback explicitly requested an architecture, don't override it
+        if user_feedback:
+            fb_lower = user_feedback.lower()
+            if any(term in fb_lower for term in ["mvc", "model-view-controller", "model view controller", "service-repository", "service repository", "clean-architecture", "clean architecture", "modular-monolith", "modular monolith"]):
+                logger.info("[planner] Preserving user-feedback requested architecture: %s", plan.architecture.pattern)
+                return plan
 
         # If SRS declared the architecture, don't override it with keyword inference
         srs_marker = "--- SRS Document Content ---"
@@ -517,9 +616,9 @@ class PlannerAgent:
         }
         return any(term in prompt for term in crud_terms) and not any(term in prompt for term in non_crud_terms)
 
-    def _sanitize_entity_fields(self, plan: PlannerOutput, user_prompt: str) -> PlannerOutput:
+    def _sanitize_entity_fields(self, plan: PlannerOutput, user_prompt: str, user_feedback: Optional[str] = None) -> PlannerOutput:
         """Remove fields that commonly break generated Mongo/Mongoose CRUD contracts."""
-        auth_required = self._requires_auth(plan, user_prompt)
+        auth_required = self._requires_auth(plan, user_prompt, user_feedback)
 
         for entity in plan.entities or []:
             sanitized_fields = []
@@ -537,9 +636,9 @@ class PlannerAgent:
 
         return plan
 
-    def _ensure_mandatory_files(self, plan: PlannerOutput, user_prompt: str = "") -> PlannerOutput:
+    def _ensure_mandatory_files(self, plan: PlannerOutput, user_prompt: str = "", user_feedback: Optional[str] = None) -> PlannerOutput:
         existing_paths = {f.path for f in plan.files}
-        auth_required = self._requires_auth(plan, user_prompt)
+        auth_required = self._requires_auth(plan, user_prompt, user_feedback)
 
         for mandatory_path in MANDATORY_FILES:
             if mandatory_path not in existing_paths:
@@ -560,7 +659,27 @@ class PlannerAgent:
 
         return plan
 
-    def _requires_auth(self, plan: PlannerOutput, user_prompt: str) -> bool:
+    def _requires_auth(self, plan: PlannerOutput, user_prompt: str, user_feedback: Optional[str] = None) -> bool:
+        if user_feedback:
+            fb_lower = user_feedback.lower()
+            if any(term in fb_lower for term in ["remove auth", "no auth", "without auth", "disable auth", "delete auth", "don't include auth", "do not include auth"]):
+                return False
+
+        srs_marker = "--- SRS Document Content ---"
+        if srs_marker in user_prompt:
+            user_section, _, srs_section = user_prompt.partition(srs_marker)
+            user_lower = user_section.lower()
+            srs_lower = srs_section.lower()
+
+            # User prompt explicitly requests auth
+            if any(term in user_lower for term in ["auth", "authentication", "login", "register", "jwt", "password"]):
+                return True
+
+            # SRS explicitly defines auth endpoints, auth files, or credentials
+            has_auth_endpoint = any(ep in srs_lower for ep in ["/api/auth", "/login", "/register", "authcontroller", "authroutes"])
+            has_credentials = ("password" in srs_lower and "hash" in srs_lower) or "jwt_secret" in srs_lower
+            return has_auth_endpoint or has_credentials
+
         prompt = (user_prompt or "").lower()
         auth_terms = [
             "auth",
@@ -581,9 +700,9 @@ class PlannerAgent:
         ).lower()
         return any(term in prompt or term in feature_text for term in auth_terms)
 
-    def _ensure_auth_files(self, plan: PlannerOutput, user_prompt: str) -> PlannerOutput:
+    def _ensure_auth_files(self, plan: PlannerOutput, user_prompt: str, user_feedback: Optional[str] = None) -> PlannerOutput:
         """Authentication-critical files should be planned when auth is requested."""
-        if not self._requires_auth(plan, user_prompt):
+        if not self._requires_auth(plan, user_prompt, user_feedback):
             return plan
 
         existing_paths = {f.path for f in plan.files}
@@ -728,60 +847,27 @@ Remember: Output ONLY the JSON object. No markdown fences, no explanations, no e
 
     def _remove_srs_shadowed_files(self, plan: PlannerOutput, user_prompt: str) -> PlannerOutput:
         """
-        When an SRS is attached, remove auto-generated controller/route files for entities
-        that the SRS intentionally covers via a differently-named controller.
-
-        Example:
-          - SRS specifies authController.js for the User entity (not userController.js)
-          - _enforce_architecture_file_structure still auto-generates userController.js
-          - This method detects that 'userController' is NOT in the SRS file list
-            and removes it to prevent duplicate code.
+        When an SRS is attached, remove auto-generated userController/userRoutes
+        ONLY IF the SRS explicitly covers the User entity via authController instead.
+        Never removes controllers/routes of other entities!
         """
-        import re
         srs_marker = "--- SRS Document Content ---"
         if srs_marker not in user_prompt:
             return plan
 
         srs_section = user_prompt.split(srs_marker, 1)[1]
 
-        # Collect every controller stem the SRS explicitly names
-        # e.g. "authController.js" → "authController"
         srs_controllers = set(
             m.group(1) for m in re.finditer(r"controllers/(\w+Controller)\.js", srs_section)
         )
         if not srs_controllers:
             return plan
 
-        paths_to_remove = set()
-
-        for entity in (plan.entities or []):
-            # Virtual entities are handled separately
-            if "Virtual entity for non-model" in (entity.description or ""):
-                continue
-
-            entity_name = entity.name
-            entity_var = entity_name[0].lower() + entity_name[1:] if entity_name else ""
-            standard_ctrl_stem = f"{entity_var}Controller"  # e.g. "userController"
-
-            # If SRS explicitly names this entity's standard controller → keep it
-            if standard_ctrl_stem in srs_controllers:
-                continue
-
-            # SRS does NOT mention this entity's standard controller.
-            # The entity is covered by a different SRS-named controller (e.g. authController).
-            # Remove the auto-generated pair to prevent duplicate code.
-            ctrl_path = f"controllers/{entity_var}Controller.js"
-            route_path = f"routes/{entity_var}Routes.js"
-            paths_to_remove.add(ctrl_path)
-            paths_to_remove.add(route_path)
-            logger.info(
-                "[planner] SRS shadow: removing auto-generated '%s' — '%s' covers this entity instead",
-                ctrl_path,
-                [c for c in srs_controllers if entity_var.lower() in c.lower() or c == "authController"],
-            )
-
-        if paths_to_remove:
+        # Only shadow User entity if authController is explicitly specified and userController is not
+        if "authController" in srs_controllers and "userController" not in srs_controllers:
+            paths_to_remove = {"controllers/userController.js", "routes/userRoutes.js"}
             plan.files = [f for f in plan.files if f.path not in paths_to_remove]
+            logger.info("[planner] SRS shadow: removing auto-generated userController/userRoutes because authController covers it in SRS")
 
         return plan
 

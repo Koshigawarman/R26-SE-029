@@ -223,6 +223,7 @@ class BuildRequest(BaseModel):
     critic_model: Optional[str] = None
 
     max_retries: Optional[int] = None
+    existing_folders: Optional[List[str]] = None
 
 
 class BuildResponse(BaseModel):

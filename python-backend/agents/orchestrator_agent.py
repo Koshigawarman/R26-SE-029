@@ -283,58 +283,97 @@ class OrchestratorAgent:
             logger.error(f"Unexpected error in LangGraph orchestration: {e}")
             self._emit_complete(session, False, "Project", project_root, 0, 0, [str(e)], start_time)
 
-    def _create_fresh_project_path(self, project_root: str, project_name: str) -> str:
+    def _resolve_fresh_project_name(
+        self,
+        project_name: str,
+        request: Optional[Any] = None,
+        project_root: Optional[str] = None,
+    ) -> str:
         """
-        Always return a folder path that is safe to write a NEW project into.
+        Always return a project folder name that is safe to write a NEW project into,
+        avoiding collisions with existing projects.
 
         Rules:
-        - If project_root/project_name does NOT exist → use it directly.
-        - If it exists but is EMPTY (only blank subdirectories, no code files) → reuse it.
-        - If it exists AND contains real files → auto-increment suffix:
+        - If project_name does NOT exist (neither on disk with real files nor in existing_folders) -> use it directly.
+        - If it exists but is EMPTY (only blank subdirectories, no code files) -> reuse it.
+        - If it exists AND contains real files (or is listed in client existing_folders) -> auto-increment suffix:
             project-name-2, project-name-3, … until a free (or empty) slot is found.
-
-        This ensures:
-        ✓ Every new build never overwrites an existing completed project.
-        ✓ The user doesn't end up with a stale empty folder ghost sitting next to a real build.
         """
         import re as _re
 
         def _has_real_files(path: str) -> bool:
             """Return True if path contains at least one non-directory file."""
+            if not os.path.isdir(path):
+                return False
             for root, dirs, files in os.walk(path):
-                # Skip node_modules
-                dirs[:] = [d for d in dirs if d != "node_modules"]
-                if files:
+                dirs[:] = [d for d in dirs if d not in ("node_modules", ".git", ".vscode", "__pycache__", "_research_artifacts")]
+                real_files = [f for f in files if f not in (".DS_Store", "Thumbs.db")]
+                if real_files:
                     return True
             return False
 
-        base_path = os.path.join(project_root, project_name)
+        def _is_occupied(candidate_name: str) -> bool:
+            cand_lower = candidate_name.strip().lower()
 
-        # Case 1: doesn't exist yet → fresh, use it
-        if not os.path.isdir(base_path):
-            logger.info("[orchestrator] Fresh project folder: %s", base_path)
-            return base_path
+            # 1. Check existing_folders sent from client
+            if request and hasattr(request, "existing_folders") and request.existing_folders:
+                for ef in request.existing_folders:
+                    if ef and ef.strip().lower() == cand_lower:
+                        return True
 
-        # Case 2: exists but empty → reuse (avoids ghost folders)
-        if not _has_real_files(base_path):
-            logger.info("[orchestrator] Reusing empty project folder: %s", base_path)
-            return base_path
+            # 2. Check workspace_uri if it exists locally on filesystem
+            if request and hasattr(request, "workspace_uri") and request.workspace_uri:
+                ws = request.workspace_uri
+                if os.path.isdir(ws):
+                    # Check subfolder in workspace
+                    sub = os.path.join(ws, candidate_name)
+                    if _has_real_files(sub):
+                        return True
+                    # Also check if workspace folder itself is this candidate and has files
+                    if os.path.basename(os.path.normpath(ws)).lower() == cand_lower and _has_real_files(ws):
+                        return True
 
-        # Case 3: exists with code → find next free numbered slot
-        counter = 2
+            # 3. Check project_root if provided and exists
+            if project_root and os.path.isdir(project_root):
+                sub = os.path.join(project_root, candidate_name)
+                if _has_real_files(sub):
+                    return True
+
+            return False
+
+        match = _re.match(r"^(.*?)-(\d+)$", project_name)
+        if match:
+            base_prefix = match.group(1)
+            current_num = int(match.group(2))
+        else:
+            base_prefix = project_name
+            current_num = 1
+
+        if not _is_occupied(project_name):
+            logger.info("[orchestrator] Fresh project name: %s", project_name)
+            return project_name
+
+        counter = current_num + 1 if match else 2
         while True:
-            candidate = os.path.join(project_root, f"{project_name}-{counter}")
-            if not os.path.isdir(candidate):
+            candidate = f"{base_prefix}-{counter}"
+            if not _is_occupied(candidate):
                 logger.info(
-                    "[orchestrator] Existing folder has code. Creating numbered slot: %s", candidate
-                )
-                return candidate
-            if not _has_real_files(candidate):
-                logger.info(
-                    "[orchestrator] Reusing empty numbered slot: %s", candidate
+                    "[orchestrator] Existing folder has code. Resolved fresh project name: %s", candidate
                 )
                 return candidate
             counter += 1
+
+    def _create_fresh_project_path(
+        self,
+        project_root: str,
+        project_name: str,
+        request: Optional[Any] = None,
+    ) -> str:
+        """
+        Always return a folder path that is safe to write a NEW project into.
+        """
+        fresh_name = self._resolve_fresh_project_name(project_name, request=request, project_root=project_root)
+        return os.path.join(project_root, fresh_name)
 
     # ─────────────────────────────────────────────────────────────────────
     # Agentic Post-Fix Verification Helpers

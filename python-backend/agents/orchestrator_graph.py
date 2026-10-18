@@ -80,6 +80,12 @@ def node_plan_project(state: OrchestrationState) -> dict:
         state="PLANNING_RETRY",
     )
     
+    # Resolve non-colliding project name if workspace/destination already has this folder
+    fresh_name = agent._resolve_fresh_project_name(plan.projectName, request=request, project_root=state.get("project_root"))
+    if fresh_name != plan.projectName:
+        logger.info(f"Project folder '{plan.projectName}' already exists with files. Renamed to '{fresh_name}'.")
+        plan.projectName = fresh_name
+
     project_path = os.path.join(state["project_root"], plan.projectName)
     artifact_recorder = ResearchArtifactRecorder(state["project_root"], plan.projectName)
     artifact_recorder.record_planner(
@@ -133,25 +139,40 @@ def node_replan_project(state: OrchestrationState) -> dict:
     agent = state["agent"]
     request = state["request"]
     rejection_count = state.get("plan_rejection_count", 0) + 1
-    
+    previous_plan = state.get("plan")
+
     user_feedback = session.approval_data.get("feedback", "") if session.approval_data else ""
     status(session, "🔄 STATE → RE_PLANNING: Re-planning with user feedback...", 10, "RE_PLANNING")
-    
-    if user_feedback:
-        updated_prompt = f"{request.prompt}\n\nUser feedback on previous plan:\n{user_feedback}\n\nRegenerate the backend project plan by applying this feedback. Keep the output strictly valid JSON."
-    else:
-        updated_prompt = f"{request.prompt}\n\nThe user rejected the previous plan but did not provide detailed feedback. Regenerate a simpler and clearer backend project plan. Keep the output strictly valid JSON."
-        
+
     plan = agent._retry_operation(
         operation_name=f"Planner Agent re-plan attempt {rejection_count}",
-        operation=lambda: agent.planner_agent.execute(updated_prompt, cancel_token=lambda: not session.active, http_session=session.http_session),
+        operation=lambda: agent.planner_agent.execute(
+            request.prompt,
+            cancel_token=lambda: not session.active,
+            http_session=session.http_session,
+            previous_plan=previous_plan,
+            user_feedback=user_feedback,
+        ),
         session=session,
         progress=10,
         state="RE_PLANNING_RETRY",
     )
-    
+
+    fresh_name = agent._resolve_fresh_project_name(plan.projectName, request=request, project_root=state.get("project_root"))
+    if fresh_name != plan.projectName:
+        logger.info(f"Re-planned project folder '{plan.projectName}' already exists with files. Renamed to '{fresh_name}'.")
+        plan.projectName = fresh_name
+
+    artifact_recorder = state.get("artifact_recorder")
+    if artifact_recorder:
+        artifact_recorder.record_planner(
+            user_prompt=f"{request.prompt}\n\n[USER REPLAN FEEDBACK]: {user_feedback}",
+            trace=agent.planner_agent.last_request_trace,
+            planner_output=plan.model_dump(),
+        )
+
     status(session, f"📋 STATE → REVISED_PLAN_READY: Revised plan ready with {len(plan.files)} files", 11, "REVISED_PLAN_READY")
-    
+
     return {
         "plan": plan,
         "plan_rejection_count": rejection_count,
@@ -172,19 +193,24 @@ def node_create_structure(state: OrchestrationState) -> dict:
     
     status(session, "📁 STATE → CREATING_STRUCTURE: Creating project structure...", 15, "CREATING_STRUCTURE")
     
-    session_project_path = state.get("session_project_path")
-    if session_project_path is None:
-        session_project_path = agent._create_fresh_project_path(state["project_root"], plan.projectName)
-        
+    fresh_name = agent._resolve_fresh_project_name(plan.projectName, request=request, project_root=state["project_root"])
+    if fresh_name != plan.projectName:
+        logger.info(f"Project folder '{plan.projectName}' already exists with files. Renamed to '{fresh_name}'.")
+        plan.projectName = fresh_name
+
+    session_project_path = os.path.join(state["project_root"], plan.projectName)
     project_path = session_project_path
     os.makedirs(project_path, exist_ok=True)
-    
+
+    if request.workspace_uri and os.path.isdir(request.workspace_uri):
+        os.makedirs(os.path.join(request.workspace_uri, plan.projectName), exist_ok=True)
+        
     for file_spec in plan.files:
         dirname = os.path.dirname(os.path.join(project_path, file_spec.path))
         if dirname:
             os.makedirs(dirname, exist_ok=True)
             
-    return {"session_project_path": session_project_path, "project_path": project_path}
+    return {"session_project_path": session_project_path, "project_path": project_path, "plan": plan}
 
 def node_generate_files(state: OrchestrationState) -> dict:
     session = state["session"]

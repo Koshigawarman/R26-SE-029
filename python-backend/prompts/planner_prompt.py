@@ -14,12 +14,21 @@ PLANNER_SYSTEM_PROMPT = """You are an expert Node.js backend architect. Your rol
 The plan you create is a PROJECT CONTRACT.
 The Code Generation Agent must only generate and import files that are listed in your plan.
 
-## SRS DOCUMENT INSTRUCTIONS
-If an SRS Document is provided in the prompt, you MUST:
-1. Treat the SRS as the absolute source of truth for all requirements, entities, and business logic.
-2. Ensure every feature, endpoint, and model described in the SRS is accounted for in your plan.
-3. Name endpoints and data fields exactly as specified in the SRS.
-4. Not invent extra features that contradict the SRS.
+## SRS DOCUMENT INSTRUCTIONS (CRITICAL)
+When an SRS Document is provided in the prompt:
+1. Treat the SRS Document and user prompt as the absolute specification for the project.
+2. BUILD EXACTLY WHAT IS IN THE SRS: Include ONLY the entities, data models, endpoints, and features explicitly described in the SRS (or requested in the user prompt).
+3. DO NOT INVENT EXTRA MODELS: Never add extra models or entities (such as User, Admin, Role, Notification, AuditLog, History, etc.) unless explicitly defined in the SRS or user prompt.
+4. DO NOT INVENT EXTRA ENDPOINTS OR FEATURES: Endpoints, routes, and controller functions must strictly correspond to the entities and endpoints described in the SRS. Do NOT add unrequested endpoints (such as extra search, filter, export, analytics, or auth endpoints) unless explicitly documented in the SRS.
+5. AUTHENTICATION RESTRICTION: Do NOT include authentication, JWT, bcryptjs, or auth files unless the SRS or user prompt explicitly defines authentication endpoints (e.g. /api/auth, /login, /register) or credentials on a user model.
+6. SRS ISSUE HANDLING: If there is an issue, ambiguity, or missing technical configuration in the SRS, resolve it with minimal necessary infrastructure files (package.json, README.md, .env, app.js, config/db.js, middleware/errorHandler.js). NEVER invent extra domain entities or extra business features.
+
+## ENTITY PLANNING RULES (PROMPT ONLY — NO SRS ATTACHED)
+When NO SRS document is attached and only a user prompt is provided:
+1. Satisfy the user prompt requirements completely and accurately.
+2. DO NOT FORCEFULLY ADD MODELS BECAUSE OF COUNT: If the requirement is satisfied by a single model (e.g., Task, Note, Contact, Product), create ONLY that single model. Do NOT pad the plan with unneeded models just to increase entity count.
+3. Add an additional model ONLY if it is genuinely necessary to fulfill the requested functionality and naturally matches the system domain (e.g., an Order entity needing OrderItem, or Course needing Student).
+4. Every entity must match the system domain. Never invent unrelated entities.
 
 ## CRITICAL RULES
 1. You MUST output ONLY valid JSON. No markdown, no explanations, no code fences.
@@ -360,22 +369,53 @@ def build_planner_prompt(user_requirement: str, similar_plan_json: Optional[str]
     """
     Build the user prompt for the Planner Agent.
     """
-    base_prompt = f"""Analyze the following backend application requirement and generate a strict structured project plan as JSON.
+    srs_marker = "--- SRS Document Content ---"
+    has_srs = srs_marker in user_requirement
+
+    if has_srs:
+        user_part, _, srs_part = user_requirement.partition(srs_marker)
+        user_instructions_text = user_part.strip() or "Build the backend according to the attached SRS document."
+        base_prompt = f"""Analyze the following backend application requirement and SRS document, and generate a strict structured project plan as JSON.
+
+## USER INSTRUCTIONS
+{user_instructions_text}
+
+## SRS DOCUMENT
+--- SRS Document Content ---
+{srs_part.strip()}
+
+## CRITICAL SRS INSTRUCTIONS
+1. Check the SRS document and user instructions carefully.
+2. Build EXACTLY what is in the SRS: Include ONLY the entities, data models, and endpoints specified in the SRS.
+3. DO NOT add extra models/entities that are not in the SRS (do NOT add User, Admin, Role, Notification, Audit, etc. unless explicitly defined in the SRS).
+4. DO NOT add extra endpoints or features that are not in the SRS.
+5. Do NOT include authentication unless the SRS or user instructions explicitly define auth endpoints or user credentials.
+6. If the SRS defines 1 entity, plan 1 entity. If it defines 2 entities, plan 2 entities. Do not pad the entity count.
+7. Treat the files array as the project contract: include only mandatory files plus files for the SRS entities.
+8. File descriptions must mention expected imports and exports.
+9. package.json description must mention all required npm dependencies.
+10. app.js description must mention export default app for Jest/Supertest testing."""
+    else:
+        base_prompt = f"""Analyze the following backend application requirement and generate a strict structured project plan as JSON.
 
 ## USER REQUIREMENT
 {user_requirement}
 
 ## INSTRUCTIONS
-1. Extract all data entities and their fields with Mongoose-compatible types.
-2. Identify all required features such as CRUD, authentication, validation, filtering, or search.
-3. Choose architecture.pattern from the allowed architecture patterns.
-4. Treat the files array as the project contract.
-5. Every local file that will be imported must appear in the files array.
-6. Do not plan service/helper/util/repository files unless the selected architecture pattern requires them or the user clearly requires them.
-7. Make file names consistent across app.js, routes, controllers, and models.
-8. File descriptions must mention expected imports and exports.
-9. package.json description must mention all required npm dependencies.
-10. app.js description must mention export default app for Jest/Supertest testing.
+1. Extract the required data entities and their fields with Mongoose-compatible types.
+2. Satisfy the user prompt requirements completely.
+3. DO NOT FORCEFULLY ADD EXTRA ENTITIES: If the user requirement is satisfied by a single model (e.g. Task, Note, Product), create ONLY that single model. Do NOT add extra models just to increase entity count. Only add another model if it is genuinely needed and naturally matches the system domain.
+4. Identify required features (CRUD, validation, etc.).
+5. Choose architecture.pattern from the allowed architecture patterns.
+6. Treat the files array as the project contract.
+7. Every local file that will be imported must appear in the files array.
+8. Do not plan service/helper/util/repository files unless the selected architecture pattern requires them or the user clearly requires them.
+9. Make file names consistent across app.js, routes, controllers, and models.
+10. File descriptions must mention expected imports and exports.
+11. package.json description must mention all required npm dependencies.
+12. app.js description must mention export default app for Jest/Supertest testing."""
+
+    base_prompt += f"""
 
 ## REQUIRED ARCHITECTURE OBJECT
 Include this object in the JSON output:
@@ -463,7 +503,9 @@ Output ONLY the JSON object.
 No markdown.
 No explanations.
 No code fences."""
-    if similar_plan_json:
+
+    # Only include reference plan if NO SRS is attached (prevents cross-project entity contamination)
+    if not has_srs and similar_plan_json:
         import json
         try:
             parsed = json.loads(similar_plan_json)
@@ -474,12 +516,42 @@ No code fences."""
         base_prompt += f"""
 
 ## SIMILAR APPROVED PROJECT REFERENCE
-Here is a JSON plan from a previously approved similar project. Use this ONLY as structural inspiration:
+Here is a JSON plan from a previously approved similar project. Use this ONLY as structural inspiration for JSON syntax:
 ```json
 {pretty_json}
 ```
 
-You must generate a NEW plan that fully addresses the CURRENT USER REQUIREMENT. Do NOT output the reference plan.
+WARNING: You must generate a NEW plan that strictly reflects ONLY the CURRENT USER REQUIREMENT. Do NOT copy entities, entity counts, or domain models from this reference. Do NOT output the reference plan.
 """
 
     return base_prompt
+
+
+def build_replanner_prompt(user_requirement: str, previous_plan_json: str, user_feedback: str) -> str:
+    """
+    Build the user prompt for re-planning / modifying an existing project plan based on user feedback.
+    Gives top priority to the requested change and preserves stability of unaffected components.
+    """
+    return f"""You are modifying an existing backend project plan based on user feedback.
+
+## PREVIOUS PLAN
+```json
+{previous_plan_json}
+```
+
+## USER REQUESTED CHANGE (HIGHEST PRIORITY)
+{user_feedback}
+
+## ORIGINAL REQUIREMENT
+{user_requirement}
+
+## RE-PLANNING RULES (CRITICAL)
+1. HIGHEST PRIORITY: The user's requested change takes absolute precedence over original requirements, defaults, and inferences.
+2. TARGETED CHANGES ONLY: Keep everything from the previous plan stable and intact, modifying ONLY what is necessary to fulfill the user's requested change.
+3. DO NOT unwantedly add, remove, or modify unrelated entities, fields, architecture, or files that the user did not ask to change.
+4. If the user asked to change the architecture pattern (e.g., to "mvc", "service-repository", "clean-architecture", "modular-monolith"), change the pattern and adjust entity file paths to match the new pattern.
+5. If the user asked to remove an entity or feature, remove that entity and all associated files.
+6. If the user asked to add a field or entity, add only that field or entity.
+7. If the user asked to remove authentication, remove all auth files (auth.js, authController.js, authRoutes.js) and auth dependencies (bcryptjs, jsonwebtoken).
+8. The files array must remain a complete and consistent project contract matching the PlannerOutput schema.
+9. Output ONLY the updated JSON plan. No markdown fences, no explanations, no extra text."""

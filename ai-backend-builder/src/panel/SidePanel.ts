@@ -421,6 +421,71 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
     const config = this._loadConfig();
     const workspaceUri = workspaceFolders[0].uri.fsPath;
 
+    // Scan for existing non-empty project directories to avoid collision
+    const existingFolders: string[] = [];
+    try {
+      if (fs.existsSync(workspaceUri)) {
+        const entries = fs.readdirSync(workspaceUri, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory() && !entry.name.startsWith(".")) {
+            try {
+              const subEntries = fs.readdirSync(path.join(workspaceUri, entry.name));
+              const realFiles = subEntries.filter((f) => !f.startsWith(".") && f !== "node_modules");
+              if (realFiles.length > 0) {
+                existingFolders.push(entry.name);
+              }
+            } catch {
+              existingFolders.push(entry.name);
+            }
+          }
+        }
+        const rootEntries = fs.readdirSync(workspaceUri);
+        const rootCodeFiles = rootEntries.filter((f) => !f.startsWith(".") && f !== "node_modules");
+        if (rootCodeFiles.length > 0) {
+          existingFolders.push(path.basename(workspaceUri));
+        }
+      }
+    } catch (err) {
+      // ignore
+    }
+
+    const existingFoldersSet = new Set(existingFolders.map((f) => f.toLowerCase()));
+    const folderRemap = new Map<string, string>();
+
+    const resolveSafePath = (writePath: string): string => {
+      const parts = writePath.split(/[/\\]/);
+      if (parts.length > 1) {
+        const rootFolder = parts[0];
+        const rootLower = rootFolder.toLowerCase();
+        if (folderRemap.has(rootLower)) {
+          parts[0] = folderRemap.get(rootLower)!;
+          return parts.join(path.sep);
+        }
+        if (existingFoldersSet.has(rootLower)) {
+          let counter = 2;
+          const match = rootFolder.match(/^(.*?)-(\d+)$/);
+          const prefix = match ? match[1] : rootFolder;
+          if (match) {
+            counter = parseInt(match[2], 10) + 1;
+          }
+
+          let candidate = `${prefix}-${counter}`;
+          while (
+            existingFoldersSet.has(candidate.toLowerCase()) ||
+            fs.existsSync(path.join(workspaceUri, candidate))
+          ) {
+            counter++;
+            candidate = `${prefix}-${counter}`;
+          }
+          folderRemap.set(rootLower, candidate);
+          this._logger.warn(`Folder '${rootFolder}' already exists with files. Writing into '${candidate}'.`);
+          parts[0] = candidate;
+          return parts.join(path.sep);
+        }
+      }
+      return writePath;
+    };
+
     this._logger.section("NEW BUILD REQUEST (Interactive)");
     this._logger.info(`User prompt: "${prompt}"`);
     if (config.styleSourceUri) {
@@ -446,6 +511,7 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
           workspace_uri: workspaceUri,
           style_source_uri: config.styleSourceUri || undefined,
           srs_file_path: srsFilePath || undefined,
+          existing_folders: existingFolders,
         }),
         signal: this._abortController.signal,
       });
@@ -521,7 +587,8 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
                 case "file_generated":
                   if (data.data.content && workspaceUri) {
                     try {
-                      const writePath = data.data.full_path || data.data.path;
+                      const rawWritePath = data.data.full_path || data.data.path;
+                      const writePath = resolveSafePath(rawWritePath);
                       const fullPath = path.join(workspaceUri, writePath);
                       fs.mkdirSync(path.dirname(fullPath), { recursive: true });
                       fs.writeFileSync(fullPath, data.data.content, "utf8");
@@ -539,7 +606,8 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
                 case "fix_applied":
                   if (data.data.content && workspaceUri) {
                     try {
-                      const writePath = data.data.full_path || data.data.file;
+                      const rawWritePath = data.data.full_path || data.data.file;
+                      const writePath = resolveSafePath(rawWritePath);
                       const fullPath = path.join(workspaceUri, writePath);
                       fs.mkdirSync(path.dirname(fullPath), { recursive: true });
                       fs.writeFileSync(fullPath, data.data.content, "utf8");
@@ -555,6 +623,9 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
                   break;
 
                 case "complete":
+                  if (data.data?.projectName && folderRemap.has(data.data.projectName.toLowerCase())) {
+                    data.data.projectName = folderRemap.get(data.data.projectName.toLowerCase());
+                  }
                   this._postMessage({
                     command: "buildComplete",
                     result: data.data,
