@@ -65,7 +65,24 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
         this._logger.info(`[PANEL] Received message from webview: ${JSON.stringify(message).substring(0, 200)}`);
         switch (message.command) {
           case "startBuild":
-            await this._handleBuild(message.prompt);
+            await this._handleBuild(message.prompt, message.srsFilePath);
+            break;
+          case "selectSrsFile":
+            const uri = await vscode.window.showOpenDialog({
+              canSelectMany: false,
+              openLabel: "Select SRS Document",
+              filters: { "PDF Documents": ["pdf"] }
+            });
+            if (uri && uri[0]) {
+              const fsPath = uri[0].fsPath;
+              // Extract just the filename from the path
+              const filename = fsPath.replace(/^.*[\\\/]/, '');
+              this._postMessage({
+                command: "srsFileSelected",
+                path: fsPath,
+                name: filename
+              });
+            }
             break;
           case "cancelBuild":
             this._handleCancel();
@@ -374,7 +391,7 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
   /**
    * Handle the build request — streams SSE events from the backend.
    */
-  private async _handleBuild(prompt: string): Promise<void> {
+  private async _handleBuild(prompt: string, srsFilePath?: string): Promise<void> {
     if (this._isBuilding) {
       vscode.window.showWarningMessage("A build is already in progress.");
       return;
@@ -406,6 +423,14 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
 
     this._logger.section("NEW BUILD REQUEST (Interactive)");
     this._logger.info(`User prompt: "${prompt}"`);
+    if (config.styleSourceUri) {
+      this._logger.info(`Style source URI: ${config.styleSourceUri}`);
+    } else {
+      this._logger.info("Style source URI: current workspace");
+    }
+    if (srsFilePath) {
+      this._logger.info(`SRS Document: ${srsFilePath}`);
+    }
 
     this._postMessage({ 
       command: "buildStarted",
@@ -419,6 +444,8 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
         body: JSON.stringify({
           prompt: prompt,
           workspace_uri: workspaceUri,
+          style_source_uri: config.styleSourceUri || undefined,
+          srs_file_path: srsFilePath || undefined,
         }),
         signal: this._abortController.signal,
       });
@@ -569,6 +596,7 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
     const config = vscode.workspace.getConfiguration("aiBackendBuilder");
     return {
       backendUrl: config.get<string>("cloudBackendUrl", "http://13.61.155.52:5000"),
+      styleSourceUri: config.get<string>("styleSourceUri", "").trim(),
       openaiApiKey: config.get<string>("openaiApiKey", ""),
       openaiModel: config.get<string>("openaiModel", "gpt-4"),
       models: {

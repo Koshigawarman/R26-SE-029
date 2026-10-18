@@ -160,6 +160,34 @@ class DebugAgent:
                     stage="package_json_preparation",
                 )
 
+            logger.info("Proceeding to test generation before startup...")
+
+            detected_routes = self._detect_routes(sandbox_project_path)
+            file_contents = self._read_project_source_files(sandbox_project_path)
+
+            test_file_path = sandbox_project_path / "tests" / "api.test.js"
+            is_retry = os.getenv("CURRENT_DEBUG_ATTEMPT", "1") != "1"
+            regenerate_tests = (
+                not test_file_path.exists()
+                or os.getenv("REGENERATE_TESTS_EACH_ATTEMPT", "false").lower() == "true"
+                or is_retry
+            )
+
+            if not regenerate_tests:
+                logger.info("Reusing existing test file: %s", test_file_path)
+            else:
+                test_content = self._generate_tests_with_model(
+                    file_contents=file_contents,
+                    detected_routes=detected_routes,
+                    http_session=http_session,
+                )
+
+                if not test_content:
+                    logger.warning("Model test generation failed after retries. Falling back to deterministic tests.")
+                    test_content = self._generate_fallback_supertest_content(detected_routes)
+
+                self._write_test_file(sandbox_project_path, test_content)
+
             logger.info("Executing pre-test project startup check...")
             startup_result = self._run_project_startup(sandbox_project_path)
             if not startup_result.get("success", False):
@@ -188,31 +216,6 @@ class DebugAgent:
 
             logger.info("Project startup successful. Proceeding to tests...")
 
-            detected_routes = self._detect_routes(sandbox_project_path)
-            file_contents = self._read_project_source_files(sandbox_project_path)
-
-            test_file_path = sandbox_project_path / "tests" / "api.test.js"
-            is_retry = os.getenv("CURRENT_DEBUG_ATTEMPT", "1") != "1"
-            regenerate_tests = (
-                not test_file_path.exists()
-                or os.getenv("REGENERATE_TESTS_EACH_ATTEMPT", "false").lower() == "true"
-                or is_retry
-            )
-
-            if not regenerate_tests:
-                logger.info("Reusing existing test file: %s", test_file_path)
-            else:
-                test_content = self._generate_tests_with_model(
-                    file_contents=file_contents,
-                    detected_routes=detected_routes,
-                    http_session=http_session,
-                )
-
-                if not test_content:
-                    logger.warning("Model test generation failed after retries. Falling back to deterministic tests.")
-                    test_content = self._generate_fallback_supertest_content(detected_routes)
-
-                self._write_test_file(sandbox_project_path, test_content)
 
             if self.use_docker:
                 test_result = self._run_tests_in_docker(sandbox_project_path)
@@ -359,6 +362,7 @@ class DebugAgent:
 
         scripts = package_data.setdefault("scripts", {})
         scripts.setdefault("start", "node app.js")
+        scripts["dev"] = "nodemon app.js"
         scripts["test"] = "NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js"
 
         dependencies = package_data.setdefault("dependencies", {})
@@ -367,10 +371,11 @@ class DebugAgent:
         dev_dependencies = package_data.setdefault("devDependencies", {})
         dev_dependencies.setdefault("jest", "^29.7.0")
         dev_dependencies.setdefault("supertest", "^7.1.3")
+        dev_dependencies.setdefault("nodemon", "^3.1.0")
 
         package_path.write_text(json.dumps(package_data, indent=2), encoding="utf-8")
 
-        logger.info("Prepared package.json for Jest/Supertest")
+        logger.info("Prepared package.json for Jest/Supertest/Nodemon")
         return True, None
 
     def _detect_routes(self, project_path: Path) -> List[Dict[str, str]]:

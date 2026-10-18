@@ -193,6 +193,7 @@ export interface SystemState {
 /** Full extension configuration derived from VS Code settings */
 export interface ExtensionConfig {
   backendUrl: string;
+  styleSourceUri: string;
   openaiApiKey: string;
   openaiModel: string;
   models: Record<AgentRole, string>;

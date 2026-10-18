@@ -6,7 +6,7 @@ It only creates a fixing strategy for the Code Generation Agent.
 """
 
 from typing import Dict, List, Optional
-from schema import RuntimeErrorInfo, MemoryMatch
+from schema import RuntimeErrorInfo, MemoryMatch, CriticStrategy
 
 
 CRITIC_SYSTEM_PROMPT = """
@@ -23,6 +23,7 @@ IMPORTANT RULES:
 6. Suggest minimal and targeted changes only.
 7. Output ONLY valid JSON. No markdown. No explanations outside JSON.
 8. NEVER tell the Code Agent to "verify if a file exists" or "scan the directory". YOU must scan the PROJECT FILE LIST provided to you and explicitly provide the EXACT correct file path or import statement in your instructions.
+9. IF YOU ARE PROVIDED A PREVIOUS FAILED STRATEGY, DO NOT SUGGEST IT AGAIN. Find a different approach or fix the root cause instead of the symptom.
 
 OUTPUT JSON SCHEMA:
 {
@@ -81,6 +82,8 @@ def build_critic_prompt(
     file_list: List[str],
     attempt: int,
     file_contents: Optional[Dict[str, str]] = None,
+    previous_strategy: Optional[CriticStrategy] = None,
+    previous_errors: Optional[List[RuntimeErrorInfo]] = None,
 ) -> str:
     parts = []
 
@@ -91,6 +94,18 @@ def build_critic_prompt(
     parts.append("## RETRY ATTEMPT")
     parts.append(str(attempt))
     parts.append("")
+
+    if previous_strategy and previous_errors:
+        parts.append("## PREVIOUS FAILED ATTEMPT (WARNING: DO NOT REPEAT THIS MISTAKE)")
+        parts.append("You (or another Critic) already tried the following strategy on the previous attempt, BUT IT FAILED.")
+        parts.append("You MUST provide a DIFFERENT strategy this time.")
+        parts.append(f"Previous Root Cause: {previous_strategy.root_cause}")
+        parts.append(f"Previous Strategy: {previous_strategy.fixing_strategy}")
+        parts.append(f"Previous Instructions: {previous_strategy.instructions_for_code_agent}")
+        parts.append("Previous Errors that led to it:")
+        for err in previous_errors:
+            parts.append(f"- {err.type}: {err.message}")
+        parts.append("")
 
     parts.append("## PARSED ERRORS")
     if errors:

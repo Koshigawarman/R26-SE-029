@@ -118,6 +118,51 @@ class ResearchArtifactRecorder:
             },
         )
 
+    def record_style_profile(self, style_profile: Dict[str, Any]) -> None:
+        payload = {
+            "style_profile": style_profile,
+            "recorded_at": time.time(),
+        }
+        self.write_json("style/profile.json", payload)
+        self.write_markdown(
+            "style/summary.md",
+            "Detected Project Style",
+            {
+                "Source Type": style_profile.get("source_type", ""),
+                "Source": style_profile.get("source", style_profile.get("source_path", "")),
+                "Source Path": style_profile.get("source_path", ""),
+                "Confidence": style_profile.get("confidence", 0),
+                "Summary": style_profile.get("summary", ""),
+                "Profile JSON": style_profile,
+            },
+        )
+
+    def record_validation(self, name: str, validation_result: Dict[str, Any]) -> None:
+        safe_name = self._safe_name(name)
+        payload = {
+            "name": name,
+            "validation_result": validation_result,
+            "recorded_at": time.time(),
+        }
+        self.write_json(f"validation/{safe_name}.json", payload)
+        self.write_markdown(
+            f"validation/{safe_name}.md",
+            f"Validation: {name}",
+            {"Validation Result": validation_result},
+        )
+
+    def read_validation_operations(self) -> list:
+        path = self.root / "validation" / "planner_contract.json"
+        if not path.exists():
+            return []
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            result = data.get("validation_result", {})
+            operations = result.get("operations", [])
+            return operations if isinstance(operations, list) else []
+        except Exception:
+            return []
+
     @staticmethod
     def _safe_name(value: str) -> str:
         cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "-", value).strip("-")

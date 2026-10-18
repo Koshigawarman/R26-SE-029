@@ -13,3 +13,4 @@ tiktoken>=0.7.0
 
 #to generate the dataset for the codegen model
 google-genai>=1.0.0
+pypdf>=4.0.0

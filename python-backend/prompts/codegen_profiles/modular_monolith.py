@@ -8,6 +8,7 @@ from prompts.codegen_profiles.base import (
     ERROR_MIDDLEWARE_PROMPT,
     GENERIC_PROMPT,
     PACKAGE_PROMPT,
+    README_PROMPT,
 )
 
 
@@ -34,7 +35,8 @@ MODEL_PROMPT = BASE_PROFILE_RULES + ARCHITECTURE_RULES + """
 3. Use fields from ENTITIES only.
 4. Use timestamps: true.
 5. Export default model.
-6. Do not import repository, service, controller, routes, middleware, or app.js."""
+6. Do not import repository, service, controller, routes, middleware, or app.js.
+7. Do not add pre('save') or pre('updateOne') timestamp hooks when using timestamps: true; Mongoose manages createdAt and updatedAt automatically."""
 
 
 REPOSITORY_PROMPT = BASE_PROFILE_RULES + ARCHITECTURE_RULES + """
@@ -68,7 +70,9 @@ CONTROLLER_PROMPT = BASE_PROFILE_RULES + ARCHITECTURE_RULES + """
 4. Use try/catch and next(error).
 5. Return JSON responses.
 6. Do not import model or repository directly.
-7. Do not define route mappings or schemas."""
+7. Do not define route mappings or schemas.
+8. Do not import next from 'next'. next is the Express callback parameter in (req, res, next), not a package import.
+9. Do not define schema middleware hooks such as EntitySchema.pre('save') or EntitySchema.pre('updateOne') in controllers."""
 
 
 ROUTE_PROMPT = BASE_PROFILE_RULES + ARCHITECTURE_RULES + """
@@ -98,6 +102,7 @@ APP_PROMPT = BASE_PROFILE_RULES + ARCHITECTURE_RULES + """
 
 PROMPTS = {
     "package": PACKAGE_PROMPT,
+    "readme": README_PROMPT,
     "env": ENV_PROMPT,
     "app": APP_PROMPT,
     "config": CONFIG_PROMPT,

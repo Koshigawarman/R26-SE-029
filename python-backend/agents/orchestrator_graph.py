@@ -14,6 +14,7 @@ from schema import (
     TestResults,
 )
 from services.research_artifact_recorder import ResearchArtifactRecorder
+from services.project_style_analyzer import ProjectStyleAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class OrchestrationState(TypedDict):
     session_project_path: Optional[str]
     plan: Optional[Any]  # PlannerOutput
     artifact_recorder: Optional[ResearchArtifactRecorder]
+    style_profile: Dict[str, Any]
     plan_rejection_count: int
     plan_action: Optional[str]
     
@@ -85,6 +87,13 @@ def node_plan_project(state: OrchestrationState) -> dict:
         trace=agent.planner_agent.last_request_trace,
         planner_output=plan.model_dump(),
     )
+    planner_validation = agent.planner_contract_validator.validate(request.prompt, plan)
+    artifact_recorder.record_validation("planner_contract", planner_validation)
+
+    style_source = request.style_source_uri or request.workspace_uri
+    status(session, "🎨 STATE → STYLE_ANALYSIS: Extracting existing project style...", 9, "STYLE_ANALYSIS")
+    style_profile = ProjectStyleAnalyzer().analyze(style_source)
+    artifact_recorder.record_style_profile(style_profile)
     
     logger.info("📋 Plan generated: %s", plan.projectName)
     status(session, f"📋 STATE → PLAN_READY: Plan ready with {len(plan.files)} files", 10, "PLAN_READY")
@@ -92,7 +101,8 @@ def node_plan_project(state: OrchestrationState) -> dict:
     return {
         "plan": plan,
         "project_path": project_path,
-        "artifact_recorder": artifact_recorder
+        "artifact_recorder": artifact_recorder,
+        "style_profile": style_profile,
     }
 
 def node_await_plan_approval(state: OrchestrationState) -> dict:
@@ -197,6 +207,7 @@ def node_generate_files(state: OrchestrationState) -> dict:
         features=plan.features,
         allFiles=plan.files,
         existingFileContents=existing_contents,
+        styleProfile=state.get("style_profile") or {},
     )
     
     for i, file_spec in enumerate(sorted_files):
@@ -228,6 +239,13 @@ def node_generate_files(state: OrchestrationState) -> dict:
                 context.existingFileContents = existing_contents
                 files_generated += 1
                 file_generation_success = True
+                if artifact_recorder:
+                    artifact_recorder.record_codegen(
+                        file_path=generated.path,
+                        trace=agent.codegen_agent.last_request_trace,
+                        generated_content=generated.content,
+                        status=generated.status,
+                    )
                 
                 session.emit(
                     "file_generated",
@@ -261,12 +279,22 @@ def node_consistency_check(state: OrchestrationState) -> dict:
     
     validation_result = agent._retry_operation(
         operation_name="Project consistency validation",
-        operation=lambda: agent.project_validator.validate(project_path),
+        operation=lambda: agent.project_validator.validate(
+            project_path,
+            planner_output=state["plan"].model_dump() if state.get("plan") else None,
+            operations=(
+                state["artifact_recorder"].read_validation_operations()
+                if hasattr(state["artifact_recorder"], "read_validation_operations")
+                else None
+            ),
+        ),
         max_attempts=2,
         session=session,
         progress=68,
         state="CONSISTENCY_CHECK_RETRY",
     )
+    if state.get("artifact_recorder"):
+        state["artifact_recorder"].record_validation("generated_project_consistency_before_repair", validation_result)
     
     if validation_result["missing_dependencies"]:
         added = agent._retry_operation(
@@ -279,9 +307,105 @@ def node_consistency_check(state: OrchestrationState) -> dict:
         )
         if added:
             status(session, f"📦 Added missing dependencies: {', '.join(added)}", 69, "DEPENDENCY_SYNC")
+
+    repair_files = _select_validation_repair_files(validation_result)
+    if repair_files:
+        status(session, f"🔧 STATE → VALIDATION_REPAIR: Repairing {len(repair_files)} file(s) from structural validation...", 70, "VALIDATION_REPAIR")
+        existing_contents = dict(state["existing_contents"])
+        for file_path, file_issues in repair_files.items():
+            original = existing_contents.get(file_path, agent._read_project_file(project_path, file_path))
+            fixed = agent.codegen_agent.fix_file_with_strategy(
+                file_path=file_path,
+                original_content=original,
+                error_log="\n".join(issue.get("message", str(issue)) for issue in file_issues),
+                critic_strategy="Generated project structural validation found issues before debug.",
+                instructions_for_code_agent=(
+                    "Regenerate only the target file. Fix the listed validation findings while preserving the planner contract, "
+                    "architecture dependency rules, local imports, exports, and requested operations."
+                ),
+                file_list=list(existing_contents.keys()) + list(repair_files.keys()),
+                architecture=state["plan"].architecture.model_dump() if state.get("plan") else {"pattern": "mvc"},
+                cancel_token=lambda: not session.active,
+            )
+            if fixed and fixed.status == "fixed" and fixed.content:
+                agent._write_project_file(project_path, fixed.path, fixed.content)
+                existing_contents[fixed.path] = fixed.content
+                if state.get("artifact_recorder"):
+                    state["artifact_recorder"].record_codegen(
+                        file_path=fixed.path,
+                        trace=agent.codegen_agent.last_request_trace,
+                        generated_content=fixed.content,
+                        status=fixed.status,
+                    )
+            else:
+                msg = fixed.errorMessage if fixed else "Unknown error"
+                action = session.wait_for_approval(
+                    "codegen_error",
+                    {
+                        "message": f"❌ Failed to repair {file_path}: {msg}",
+                        "file": file_path,
+                        "options": ["skip", "cancel"]
+                    }
+                )
+                if action == "cancel":
+                    raise Exception(f"Cancelled during validation repair for {file_path}")
+
+        validation_result = agent.project_validator.validate(
+            project_path,
+            planner_output=state["plan"].model_dump() if state.get("plan") else None,
+            operations=state["artifact_recorder"].read_validation_operations() if state.get("artifact_recorder") else None,
+        )
+        if state.get("artifact_recorder"):
+            state["artifact_recorder"].record_validation("generated_project_consistency_after_repair", validation_result)
+    else:
+        existing_contents = state["existing_contents"]
             
     action = session.wait_for_approval("pre_debug", {"message": "Proceed to Debugging Phase?", "options": ["approve", "cancel"]})
-    return {"pre_debug_action": action}
+    return {"pre_debug_action": action, "existing_contents": existing_contents}
+
+
+def _select_validation_repair_files(validation_result: dict) -> dict:
+    repairable_types = {
+        "invalid_express_json",
+        "missing_default_app_export",
+        "unreachable_static_route",
+        "next_without_parameter",
+        "invalid_next_package_import",
+        "model_missing_planned_field",
+        "missing_auth_middleware",
+        "protected_route_missing_middleware",
+        "missing_requested_operation",
+        "missing_default_export",
+        "local_import_case_mismatch",
+        "missing_local_file",
+        "middleware_used_without_import",
+        "repository_contains_schema",
+        "auth_controller_uses_missing_user_field",
+        "repository_uses_undefined_model_alias",
+        "called_function_not_imported",
+        "recursive_handler_call",
+        "auth_registration_missing_required_user_field",
+        "controller_contains_schema",
+        "controller_contains_schema_hook",
+        "controller_uses_undefined_model_alias",
+        "controller_uses_missing_model_field",
+        "controller_queries_missing_model_field",
+        "controller_create_missing_required_model_field",
+        "model_has_required_custom_id",
+    }
+    selected = {}
+    for issue in validation_result.get("issues", []):
+        if issue.get("type") not in repairable_types:
+            continue
+        file_path = issue.get("source_file") or issue.get("target_file")
+        if not file_path and issue.get("type") == "protected_route_missing_middleware":
+            file_path = "routes/authRoutes.js"
+        if not file_path:
+            continue
+        selected.setdefault(file_path, []).append(issue)
+        if issue.get("type") in {"missing_named_export", "missing_default_export"} and issue.get("target_file"):
+            selected.setdefault(issue["target_file"], []).append(issue)
+    return selected
 
 def node_run_debug(state: OrchestrationState) -> dict:
     session = state["session"]
@@ -323,16 +447,26 @@ def node_run_debug(state: OrchestrationState) -> dict:
             "content": content
         })
     
+    # Emit test file so the UI displays it in the project folder
+    import os
+    test_file_path = "tests/api.test.js"
+    full_test_path = os.path.join(project_path, test_file_path)
+    existing_contents = dict(state.get("existing_contents", {}))
+    if os.path.exists(full_test_path):
+        if test_file_path not in existing_contents:
+            session.emit("file_generated", {"path": test_file_path, "status": "success", "chars": os.path.getsize(full_test_path)})
+            existing_contents[test_file_path] = agent._read_project_file(project_path, test_file_path)
+            
     if debug_result.success:
         status(session, "✅ STATE → SUCCESS: Debug Agent verified the project successfully.", 100, "SUCCESS")
-        return {"debug_attempt_count": debug_attempt_count, "final_test_results": getattr(debug_result, 'testResults', None), "final_outcome": "success"}
+        return {"debug_attempt_count": debug_attempt_count, "final_test_results": getattr(debug_result, 'testResults', None), "final_outcome": "success", "existing_contents": existing_contents}
         
     status(session, f"🐞 STATE → DEBUG_FAILED: Tests failed. {len(debug_result.errors)} errors found.", 80, "DEBUG_FAILED")
     
     if debug_attempt_count >= agent.max_retries:
-        return {"debug_attempt_count": debug_attempt_count, "final_outcome": "exhausted", "latest_errors": debug_result.errors, "latest_stderr": debug_result.stderr}
+        return {"debug_attempt_count": debug_attempt_count, "final_outcome": "exhausted", "latest_errors": debug_result.errors, "latest_stderr": debug_result.stderr, "existing_contents": existing_contents}
         
-    return {"debug_attempt_count": debug_attempt_count, "latest_errors": debug_result.errors, "latest_stderr": debug_result.stderr, "latest_stdout": debug_result.stdout, "final_outcome": "needs_fix"}
+    return {"debug_attempt_count": debug_attempt_count, "latest_errors": debug_result.errors, "latest_stderr": debug_result.stderr, "latest_stdout": debug_result.stdout, "final_outcome": "needs_fix", "existing_contents": existing_contents}
 
 def node_retrieve_memory(state: OrchestrationState) -> dict:
     agent = state["agent"]
@@ -353,6 +487,8 @@ def node_run_critic(state: OrchestrationState) -> dict:
         attempt=state["debug_attempt_count"],
         file_contents=state["existing_contents"],
         http_session=session.http_session,
+        previous_strategy=state.get("previous_critic_strategy"),
+        previous_errors=state.get("previous_failed_errors"),
     )
     
     action = session.wait_for_approval("debug_fix", {
@@ -364,7 +500,12 @@ def node_run_critic(state: OrchestrationState) -> dict:
         "options": ["approve", "skip", "cancel"]
     })
     
-    return {"critic_strategy": strategy, "fix_action": action}
+    return {
+        "critic_strategy": strategy,
+        "fix_action": action,
+        "previous_critic_strategy": strategy,
+        "previous_failed_errors": state["latest_errors"]
+    }
 
 def node_apply_fixes(state: OrchestrationState) -> dict:
     agent = state["agent"]
@@ -389,6 +530,18 @@ def node_apply_fixes(state: OrchestrationState) -> dict:
             existing_contents[fixed.path] = fixed.content
             if "plan" in state and state["plan"]:
                 session.emit("fix_applied", {"file": fixed.path, "full_path": f"{state['plan'].projectName}/{fixed.path}", "content": fixed.content})
+        else:
+            msg = fixed.errorMessage if fixed else "Unknown error"
+            action = session.wait_for_approval(
+                "codegen_error",
+                {
+                    "message": f"❌ Failed to fix {f}: {msg}",
+                    "file": f,
+                    "options": ["skip", "cancel"]
+                }
+            )
+            if action == "cancel":
+                raise Exception(f"Cancelled during fix generation for {f}")
             
     return {"existing_contents": existing_contents}
 
