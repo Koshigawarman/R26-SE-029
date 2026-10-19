@@ -299,28 +299,42 @@ async def build_project(req: BuildRequest, request: Request):
     if not req.critic_model: req.critic_model = DEFAULT_MODELS["critic"]
     if not req.max_retries: req.max_retries = MAX_RETRIES
 
-    if req.srs_file_path:
+    srs_text = ""
+    if req.srs_file_base64:
+        try:
+            import base64
+            import io
+            import pypdf
+            pdf_bytes = base64.b64decode(req.srs_file_base64)
+            reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    srs_text += page_text + "\n"
+            logger.info(f"Successfully extracted {len(srs_text)} chars from SRS PDF Base64.")
+        except Exception as e:
+            logger.error(f"Failed to read SRS document from base64: {e}")
+    elif req.srs_file_path:
         import os
         if os.path.exists(req.srs_file_path):
             try:
                 import pypdf
                 with open(req.srs_file_path, "rb") as f:
                     reader = pypdf.PdfReader(f)
-                    text = ""
                     for page in reader.pages:
                         page_text = page.extract_text()
                         if page_text:
-                            text += page_text + "\n"
-                    
-                    max_chars = 20000
-                    if len(text) > max_chars:
-                        logger.warning(f"SRS document is too large ({len(text)} chars). Truncating to {max_chars} chars.")
-                        text = text[:max_chars] + "\n...[TRUNCATED DUE TO SIZE]..."
-                    
-                    if text.strip():
-                        req.prompt += f"\n\n--- SRS Document Content ---\n{text.strip()}"
+                            srs_text += page_text + "\n"
             except Exception as e:
-                logger.error(f"Failed to read SRS document: {e}")
+                logger.error(f"Failed to read SRS document from path: {e}")
+
+    if srs_text:
+        max_chars = 20000
+        if len(srs_text) > max_chars:
+            logger.warning(f"SRS document is too large ({len(srs_text)} chars). Truncating to {max_chars} chars.")
+            srs_text = srs_text[:max_chars] + "\n...[TRUNCATED DUE TO SIZE]..."
+        if srs_text.strip():
+            req.prompt += f"\n\n--- SRS Document Content ---\n{srs_text.strip()}"
 
     orchestrator = OrchestratorAgent(
         ollama_url=OLLAMA_URL,

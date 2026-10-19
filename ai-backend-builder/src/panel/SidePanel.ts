@@ -502,6 +502,16 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
       workspaceRoot: workspaceUri
     });
 
+    let srsBase64: string | undefined = undefined;
+    if (srsFilePath && fs.existsSync(srsFilePath)) {
+      try {
+        srsBase64 = fs.readFileSync(srsFilePath).toString("base64");
+        this._logger.info(`Read SRS document as Base64 (${srsBase64.length} chars)`);
+      } catch (err: any) {
+        this._logger.error(`Failed to read SRS PDF file: ${err.message}`);
+      }
+    }
+
     try {
       const response = await fetch(`${config.backendUrl}/api/build`, {
         method: "POST",
@@ -511,6 +521,7 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
           workspace_uri: workspaceUri,
           style_source_uri: config.styleSourceUri || undefined,
           srs_file_path: srsFilePath || undefined,
+          srs_file_base64: srsBase64,
           existing_folders: existingFolders,
         }),
         signal: this._abortController.signal,
