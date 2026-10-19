@@ -226,8 +226,8 @@ class OrchestratorAgent:
     def _run(self, request: BuildRequest, session: BuildSession) -> None:
         start_time = time.time()
         
-        # Use an isolated cloud workspace path instead of the user's local path
-        project_root = f"/tmp/ai-backend-builder/{session.id}"
+        # Use /var/tmp which resides on the root hard drive (19 GB) rather than /tmp (which is a 455 MB ramdisk/tmpfs)
+        project_root = os.path.join(os.environ.get("BUILD_WORKSPACE_DIR", "/var/tmp/ai-backend-builder"), session.id)
         os.makedirs(project_root, exist_ok=True)
         
         initial_state = OrchestrationState(
