@@ -19,7 +19,7 @@ CLASS_DIAGRAM_PROMPT = """You are an expert software architect. Given the JSON r
 4. Generics syntax: NEVER use angle brackets like `<Type>`. In Mermaid v10+, generics MUST use tildes: `List~String~`, `Promise~void~`, `Array~Order~`.
 5. Method syntax: NEVER put a colon before return types. Use `+methodName(param: type) ReturnType` or simply `+methodName(param)`.
 6. Comments: If you use comments, use ONLY `%%` comment syntax. NEVER use `//` or `/* */`.
-7. Attribute syntax: `+fieldName: type` or `-fieldName: type`.
+7. Attribute syntax: `+Type fieldName` or `-Type fieldName` (e.g., `+String email`, `-Number count`, `+Date createdAt`). NEVER put colons between field names and types.
 8. Relationships format: `ClassA "1" --> "*" ClassB : description` or `ClassA -- ClassB`.
 9. DO NOT output any conversational text, explanations, or markdown outside the mermaid block.
 
@@ -179,13 +179,23 @@ class ArtifactAgent:
             code = re.sub(r'<([a-zA-Z0-9_, ]+)>', r'~\1~', code)
             # Fix method colons: +method(): ReturnType -> +method() ReturnType
             code = re.sub(r'(\)\s*):(\s*[a-zA-Z0-9_~]+)', r'\1 \2', code)
+            # Fix attribute colons: +name: Type -> +Type name (only at start of line)
+            code = re.sub(r'(?m)^([ \t]*)([+\-#~])[ \t]*([a-zA-Z0-9_]+)[ \t]*:[ \t]*([a-zA-Z0-9_~]+)[ \t]*$', r'\1\2\4 \3', code)
         elif artifact_type == "usecase":
             # Strip any text before flowchart
             if "flowchart" in code:
                 code = code[code.find("flowchart"):]
             code = re.sub(r'//(.*)', r'%%\1', code)
-            # Ensure subgraphs with spaces are quoted
-            code = re.sub(r'subgraph\s+([a-zA-Z0-9_ ]+)(?<!["\]\)])\n', r'subgraph "\1"\n', code)
+            # Ensure subgraphs are quoted even if containing &, /, -, spaces
+            def quote_subgraph(m):
+                content = m.group(1).strip()
+                if (content.startswith('"') and content.endswith('"')) or ('[' in content and ']' in content):
+                    return f'subgraph {content}\n'
+                clean = content.strip('"\'')
+                return f'subgraph "{clean}"\n'
+            code = re.sub(r'subgraph[ \t]+([^\r\n]+)[\r\n]+', quote_subgraph, code)
+            # Fix actor IDs with spaces before (( on the SAME line, never matching 'end'
+            code = re.sub(r'(?m)^([ \t]*)(?!end\b)([a-zA-Z0-9_]+)[ \t]+([a-zA-Z0-9_]+)[ \t]*\(\(', r'\1\2_\3((', code)
         return code
 
     def _clean_swagger_yaml(self, raw_yaml: str) -> str:

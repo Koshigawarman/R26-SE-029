@@ -102,7 +102,6 @@ export class ArtifactPanel {
 
   private _getHtmlForWebview(webview: vscode.Webview, title: string, type: string, content: string) {
     const nonce = getNonce();
-    const escapedContent = JSON.stringify(content);
     
     let headInject = '';
     let bodyInject = '';
@@ -136,7 +135,6 @@ export class ArtifactPanel {
               try {
                 spec = jsyaml.load(rawYaml, { json: true });
               } catch (yamlErr) {
-                // If YAML parse complains, try JSON parse as fallback
                 try {
                   spec = JSON.parse(rawYaml);
                 } catch (jsonErr) {
@@ -180,67 +178,71 @@ export class ArtifactPanel {
         <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/mermaid@10.8.0/dist/mermaid.min.js"></script>
         <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
         <script nonce="${nonce}">
-          window.onerror = function(msg, url, lineNo, columnNo, error) {
-            const container = document.getElementById('mermaid-render');
-            if (container) container.innerHTML = '<div style="color:var(--vscode-editorError-foreground);padding:16px;">Global JS Error: ' + msg + ' at line ' + lineNo + '</div>';
-            return false;
-          };
-
           const vscode = acquireVsCodeApi();
-          try {
-            if (typeof mermaid === 'undefined') {
-              throw new Error("Mermaid library could not be loaded from CDN. Please check your internet connection.");
-            }
-
-            mermaid.initialize({ 
-              startOnLoad: false,
-              theme: 'default',
-              securityLevel: 'antiscript',
-              suppressErrorRendering: true,
-              fontFamily: 'sans-serif'
-            });
-
-            let mermaidCode = ${escapedMermaid};
+          async function renderDiagram() {
             const container = document.getElementById('mermaid-render');
+            let rawCode = ${escapedMermaid};
 
-            // Client-side sanitization for Mermaid syntax quirks
             try {
-              mermaidCode = mermaidCode.replace(/^\`\`\`[a-z]*\s*\n?/i, '').replace(/\n?\`\`\`$/i, '').trim();
+              if (typeof mermaid === 'undefined') {
+                throw new Error("Mermaid library could not be loaded from CDN. Please check your internet connection.");
+              }
 
-              if (mermaidCode.includes('classDiagram')) {
-                mermaidCode = mermaidCode
-                  .replace(/\/\/(.*)/g, '%%$1')
+              // Client-side sanitization for Mermaid syntax
+              rawCode = rawCode.trim();
+
+              if (rawCode.includes('classDiagram')) {
+                rawCode = rawCode.substring(rawCode.indexOf('classDiagram'));
+                rawCode = rawCode
+                  .replace(/\\/\\/(.*)/g, '%%$1')
                   .replace(/<([a-zA-Z0-9_, ]+)>/g, '~$1~')
-                  .replace(/(\)\s*):(\s*[a-zA-Z0-9_~]+)/g, '$1 $2');
+                  .replace(/(\\)\\s*):(\\s*[a-zA-Z0-9_~]+)/g, '$1 $2')
+                  .replace(/^([ \\t]*)([+\\-#~])[ \\t]*([a-zA-Z0-9_]+)[ \\t]*:[ \\t]*([a-zA-Z0-9_~]+)[ \\t]*$/gm, '$1$2$4 $3');
               }
 
-              if (mermaidCode.includes('flowchart') || mermaidCode.includes('graph')) {
-                mermaidCode = mermaidCode.replace(/\/\/(.*)/g, '%%$1');
-                // Clean unclosed or complex subgraphs
-                mermaidCode = mermaidCode.replace(/subgraph\s+([a-zA-Z0-9_ ]+)(?<!["\]\)])\n/g, (match, title) => {
-                  return 'subgraph "' + title.trim() + '"\n';
+              if (rawCode.includes('flowchart') || rawCode.includes('graph')) {
+                const keywordIndex = rawCode.search(/flowchart|graph/);
+                if (keywordIndex !== -1) {
+                  rawCode = rawCode.substring(keywordIndex);
+                }
+                rawCode = rawCode.replace(/\\/\\/(.*)/g, '%%$1');
+                rawCode = rawCode.replace(/subgraph[ \\t]+([^\\r\\n]+)[\\r\\n]+/g, (match, title) => {
+                  let t = title.trim();
+                  if ((t.startsWith('"') && t.endsWith('"')) || (t.includes('[') && t.includes(']'))) {
+                    return 'subgraph ' + t + '\\n';
+                  }
+                  return 'subgraph "' + t.replace(/"/g, '') + '"\\n';
                 });
+                rawCode = rawCode.replace(/^([ \\t]*)(?!end\\b)([a-zA-Z0-9_]+)[ \\t]+([a-zA-Z0-9_]+)[ \\t]*\\(\\(/gm, '$1$2_$3((');
               }
-            } catch (e) {}
 
-            async function renderDiagram() {
-              try {
-                // Use a timeout race to guarantee it never hangs in "Rendering diagram..."
-                const renderPromise = mermaid.render('mermaid-svg', mermaidCode, container);
-                const timeoutPromise = new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error("Diagram rendering timed out after 8s.")), 8000)
-                );
+              rawCode = rawCode.replace(/[\\r\\n]*\`\`\`+\\s*$/, '').trim();
 
-                const { svg } = await Promise.race([renderPromise, timeoutPromise]);
-                container.innerHTML = svg;
+              mermaid.initialize({ 
+                startOnLoad: false,
+                theme: 'default',
+                securityLevel: 'loose',
+                fontFamily: 'sans-serif',
+                suppressErrorRendering: true
+              });
+
+              const uniqueId = 'mermaid_' + Math.random().toString(36).substring(2, 9);
+              const renderPromise = mermaid.render(uniqueId, rawCode);
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("Diagram rendering timed out after 6 seconds. Diagram syntax may be invalid.")), 6000)
+              );
+
+              const { svg } = await Promise.race([renderPromise, timeoutPromise]);
+              container.innerHTML = svg;
+
+              const svgElement = container.querySelector('svg');
+              if (svgElement) {
+                svgElement.style.maxWidth = 'none';
+                svgElement.style.height = '100%';
+                svgElement.style.width = '100%';
                 
-                const svgElement = container.querySelector('svg');
-                if (svgElement) {
-                  svgElement.style.maxWidth = 'none';
-                  svgElement.style.height = '100%';
-                  svgElement.style.width = '100%';
-                  
-                  if (typeof svgPanZoom !== 'undefined') {
+                if (typeof svgPanZoom !== 'undefined') {
+                  try {
                     svgPanZoom(svgElement, {
                       zoomEnabled: true,
                       controlIconsEnabled: true,
@@ -249,46 +251,48 @@ export class ArtifactPanel {
                       minZoom: 0.1,
                       maxZoom: 10
                     });
+                  } catch (zErr) {
+                    console.warn("svgPanZoom initialization failed:", zErr);
                   }
                 }
-              } catch (err) {
-                container.innerHTML = '<div style="color:var(--vscode-editorError-foreground);padding:16px;"><strong>Diagram Render Error:</strong> ' + err.message + '<br><br><strong>Raw Diagram Code:</strong><pre style="text-align:left;font-size:12px;white-space:pre-wrap;background:rgba(255,255,255,0.05);padding:12px;border-radius:6px;max-height:400px;overflow:auto;">' + mermaidCode + '</pre></div>';
+              }
+            } catch (err) {
+              if (container) {
+                container.innerHTML = '<div style="color:var(--vscode-editorError-foreground);padding:16px;"><strong>Diagram Render Error:</strong> ' + err.message + '<br><br><strong>Raw Diagram Code:</strong><pre style="text-align:left;font-size:12px;white-space:pre-wrap;background:rgba(255,255,255,0.05);padding:12px;border-radius:6px;max-height:400px;overflow:auto;">' + rawCode + '</pre></div>';
               }
             }
-
-            document.getElementById('exportBtn').addEventListener('click', () => {
-              const svg = container.querySelector('svg');
-              if (!svg) return;
-              
-              const svgData = new XMLSerializer().serializeToString(svg);
-              const canvas = document.createElement("canvas");
-              const ctx = canvas.getContext("2d");
-              
-              const bbox = svg.getBoundingClientRect();
-              canvas.width = bbox.width || 800;
-              canvas.height = bbox.height || 600;
-              
-              ctx.fillStyle = "white";
-              ctx.fillRect(0, 0, canvas.width, canvas.height);
-              
-              const img = new Image();
-              img.onload = function() {
-                ctx.drawImage(img, 0, 0);
-                vscode.postMessage({
-                  command: 'exportDiagram',
-                  dataUrl: canvas.toDataURL("image/png"),
-                  title: "${title}"
-                });
-              };
-              
-              img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
-            });
-
-            renderDiagram();
-          } catch (e) {
-            const container = document.getElementById('mermaid-render');
-            if (container) container.innerHTML = '<div style="color:red;padding:16px;">Initialization Error: ' + e.message + '</div>';
           }
+
+          document.getElementById('exportBtn').addEventListener('click', () => {
+            const container = document.getElementById('mermaid-render');
+            const svg = container ? container.querySelector('svg') : null;
+            if (!svg) return;
+            
+            const svgData = new XMLSerializer().serializeToString(svg);
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            
+            const bbox = svg.getBoundingClientRect();
+            canvas.width = bbox.width || 800;
+            canvas.height = bbox.height || 600;
+            
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const img = new Image();
+            img.onload = function() {
+              ctx.drawImage(img, 0, 0);
+              vscode.postMessage({
+                command: 'exportDiagram',
+                dataUrl: canvas.toDataURL("image/png"),
+                title: "${title}"
+              });
+            };
+            
+            img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
+          });
+
+          renderDiagram();
         </script>
       `;
     }
@@ -298,8 +302,17 @@ export class ArtifactPanel {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://cdn.jsdelivr.net; font-src ${webview.cspSource} https://cdn.jsdelivr.net; script-src 'nonce-${nonce}' https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; frame-src 'self' blob: data: https:; child-src 'self' blob: data: https:; worker-src 'self' blob:; img-src 'self' data: https:; connect-src *;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://cdn.jsdelivr.net; font-src ${webview.cspSource} https://cdn.jsdelivr.net; script-src 'nonce-${nonce}' https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; worker-src 'self' blob:; child-src 'self' blob:; img-src 'self' data: https:; connect-src *;">
   <title>${title}</title>
+  <script nonce="${nonce}">
+    window.onerror = function(msg, url, lineNo, columnNo, error) {
+      const container = document.getElementById('mermaid-render') || document.getElementById('swagger-ui');
+      if (container) {
+        container.innerHTML = '<div style="color:var(--vscode-editorError-foreground);padding:20px;"><strong>Webview Script Error:</strong> ' + msg + (lineNo ? ' (line ' + lineNo + ')' : '') + '</div>';
+      }
+      return false;
+    };
+  </script>
   <style>
     body {
       padding: 0;
