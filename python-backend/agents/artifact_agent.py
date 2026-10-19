@@ -43,17 +43,59 @@ classDiagram
 ```
 """
 
+import yaml
+
+class MergeDuplicateLoader(yaml.SafeLoader):
+    pass
+
+def construct_mapping_merge(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        val = loader.construct_object(value_node, deep=deep)
+        if key in mapping and isinstance(mapping[key], dict) and isinstance(val, dict):
+            mapping[key].update(val)
+        else:
+            mapping[key] = val
+    return mapping
+
+MergeDuplicateLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    construct_mapping_merge
+)
+
 USECASE_DIAGRAM_PROMPT = """You are an expert software architect. Given the JSON representation of a project plan, generate a detailed Mermaid Use Case diagram using a Left-to-Right flowchart (`flowchart LR`).
 
-## CRITICAL RULES
+## CRITICAL MERMAID SYNTAX RULES
 1. Output ONLY the Mermaid diagram code inside a ```mermaid code block.
-2. The diagram MUST start with `flowchart LR`.
-3. Use Mermaid syntax for actors: `ActorName((ActorName))` (e.g., `User((User))`).
-4. Use Mermaid syntax for use cases: `UC_ID([Use Case Name])` (e.g., `UC1([Login])`).
-5. Connect actors to use cases: `User --> UC1`.
-6. Base the actors and use cases on the provided plan JSON features.
-7. Group related use cases inside subgraphs if appropriate (e.g., `subgraph Auth System`).
+2. The diagram MUST start with `flowchart LR` on line 1.
+3. Use Mermaid syntax for actors: `Actor_ID((Actor Name))` with NO spaces in the ID (e.g., `Customer((Customer))`, `Admin_User((Admin User))`).
+4. Use Mermaid syntax for use cases: `UC_ID(["Use Case Name"])` ALWAYS wrapped in double quotes inside `([" ... "])` to allow special characters and parentheses (e.g., `UC1(["Register & Login"])`).
+5. Connect actors to use cases: `Customer --> UC1`.
+6. Subgraphs MUST be quoted and closed with `end`:
+   subgraph "Authentication & Profile"
+       UC1(["Login"])
+       UC2(["Register"])
+   end
+7. Base the actors and use cases on the provided plan JSON features.
 8. DO NOT output any conversational text, explanations, or markdown outside the mermaid block.
+
+Example:
+```mermaid
+flowchart LR
+    subgraph "User Management"
+        UC1(["Register Account"])
+        UC2(["Login & Authenticate"])
+    end
+    subgraph "Order System"
+        UC3(["Browse Catalog"])
+        UC4(["Place Order"])
+    end
+    User((User)) --> UC1
+    User --> UC2
+    User --> UC3
+    User --> UC4
+```
 """
 
 SWAGGER_PROMPT = """You are an expert software architect. Given the JSON representation of a project plan and the ACTUAL generated source code of the backend, generate a complete OpenAPI 3.0 specification in YAML format.
@@ -61,21 +103,22 @@ SWAGGER_PROMPT = """You are an expert software architect. Given the JSON represe
 ## CRITICAL RULES
 1. Output ONLY the YAML code inside a ```yaml code block.
 2. The specification MUST be valid OpenAPI 3.0.
-3. The paths, methods, and schemas MUST strictly reflect the actual implementation provided in the Codebase Context.
-4. Include realistic tags, request bodies, and responses.
-5. DO NOT output any conversational text, explanations, or markdown outside the yaml block.
-6. DO NOT duplicate keys in the YAML (e.g., group all HTTP methods like `get` and `post` under a SINGLE path key like `/api/orders`).
+3. Every endpoint path MUST appear only ONCE under `paths:`. Group all HTTP methods (get, post, put, delete) for that route under that single path key.
+4. The paths, methods, and schemas MUST strictly reflect the actual implementation provided in the Codebase Context.
+5. Include realistic tags, request bodies, and responses.
+6. DO NOT output any conversational text, explanations, or markdown outside the yaml block.
 """
 
 MOCK_DATA_PROMPT = """You are an expert QA engineer. Given the JSON representation of a project plan and the ACTUAL generated source code of the backend, generate realistic mock JSON data for the entities.
 
 ## CRITICAL RULES
 1. Output ONLY the JSON code inside a ```json code block.
-2. The output MUST be a JSON object where each key is an entity name (e.g., "User", "Post"), and the value is an array of dummy objects.
+2. The output MUST be a valid JSON object where each key is an entity name (e.g., "User", "Review", "Product"), and the value is a JSON array of dummy objects.
 3. Generate EXACTLY {count} objects per entity.
 4. The properties of the objects MUST strictly reflect the actual Mongoose schemas defined in the Codebase Context.
-5. Use realistic dummy data (e.g., proper emails, MongoDB ObjectIDs for references, coherent text).
-6. DO NOT output any conversational text, explanations, or markdown outside the json block.
+5. Use realistic dummy data (e.g., proper emails, MongoDB ObjectIDs like "65a1234567890abcdef12345" for references, ISO dates).
+6. DO NOT leave trailing commas in JSON.
+7. DO NOT output any conversational text, explanations, or markdown outside the json block.
 """
 
 class ArtifactAgent:
@@ -125,7 +168,11 @@ class ArtifactAgent:
         return self._extract_code(raw_response, artifact_type)
         
     def _sanitize_mermaid(self, code: str, artifact_type: str) -> str:
+        code = code.strip()
         if artifact_type == "class":
+            # Strip any text before classDiagram
+            if "classDiagram" in code:
+                code = code[code.find("classDiagram"):]
             # Replace C++/Java style comments // with Mermaid %%
             code = re.sub(r'//(.*)', r'%%\1', code)
             # Replace angle bracket generics like List<Type> or Promise<void> with ~Type~
@@ -133,8 +180,52 @@ class ArtifactAgent:
             # Fix method colons: +method(): ReturnType -> +method() ReturnType
             code = re.sub(r'(\)\s*):(\s*[a-zA-Z0-9_~]+)', r'\1 \2', code)
         elif artifact_type == "usecase":
+            # Strip any text before flowchart
+            if "flowchart" in code:
+                code = code[code.find("flowchart"):]
             code = re.sub(r'//(.*)', r'%%\1', code)
+            # Ensure subgraphs with spaces are quoted
+            code = re.sub(r'subgraph\s+([a-zA-Z0-9_ ]+)(?<!["\]\)])\n', r'subgraph "\1"\n', code)
         return code
+
+    def _clean_swagger_yaml(self, raw_yaml: str) -> str:
+        try:
+            spec = yaml.load(raw_yaml, Loader=MergeDuplicateLoader)
+            if isinstance(spec, dict):
+                if "openapi" not in spec and "swagger" not in spec:
+                    spec["openapi"] = "3.0.0"
+                return yaml.dump(spec, sort_keys=False, allow_unicode=True)
+        except Exception as e:
+            logger.warning(f"Could not merge duplicate keys in Swagger YAML: {e}")
+        return raw_yaml
+
+    def _clean_mock_json(self, raw_json: str) -> str:
+        raw_json = raw_json.strip()
+        # Remove markdown code block if present
+        raw_json = re.sub(r'^```json\s*', '', raw_json, flags=re.IGNORECASE)
+        raw_json = re.sub(r'\s*```$', '', raw_json)
+        # Remove trailing commas
+        cleaned = re.sub(r',\s*([}\]])', r'\1', raw_json)
+        try:
+            data = json.loads(cleaned)
+            if isinstance(data, list):
+                data = {"Items": data}
+            elif isinstance(data, dict):
+                for k, v in list(data.items()):
+                    if not isinstance(v, list):
+                        data[k] = [v]
+            return json.dumps(data, indent=2)
+        except Exception:
+            start = cleaned.find('{')
+            end = cleaned.rfind('}')
+            if start != -1 and end != -1:
+                try:
+                    sub = re.sub(r',\s*([}\]])', r'\1', cleaned[start:end+1])
+                    data = json.loads(sub)
+                    return json.dumps(data, indent=2)
+                except Exception:
+                    pass
+        return cleaned
 
     def _extract_code(self, raw_response: str, artifact_type: str) -> str:
         extracted = ""
@@ -152,17 +243,18 @@ class ArtifactAgent:
         elif artifact_type == "swagger":
             match = re.search(r'```(?:yaml)?\s*\n(.*?)\n\s*```', raw_response, re.DOTALL | re.IGNORECASE)
             if match:
-                return match.group(1).strip()
+                extracted = match.group(1).strip()
+            else:
+                extracted = raw_response.strip()
+            return self._clean_swagger_yaml(extracted)
                 
         elif artifact_type == "mock_data":
             match = re.search(r'```(?:json)?\s*\n(.*?)\n\s*```', raw_response, re.DOTALL | re.IGNORECASE)
             if match:
-                return match.group(1).strip()
-            # Fallback
-            start = raw_response.find('{')
-            end = raw_response.rfind('}')
-            if start != -1 and end != -1:
-                return raw_response[start:end+1]
+                extracted = match.group(1).strip()
+            else:
+                extracted = raw_response.strip()
+            return self._clean_mock_json(extracted)
 
         return raw_response.strip()
 

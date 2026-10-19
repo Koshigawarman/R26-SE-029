@@ -147,22 +147,59 @@ def build_critic_prompt(
     parts.append("")
 
     if file_contents:
-        key_files = ["app.js", "routes/carRoutes.js", "routes/taskRoutes.js", "routes/productRoutes.js"]
-        for key_file in key_files:
-            if key_file in file_contents:
-                parts.append(f"## CONTENT OF {key_file} (for import analysis)")
-                parts.append(file_contents[key_file][:2000])
-                parts.append("")
-                break  # Only include the most relevant entry file
+        # Dynamically determine the most relevant files based on the actual errors
+        relevant_files = set()
+        
+        # 1. Always include files directly mentioned in parsed errors
+        for err in errors:
+            if err.file and err.file in file_contents:
+                relevant_files.add(err.file)
+                
+        # 2. Extract any project file paths mentioned in stderr or stack trace
+        combined_err_text = stderr + " " + " ".join(err.stack for err in errors if err.stack)
+        for f in file_list:
+            if f in combined_err_text and f in file_contents:
+                relevant_files.add(f)
+                
+        # 3. For any route file, also include its related controller/model if available
+        for f in list(relevant_files):
+            if f.startswith("routes/") and f.endswith("Routes.js"):
+                base = f[len("routes/"): -len("Routes.js")]
+                ctrl = f"controllers/{base}Controller.js"
+                if ctrl in file_contents:
+                    relevant_files.add(ctrl)
+                model = f"models/{base.capitalize()}.js"
+                if model in file_contents:
+                    relevant_files.add(model)
+            elif f.startswith("controllers/") and f.endswith("Controller.js"):
+                base = f[len("controllers/"): -len("Controller.js")]
+                route = f"routes/{base}Routes.js"
+                if route in file_contents:
+                    relevant_files.add(route)
+                    
+        # 4. If relevant files are few, include app.js
+        if "app.js" in file_contents and len(relevant_files) < 4:
+            relevant_files.add("app.js")
+            
+        # Display up to 5 most relevant files
+        displayed_count = 0
+        for key_file in sorted(relevant_files):
+            if displayed_count >= 5:
+                break
+            code_snippet = file_contents[key_file]
+            parts.append(f"## ACTUAL CONTENT OF {key_file}")
+            parts.append("```javascript")
+            parts.append(code_snippet[:3000])
+            parts.append("```")
+            parts.append("")
+            displayed_count += 1
 
-    parts.append("## ENTITY ANALYSIS")
-    parts.append("If the error is MODULE_NOT_FOUND for a local model file:")
-    parts.append("1. Identify the WRONG model name mentioned in the error.")
-    parts.append("2. Look in the PROJECT FILE LIST for model files that DO exist (files in models/ directory).")
-    parts.append("3. If the error mentions '../models/Task.js' but only '../models/Car.js' exists:")
-    parts.append("   - The app.js (or route file) imported the WRONG entity name.")
-    parts.append("   - affected_files MUST be the file containing the wrong import (app.js).")
-    parts.append("   - instructions must explicitly say to replace the wrong entity name with the correct one.")
+    parts.append("## CRITICAL SOURCE CODE ACCURACY RULES")
+    parts.append("1. The files above contain the REAL, CURRENT source code of the project.")
+    parts.append("2. You must inspect the actual lines of code provided above before proposing any fix.")
+    parts.append("3. DO NOT hallucinate nonexistent function names, variables, or imports.")
+    parts.append("4. NEVER instruct to 'remove' code unless that code actually exists in the provided file content.")
+    parts.append("5. Specify the exact line number, function, or statement to be changed.")
     parts.append("")
     parts.append("## SIMILAR EPISODIC MEMORY CASES")
     if memory_matches:

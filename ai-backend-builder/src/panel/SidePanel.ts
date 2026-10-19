@@ -340,11 +340,16 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
               await vscode.workspace.fs.createDirectory(mockDataDir);
             } catch(e) { /* ignore if exists */ }
 
-            let parsedContent;
+            let parsedContent: Record<string, any>;
             try {
-               parsedContent = JSON.parse(data.content);
-            } catch (e) {
-               throw new Error("Failed to parse mock data JSON from AI.");
+               const cleaned = data.content.replace(/,\s*([}\]])/g, '$1');
+               parsedContent = JSON.parse(cleaned);
+            } catch (e: any) {
+               throw new Error("Failed to parse mock data JSON from AI: " + e.message);
+            }
+
+            if (Array.isArray(parsedContent)) {
+               parsedContent = { "Data": parsedContent };
             }
 
             for (const entityName of Object.keys(parsedContent)) {

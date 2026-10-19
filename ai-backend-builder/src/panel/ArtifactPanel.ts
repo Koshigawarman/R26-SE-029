@@ -131,7 +131,19 @@ export class ArtifactPanel {
         <script nonce="${nonce}">
           window.onload = function() {
             try {
-              const spec = jsyaml.load(${escapedYaml});
+              let spec;
+              const rawYaml = ${escapedYaml};
+              try {
+                spec = jsyaml.load(rawYaml, { json: true });
+              } catch (yamlErr) {
+                // If YAML parse complains, try JSON parse as fallback
+                try {
+                  spec = JSON.parse(rawYaml);
+                } catch (jsonErr) {
+                  throw yamlErr;
+                }
+              }
+
               SwaggerUIBundle({
                 spec: spec,
                 dom_id: '#swagger-ui',
@@ -142,7 +154,7 @@ export class ArtifactPanel {
                 layout: "BaseLayout"
               });
             } catch (e) {
-              document.getElementById('swagger-ui').innerHTML = '<div style="color:red;padding:20px;">Error parsing Swagger YAML: ' + e.message + '</div>';
+              document.getElementById('swagger-ui').innerHTML = '<div style="color:red;padding:20px;"><h3>Error loading API Contract</h3><p>' + e.message + '</p><pre style="white-space:pre-wrap;background:#f4f4f5;color:#18181b;padding:12px;border-radius:6px;font-size:12px;">' + ${escapedYaml} + '</pre></div>';
             }
           };
         </script>
@@ -150,9 +162,9 @@ export class ArtifactPanel {
     } else {
       // Mermaid
       let code = content.trim();
-      if (code.startsWith('\`\`\`mermaid')) code = code.replace(/^\`\`\`mermaid\s*\n/, '');
-      if (code.startsWith('\`\`\`')) code = code.replace(/^\`\`\`\s*\n/, '');
-      if (code.endsWith('\`\`\`')) code = code.replace(/\n\`\`\`$/, '');
+      if (code.startsWith('```mermaid')) code = code.replace(/^```mermaid\s*\n/, '');
+      if (code.startsWith('```')) code = code.replace(/^```\s*\n/, '');
+      if (code.endsWith('```')) code = code.replace(/\n```$/, '');
       const escapedMermaid = JSON.stringify(code);
       
       bodyInject = `
@@ -170,87 +182,112 @@ export class ArtifactPanel {
         <script nonce="${nonce}">
           window.onerror = function(msg, url, lineNo, columnNo, error) {
             const container = document.getElementById('mermaid-render');
-            if(container) container.innerHTML = '<div style="color:red;">Global JS Error: ' + msg + ' at line ' + lineNo + '</div>';
+            if (container) container.innerHTML = '<div style="color:var(--vscode-editorError-foreground);padding:16px;">Global JS Error: ' + msg + ' at line ' + lineNo + '</div>';
             return false;
           };
 
           const vscode = acquireVsCodeApi();
           try {
+            if (typeof mermaid === 'undefined') {
+              throw new Error("Mermaid library could not be loaded from CDN. Please check your internet connection.");
+            }
+
             mermaid.initialize({ 
-            startOnLoad: false,
-            theme: 'default',
-            securityLevel: 'loose',
-            fontFamily: 'sans-serif'
-          });
+              startOnLoad: false,
+              theme: 'default',
+              securityLevel: 'antiscript',
+              suppressErrorRendering: true,
+              fontFamily: 'sans-serif'
+            });
 
-          let mermaidCode = ${escapedMermaid};
-          const container = document.getElementById('mermaid-render');
+            let mermaidCode = ${escapedMermaid};
+            const container = document.getElementById('mermaid-render');
 
-          // Client-side sanitization for Mermaid syntax quirks
-          try {
-            mermaidCode = mermaidCode
-              .replace(/\/\/(.*)/g, '%%$1')
-              .replace(/<([a-zA-Z0-9_, ]+)>/g, '~$1~')
-              .replace(/(\)\s*):(\s*[a-zA-Z0-9_~]+)/g, '$1 $2');
-          } catch(e) {}
-
-          async function renderDiagram() {
+            // Client-side sanitization for Mermaid syntax quirks
             try {
-              const { svg } = await mermaid.render('mermaid-svg', mermaidCode);
-              container.innerHTML = svg;
-              
-              const svgElement = container.querySelector('svg');
-              if (svgElement) {
-                svgElement.style.maxWidth = 'none';
-                svgElement.style.height = '100%';
-                svgElement.style.width = '100%';
-                
-                svgPanZoom(svgElement, {
-                  zoomEnabled: true,
-                  controlIconsEnabled: true,
-                  fit: true,
-                  center: true,
-                  minZoom: 0.1,
-                  maxZoom: 10
+              mermaidCode = mermaidCode.replace(/^\`\`\`[a-z]*\s*\n?/i, '').replace(/\n?\`\`\`$/i, '').trim();
+
+              if (mermaidCode.includes('classDiagram')) {
+                mermaidCode = mermaidCode
+                  .replace(/\/\/(.*)/g, '%%$1')
+                  .replace(/<([a-zA-Z0-9_, ]+)>/g, '~$1~')
+                  .replace(/(\)\s*):(\s*[a-zA-Z0-9_~]+)/g, '$1 $2');
+              }
+
+              if (mermaidCode.includes('flowchart') || mermaidCode.includes('graph')) {
+                mermaidCode = mermaidCode.replace(/\/\/(.*)/g, '%%$1');
+                // Clean unclosed or complex subgraphs
+                mermaidCode = mermaidCode.replace(/subgraph\s+([a-zA-Z0-9_ ]+)(?<!["\]\)])\n/g, (match, title) => {
+                  return 'subgraph "' + title.trim() + '"\n';
                 });
               }
-            } catch (err) {
-              container.innerHTML = '<div style="color:var(--vscode-editorError-foreground);">Error rendering diagram: ' + err.message + '<br><br><pre style="text-align:left;font-size:12px;">' + mermaidCode + '</pre></div>';
+            } catch (e) {}
+
+            async function renderDiagram() {
+              try {
+                // Use a timeout race to guarantee it never hangs in "Rendering diagram..."
+                const renderPromise = mermaid.render('mermaid-svg', mermaidCode, container);
+                const timeoutPromise = new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error("Diagram rendering timed out after 8s.")), 8000)
+                );
+
+                const { svg } = await Promise.race([renderPromise, timeoutPromise]);
+                container.innerHTML = svg;
+                
+                const svgElement = container.querySelector('svg');
+                if (svgElement) {
+                  svgElement.style.maxWidth = 'none';
+                  svgElement.style.height = '100%';
+                  svgElement.style.width = '100%';
+                  
+                  if (typeof svgPanZoom !== 'undefined') {
+                    svgPanZoom(svgElement, {
+                      zoomEnabled: true,
+                      controlIconsEnabled: true,
+                      fit: true,
+                      center: true,
+                      minZoom: 0.1,
+                      maxZoom: 10
+                    });
+                  }
+                }
+              } catch (err) {
+                container.innerHTML = '<div style="color:var(--vscode-editorError-foreground);padding:16px;"><strong>Diagram Render Error:</strong> ' + err.message + '<br><br><strong>Raw Diagram Code:</strong><pre style="text-align:left;font-size:12px;white-space:pre-wrap;background:rgba(255,255,255,0.05);padding:12px;border-radius:6px;max-height:400px;overflow:auto;">' + mermaidCode + '</pre></div>';
+              }
             }
-          }
 
-          document.getElementById('exportBtn').addEventListener('click', () => {
-            const svg = container.querySelector('svg');
-            if (!svg) return;
-            
-            const svgData = new XMLSerializer().serializeToString(svg);
-            const canvas = document.createElement("canvas");
-            const ctx = canvas.getContext("2d");
-            
-            const bbox = svg.getBoundingClientRect();
-            canvas.width = bbox.width || 800;
-            canvas.height = bbox.height || 600;
-            
-            ctx.fillStyle = "white";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            const img = new Image();
-            img.onload = function() {
-              ctx.drawImage(img, 0, 0);
-              vscode.postMessage({
-                command: 'exportDiagram',
-                dataUrl: canvas.toDataURL("image/png"),
-                title: "${title}"
-              });
-            };
-            
-            img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
-          });
+            document.getElementById('exportBtn').addEventListener('click', () => {
+              const svg = container.querySelector('svg');
+              if (!svg) return;
+              
+              const svgData = new XMLSerializer().serializeToString(svg);
+              const canvas = document.createElement("canvas");
+              const ctx = canvas.getContext("2d");
+              
+              const bbox = svg.getBoundingClientRect();
+              canvas.width = bbox.width || 800;
+              canvas.height = bbox.height || 600;
+              
+              ctx.fillStyle = "white";
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              
+              const img = new Image();
+              img.onload = function() {
+                ctx.drawImage(img, 0, 0);
+                vscode.postMessage({
+                  command: 'exportDiagram',
+                  dataUrl: canvas.toDataURL("image/png"),
+                  title: "${title}"
+                });
+              };
+              
+              img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
+            });
 
-          renderDiagram();
+            renderDiagram();
           } catch (e) {
             const container = document.getElementById('mermaid-render');
-            if(container) container.innerHTML = '<div style="color:red;">Sync Initialization Error: ' + e.message + '</div>';
+            if (container) container.innerHTML = '<div style="color:red;padding:16px;">Initialization Error: ' + e.message + '</div>';
           }
         </script>
       `;
@@ -261,7 +298,7 @@ export class ArtifactPanel {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://cdn.jsdelivr.net; font-src ${webview.cspSource} https://cdn.jsdelivr.net; script-src 'nonce-${nonce}' https://cdn.jsdelivr.net 'unsafe-inline'; img-src 'self' data: https:; connect-src *;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://cdn.jsdelivr.net; font-src ${webview.cspSource} https://cdn.jsdelivr.net; script-src 'nonce-${nonce}' https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval'; frame-src 'self' blob: data: https:; child-src 'self' blob: data: https:; worker-src 'self' blob:; img-src 'self' data: https:; connect-src *;">
   <title>${title}</title>
   <style>
     body {

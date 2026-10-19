@@ -142,13 +142,40 @@ class CriticAgent:
         for err in errors:
             error_details.append(f"File: {err.file}\nMessage: {err.message}\nStack: {err.stack}")
 
-        prompt = (
-            f"Here is the list of files in the project:\n{json.dumps(file_list, indent=2)}\n\n"
-            f"Here are the remaining errors:\n"
-            f"{chr(10).join(error_details)}\n\n"
-            f"Stderr:\n{stderr}\n\n"
-            f"Please generate the complete DEBUG_README.md content. Just output the markdown text."
-        )
+        # Extract actual source code of affected files so the model never hallucinates
+        code_snippets = []
+        if file_contents:
+            relevant_files = set()
+            for err in errors:
+                if err.file and err.file in file_contents:
+                    relevant_files.add(err.file)
+            combined_err_text = stderr + " " + " ".join(err.stack for err in errors if err.stack)
+            for f in file_list:
+                if f in combined_err_text and f in file_contents:
+                    relevant_files.add(f)
+            if "app.js" in file_contents and len(relevant_files) < 4:
+                relevant_files.add("app.js")
+                
+            for rf in sorted(relevant_files)[:5]:
+                code_snippets.append(f"### File: {rf}\n```javascript\n{file_contents[rf][:3000]}\n```")
+
+        prompt_parts = [
+            f"Here is the list of files in the project:\n{json.dumps(file_list, indent=2)}\n",
+            f"Here are the remaining errors:\n{chr(10).join(error_details)}\n",
+            f"Stderr:\n{stderr}\n"
+        ]
+        
+        if code_snippets:
+            prompt_parts.append("## CURRENT ACTUAL SOURCE CODE OF AFFECTED FILES:\n" + "\n\n".join(code_snippets))
+            prompt_parts.append(
+                "CRITICAL ACCURACY REQUIREMENT:\n"
+                "- Base your debugging guide STRICTLY on the actual source code provided above.\n"
+                "- NEVER instruct the user to remove or edit functions or lines that do NOT exist in the code above.\n"
+                "- Provide exact, copy-pasteable replacement code blocks with clear explanations.\n"
+            )
+
+        prompt_parts.append("Please generate the complete DEBUG_README.md content. Just output the markdown text.")
+        prompt = "\n\n".join(prompt_parts)
 
         try:
             if self.use_openai_compatible:
