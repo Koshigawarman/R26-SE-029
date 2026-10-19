@@ -165,10 +165,20 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
   private async _checkBackendHealth(): Promise<void> {
     const config = this._loadConfig();
     try {
-      const resp = await fetch(`${config.backendUrl}/api/health`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      if (resp.ok) {
+      let resp: Response | null = null;
+      try {
+        resp = await fetch(`${config.backendUrl}/api/health`, {
+          signal: AbortSignal.timeout(10000),
+        });
+      } catch (firstErr) {
+        // Quick retry once in case of a transient network blip to cloud backend
+        this._logger.warn(`[PANEL] Health check first attempt failed, retrying once...`);
+        resp = await fetch(`${config.backendUrl}/api/health`, {
+          signal: AbortSignal.timeout(10000),
+        });
+      }
+
+      if (resp && resp.ok) {
         const data = (await resp.json()) as any;
         this._logger.info(`[PANEL] Health check OK. Ollama: ${data.ollama}. Posting healthStatus message...`);
         this._postMessage({

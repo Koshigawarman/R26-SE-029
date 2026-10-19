@@ -183,8 +183,16 @@ export class ArtifactPanel {
             fontFamily: 'sans-serif'
           });
 
-          const mermaidCode = ${escapedMermaid};
+          let mermaidCode = ${escapedMermaid};
           const container = document.getElementById('mermaid-render');
+
+          // Client-side sanitization for Mermaid syntax quirks
+          try {
+            mermaidCode = mermaidCode
+              .replace(/\/\/(.*)/g, '%%$1')
+              .replace(/<([a-zA-Z0-9_, ]+)>/g, '~$1~')
+              .replace(/(\)\s*):(\s*[a-zA-Z0-9_~]+)/g, '$1 $2');
+          } catch(e) {}
 
           async function renderDiagram() {
             try {

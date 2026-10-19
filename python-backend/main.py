@@ -365,10 +365,12 @@ async def build_project(req: BuildRequest, request: Request):
     thread.start()
 
     async def event_generator():
-        import asyncio, json as _json
+        import asyncio, json as _json, time as _time
 
         # First event: send the session ID so the client can POST approvals
         yield {"data": _json.dumps({"type": "session", "data": {"sessionId": session.id}})}
+
+        last_ping = _time.time()
 
         while session.active or not session.event_queue.empty():
             try:
@@ -378,13 +380,27 @@ async def build_project(req: BuildRequest, request: Request):
                 if event.get("type") == "complete":
                     break
             except Exception:
+                # Send periodic SSE comment ping every 5 seconds to keep connection alive across AWS / NAT proxies
+                if _time.time() - last_ping > 5.0:
+                    last_ping = _time.time()
+                    yield {"comment": "ping"}
+
                 if await request.is_disconnected():
-                    logger.info("Client disconnected from build stream.")
-                    session.active = False
-                    session.approval_action = "cancel"
-                    session.approval_event.set()
-                    session.http_session.close()
-                    break
+                    # Only cancel the session if it's NOT actively waiting for approval
+                    # (if it's waiting for approval, the client might just be re-negotiating TCP or waiting on user prompt)
+                    if session.approval_event.is_set() or session.approval_action is not None:
+                        logger.info("Client disconnected from build stream during active work. Terminating session.")
+                        session.active = False
+                        session.approval_action = "cancel"
+                        session.approval_event.set()
+                        session.http_session.close()
+                        break
+                    else:
+                        logger.info("Client disconnected while waiting for approval; keeping session alive for user response.")
+                        # Wait a bit before checking again so we don't spin CPU
+                        await asyncio.sleep(0.5)
+                        continue
+
                 await asyncio.sleep(0.1)
 
         # Cleanup

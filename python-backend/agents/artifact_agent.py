@@ -12,14 +12,35 @@ logger = logging.getLogger(__name__)
 
 CLASS_DIAGRAM_PROMPT = """You are an expert software architect. Given the JSON representation of a project plan, generate a detailed Mermaid classDiagram.
 
-## CRITICAL RULES
+## CRITICAL MERMAID SYNTAX RULES
 1. Output ONLY the Mermaid diagram code inside a ```mermaid code block.
-2. The diagram MUST start with `classDiagram`.
+2. The diagram MUST start with `classDiagram` on line 1.
 3. Read the entities and features from the plan JSON.
-4. Include relationships between classes (e.g., `User "1" -- "*" Post : has`).
-5. Include properties with data types based on the plan.
-6. Include methods based on expected CRUD and business rules.
-7. DO NOT output any conversational text, explanations, or markdown outside the mermaid block.
+4. Generics syntax: NEVER use angle brackets like `<Type>`. In Mermaid v10+, generics MUST use tildes: `List~String~`, `Promise~void~`, `Array~Order~`.
+5. Method syntax: NEVER put a colon before return types. Use `+methodName(param: type) ReturnType` or simply `+methodName(param)`.
+6. Comments: If you use comments, use ONLY `%%` comment syntax. NEVER use `//` or `/* */`.
+7. Attribute syntax: `+fieldName: type` or `-fieldName: type`.
+8. Relationships format: `ClassA "1" --> "*" ClassB : description` or `ClassA -- ClassB`.
+9. DO NOT output any conversational text, explanations, or markdown outside the mermaid block.
+
+Example:
+```mermaid
+classDiagram
+    class User {
+        +String id
+        +String email
+        +String password
+        +register(data) Boolean
+        +login(credentials) String
+    }
+    class Order {
+        +String id
+        +String userId
+        +Number totalAmount
+        +createOrder() Order
+    }
+    User "1" --> "*" Order : places
+```
 """
 
 USECASE_DIAGRAM_PROMPT = """You are an expert software architect. Given the JSON representation of a project plan, generate a detailed Mermaid Use Case diagram using a Left-to-Right flowchart (`flowchart LR`).
@@ -103,15 +124,30 @@ class ArtifactAgent:
             
         return self._extract_code(raw_response, artifact_type)
         
+    def _sanitize_mermaid(self, code: str, artifact_type: str) -> str:
+        if artifact_type == "class":
+            # Replace C++/Java style comments // with Mermaid %%
+            code = re.sub(r'//(.*)', r'%%\1', code)
+            # Replace angle bracket generics like List<Type> or Promise<void> with ~Type~
+            code = re.sub(r'<([a-zA-Z0-9_, ]+)>', r'~\1~', code)
+            # Fix method colons: +method(): ReturnType -> +method() ReturnType
+            code = re.sub(r'(\)\s*):(\s*[a-zA-Z0-9_~]+)', r'\1 \2', code)
+        elif artifact_type == "usecase":
+            code = re.sub(r'//(.*)', r'%%\1', code)
+        return code
+
     def _extract_code(self, raw_response: str, artifact_type: str) -> str:
+        extracted = ""
         # Check for specific language blocks
         if artifact_type in ("class", "usecase"):
             match = re.search(r'```(?:mermaid)?\s*\n(.*?)\n\s*```', raw_response, re.DOTALL | re.IGNORECASE)
             if match:
-                return match.group(1).strip()
-            # Fallback
-            if "classDiagram" in raw_response or "flowchart" in raw_response:
-                return raw_response.strip().strip('`')
+                extracted = match.group(1).strip()
+            elif "classDiagram" in raw_response or "flowchart" in raw_response:
+                extracted = raw_response.strip().strip('`')
+            else:
+                extracted = raw_response.strip()
+            return self._sanitize_mermaid(extracted, artifact_type)
                 
         elif artifact_type == "swagger":
             match = re.search(r'```(?:yaml)?\s*\n(.*?)\n\s*```', raw_response, re.DOTALL | re.IGNORECASE)
