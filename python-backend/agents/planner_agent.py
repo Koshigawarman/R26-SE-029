@@ -439,26 +439,49 @@ class PlannerAgent:
         user_section, _, srs_section = user_prompt.partition(srs_marker)
         combined_ref = f"{user_section} {srs_section} {user_feedback or ''}".lower()
 
+        # Extract explicit model names from SRS file paths or section headers
+        explicit_srs_models = set()
+        for m in re.finditer(r"\bmodels/([A-Za-z0-9_]+)\.js\b", srs_section, re.IGNORECASE):
+            explicit_srs_models.add(m.group(1).lower())
+        for m in re.finditer(r"\b(?:model|entity|schema|table)\s*[:\-]\s*([A-Z][a-zA-Z0-9]+)\b", srs_section, re.IGNORECASE):
+            explicit_srs_models.add(m.group(1).lower())
+
+        # If user prompt explicitly requested specific entities, include them
+        user_lower = user_section.lower()
+
         kept_entities = []
         removed_entity_names = set()
 
         for entity in plan.entities or []:
             name = entity.name
             name_lower = name.lower()
-            name_plural = name_lower + "s"
 
-            # Check if this entity was mentioned in SRS, user prompt, or feedback
-            is_present = (
-                re.search(rf"\b{re.escape(name_lower)}\b", combined_ref)
-                or re.search(rf"\b{re.escape(name_plural)}\b", combined_ref)
-                or f"models/{name}.js".lower() in combined_ref
-            )
+            # If explicit model definitions exist in SRS, require entity to be in that explicit list
+            if explicit_srs_models:
+                is_present = (name_lower in explicit_srs_models) or (f"{name_lower} model" in user_lower) or (f"model {name_lower}" in user_lower)
+            else:
+                # Generic words like 'user' or 'system' in descriptions do NOT count as entity definitions
+                if name_lower in {"user", "users", "admin", "system"}:
+                    is_present = (
+                        f"models/{name}.js".lower() in srs_section.lower()
+                        or "user model" in srs_section.lower()
+                        or "users model" in srs_section.lower()
+                        or "user entity" in srs_section.lower()
+                        or "user schema" in srs_section.lower()
+                        or "user model" in user_lower
+                        or "auth" in user_lower
+                    )
+                else:
+                    is_present = (
+                        re.search(rf"\b{re.escape(name_lower)}\b", combined_ref)
+                        or f"models/{name}.js".lower() in combined_ref
+                    )
 
             if is_present:
                 kept_entities.append(entity)
             else:
                 logger.info(
-                    "[planner] SRS strict pruning: removing entity '%s' because it is not in the SRS or prompt",
+                    "[planner] SRS strict pruning: removing unwanted entity '%s' because it is not an explicitly defined model in the SRS",
                     name,
                 )
                 removed_entity_names.add(name_lower)
@@ -481,6 +504,12 @@ class PlannerAgent:
                 else:
                     kept_files.append(f)
             plan.files = kept_files
+
+        # If User entity was removed or not requested, also remove any orphaned auth files unless auth explicitly required
+        has_user_entity = any(e.name.lower() in {"user", "users"} for e in (plan.entities or []))
+        if not has_user_entity and not self._requires_auth(plan, user_prompt, user_feedback):
+            auth_paths = {"middleware/auth.js", "controllers/authController.js", "routes/authRoutes.js"}
+            plan.files = [f for f in plan.files if f.path not in auth_paths]
 
         return plan
 

@@ -493,6 +493,7 @@ export class SidePanelProvider implements vscode.WebviewViewProvider {
     } else {
       this._logger.info("Style source URI: current workspace");
     }
+    this._logger.info(`Target backend URL: ${config.backendUrl}`);
     if (srsFilePath) {
       this._logger.info(`SRS Document: ${srsFilePath}`);
     }
