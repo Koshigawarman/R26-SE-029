@@ -42,7 +42,7 @@ ollama pull qwen2.5-coder:7b
 uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 ```
 
-### 2. Install & Run the Extension
+### 2.Install & Run the Extension
 
 ```bash
 # 1. Navigate to the extension root
