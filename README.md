@@ -70,7 +70,7 @@ Open VS Code Settings and search for `aiBackendBuilder`:
 | `openaiModel`    | `gpt-4`                 | OpenAI model for fallback          |
 | `models.planner` | `llama3.1:8b`           | Local model for planning           |
 | `models.codegen` | `qwen2.5-coder:7b`      | Local model for code generation    |
-| `models.debug`   | `llama3.1:8b`           | Local model for debugging          |
+| `models.debug`   | `qwen2.5-coder:7b`           | Local model for debugging          |
 | `maxRetries`     | `3`                     | Max debug-fix retry attempts       |
 
 ## 📁 Project Structure
